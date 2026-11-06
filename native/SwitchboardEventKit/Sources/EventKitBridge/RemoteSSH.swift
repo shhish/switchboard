@@ -9,6 +9,7 @@ import Synchronization
 public enum RemoteSSH {
   static let commands: Set<String> = [
     "version", "snapshot", "checks", "status", "logs", "restart", "refresh-updates", "ps5",
+    "dns-stats", "dns-pause", "dns-resume",
   ]
 
   static func token(_ value: Substring) -> Bool {
@@ -22,7 +23,11 @@ public enum RemoteSSH {
     else { return false }
     let args = parts.dropFirst()
     switch parts[0] {
-    case "version", "snapshot", "checks", "refresh-updates": return args.isEmpty
+    case "version", "snapshot", "checks", "refresh-updates", "dns-stats", "dns-resume":
+      return args.isEmpty
+    case "dns-pause":
+      guard args.count == 1, let minutes = Int(args.first!), (1...120).contains(minutes) else { return false }
+      return args.first!.allSatisfy { $0.isASCII && $0.isNumber }
     case "status": return args.count <= 1
     case "restart": return args.count == 1
     case "ps5": return args.count == 1 && ["status", "wake", "standby"].contains(String(args.first!))

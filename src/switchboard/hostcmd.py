@@ -38,8 +38,13 @@ def valid_request(request):
         return False
     command, *args = tokens
     return (
-        command in {"version", "snapshot", "checks", "refresh-updates"}
+        command in {"version", "snapshot", "checks", "refresh-updates", "dns-stats", "dns-resume"}
         and not args
+        or command == "dns-pause"
+        and len(args) == 1
+        and args[0].isascii()
+        and args[0].isdigit()
+        and 1 <= int(args[0]) <= 120
         or command == "status"
         and len(args) <= 1
         or command == "restart"

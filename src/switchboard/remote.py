@@ -36,6 +36,17 @@ REFUSALS = {
     ),
     "console_offline": ("backend_down", "Console is off or not on the network", None),
     "control_failed": ("backend_error", "Console did not accept the request", None),
+    "dns_not_configured": (
+        "owner_required",
+        "AdGuard stats are not set up yet",
+        "The owner runs scripts/owner-setup-adguard.sh once",
+    ),
+    "dns_auth_failed": (
+        "owner_required",
+        "AdGuard rejected the stats account",
+        "The owner runs scripts/owner-setup-adguard.sh again",
+    ),
+    "dns_unavailable": ("backend_down", "AdGuard Home is not answering on the Pi", None),
 }
 
 
