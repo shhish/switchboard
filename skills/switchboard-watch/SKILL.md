@@ -1,6 +1,6 @@
 ---
 name: switchboard-watch
-description: Recommend what owner should watch from his Plex library, reconcile watch history, resume a title, check playback or Media Doctor work, or explicitly correct Plex watched state through Switchboard.
+description: Recommend what the owner should watch from their Plex library, reconcile watch history, resume a title, check playback or Media Doctor work, or explicitly correct Plex watched state through Switchboard.
 ---
 
 Use Switchboard's named tools (or `sb --client <your-client> call <tool> --json
