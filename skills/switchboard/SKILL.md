@@ -1,6 +1,6 @@
 ---
 name: switchboard
-description: Use shared Switchboard capabilities for local service health, media, Home, calendar, reminders, Things tasks, approvals and jobs on owner's Mac mini.
+description: Use shared Switchboard capabilities for local service health, media, Home, calendar, reminders, Things tasks, approvals and jobs on the owner's Mac mini.
 ---
 
 Switchboard is the loopback capability core shared by every agent. Use its named
