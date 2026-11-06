@@ -118,3 +118,5 @@ clients should receive only their own token and the public adapters.
 
 Nothing personal belongs in this repository. Keep deployment notes in
 `AGENTS.local.md`, and use `.oss-export-exclude` for private snapshot-only files.
+
+- **README:** it is the front page, written for people, not agents. Lead with what it does (a picture, a "you say → what happens" table, the real integrations by name), keep it short, and fold setup and development detail into `<details>` or `docs/`. Add each user-visible feature to it in the same change.
