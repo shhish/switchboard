@@ -41,6 +41,13 @@ def parser():
     for action in ("approve", "deny"):
         sub.add_parser(action).add_argument("approval_id")
     sub.add_parser("approvals")
+    routines = sub.add_parser("routines").add_subparsers(dest="action", required=True)
+    routines.add_parser("list")
+    routines_approve = routines.add_parser("approve")
+    routines_approve.add_argument("routine")
+    routines_approve.add_argument("hash")
+    routines.add_parser("pause")
+    routines.add_parser("resume")
     audit = sub.add_parser("audit").add_subparsers(dest="action", required=True)
     audit.add_parser("tail").add_argument("--limit", type=int, default=20)
     audit.add_parser("verify")
@@ -157,6 +164,17 @@ async def execute(args, config):
         )
     if args.command == "approvals":
         return await request(config, client, "GET", "/v1/approvals")
+    if args.command == "routines":
+        name, body = {
+            "list": ("routines_list", {}),
+            "approve": (
+                "routines_approve",
+                {"routine": getattr(args, "routine", None), "hash": getattr(args, "hash", None)},
+            ),
+            "pause": ("routines_pause", {"paused": True}),
+            "resume": ("routines_pause", {"paused": False}),
+        }[args.action]
+        return await request(config, client, "POST", "/v1/call/" + name, body)
     if args.command == "audit":
         if args.action == "verify":
             return await request(config, client, "GET", "/v1/audit/verify")

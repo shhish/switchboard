@@ -223,4 +223,9 @@ profiles alongside; light evals (F) follow E.
   - **Wrappers:** `sb` forwards `SWITCHBOARD_SESSION`/`SWITCHBOARD_TURN`/`TRACEPARENT` as headers.
 - [ ] Off-box anchoring of daily audit heads, e.g. to the Pi or Gitea. The chain only catches edits
   from someone who cannot rewrite the whole database.
-- [ ] B1 events, C1 routines, D1 memory, E1 tool profiles: see the design doc.
+- [x] C1 routines for the home (2026-11-06): YAML language, validator, hash-bound owner
+  approval, executor with journal and restart resume, HomeRelay event stream with resume,
+  device/held/reachability/time/every/sun/manual triggers. Plan:
+  `docs/home-automation/PLAN.md` in the owner's workspace.
+- [ ] B1 events (Switchboard's own event log for routines' `event:` triggers), C2 (`ask`
+  on the Orb, `wait_for`, `classify`), D1 memory, E1 tool profiles: see the design doc.

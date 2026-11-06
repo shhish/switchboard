@@ -6,10 +6,15 @@ Client-supplied values are hints for correlation only: they are length-capped,
 pattern-checked and never used for authorization.
 """
 
+import contextvars
 import os
 import re
 import time
 from dataclasses import dataclass, replace
+
+# Set while a routine step calls a tool, so HomeRelay writes carry the run as
+# their cause and the engine can tell its own echoes from real changes.
+ROUTINE_CAUSE = contextvars.ContextVar("routine_cause", default=None)
 
 ORIGINS = ("agent", "owner", "routine", "event_rule", "schedule", "system")
 TRACEPARENT = re.compile(r"00-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}")

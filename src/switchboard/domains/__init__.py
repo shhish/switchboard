@@ -18,6 +18,7 @@ from . import (
     ops,
     recipes,
     reminders,
+    routines,
     services,
     tasks,
     watch,
@@ -38,5 +39,6 @@ def build_registry():
     notes.register(registry)
     console.register(registry)
     dns.register(registry)
+    routines.register(registry)
     audit.register(registry)
     return registry

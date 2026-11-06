@@ -327,13 +327,8 @@ def register(registry):
         },
         ("accessory_id", "action"),
     )
-    set_schema["oneOf"] = [
-        {
-            "properties": {"action": {"enum": ["set"]}},
-            "required": ["characteristic", "value"],
-        },
-        {"properties": {"action": {"enum": ["on", "off", "toggle"]}}},
-    ]
+    # No top-level oneOf: MCP connectors that flatten unions dropped the shared
+    # accessory_id. set_accessory enforces "set needs characteristic and value".
     set_output = output(accessory_id=string(200), action=string(20), accessory=ACCESSORY)
 
     @registry.declare(
@@ -465,3 +460,99 @@ def register(registry):
             "home", "/accessories/" + quote(ref, safe=""), params={"compact": "1"}
         )
         return {"status": "ok", "accessory": accessory(data)}
+
+    def check_pause_state(client, ref):
+        """ "Routines paused" is the owner's off switch for every routine (from the
+        Home app); agents and routines can't flip or recreate it."""
+        key = ref.removeprefix("state:").strip().casefold().replace(" ", "-")
+        if key == "routines-paused" and client != "owner":
+            raise CapabilityError("owner_required", "Only the owner changes Routines paused")
+
+    state_row = obj(
+        {
+            "id": string(64),
+            "name": string(64),
+            "kind": string(20),
+            "on": {"type": "boolean"},
+            "resetAfter": {"type": ["integer", "null"]},
+            "updatedAt": {"type": "string"},
+            "updatedBy": {"type": ["string", "null"]},
+        },
+        ("id", "name", "kind", "on"),
+    )
+
+    def state(row):
+        if not isinstance(row, dict) or not isinstance(row.get("id"), str):
+            raise CapabilityError("backend_invalid", "home: invalid State")
+        return {
+            "id": row["id"],
+            "name": str(row.get("name", ""))[:64],
+            "kind": str(row.get("kind", "switch"))[:20],
+            "on": row.get("on") is True,
+            "resetAfter": row.get("resetAfter") if isinstance(row.get("resetAfter"), int) else None,
+            "updatedAt": str(row.get("updatedAt", "")),
+            "updatedBy": row.get("updatedBy") if isinstance(row.get("updatedBy"), str) else None,
+        }
+
+    @registry.declare(
+        "home_states",
+        "List States",
+        "Use when checking HomeRelay's virtual switches and sensors (States) such as Guest "
+        "mode. Requires Home read access. Returns each State's id, name, kind and value.",
+        scope="home:read",
+        service="home",
+        output_schema=output(states=array(state_row)),
+    )
+    async def list_states(core, client, args):
+        rows = await core.backends.get("home", "/states")
+        if not isinstance(rows, list):
+            raise CapabilityError("backend_invalid", "home: invalid States list")
+        return {"status": "ok", "states": [state(r) for r in rows[:149]]}
+
+    @registry.declare(
+        "home_state_set",
+        "Set a State",
+        "Use when turning a virtual switch or sensor (a State such as Guest mode) on or off. "
+        "Requires the State's id or name. Returns the State afterwards.",
+        obj({"state": string(64), "on": {"type": "boolean"}}, ("state", "on")),
+        scope="home:control",
+        tier="write",
+        service="home",
+        output_schema=output(state=state_row),
+    )
+    async def set_state(core, client, args):
+        check_pause_state(client, args["state"])
+        data = await core.backends.request(
+            "home", "/states/" + path_id(args["state"]), payload={"on": args["on"]}, method="PUT"
+        )
+        return {"status": "ok", "state": state(data)}
+
+    @registry.declare(
+        "home_state_create",
+        "Create a State",
+        "Use when the owner wants a new virtual switch or sensor for routines and the Home app. "
+        "Requires a name and kind (switch, contact, motion, occupancy, leak). Returns the State.",
+        obj(
+            {
+                "name": string(64),
+                "kind": {
+                    "type": "string",
+                    "enum": ["switch", "contact", "motion", "occupancy", "leak"],
+                },
+                "reset_after_s": {"type": "integer", "minimum": 1, "maximum": 86400},
+            },
+            ("name", "kind"),
+        ),
+        scope="home:control",
+        tier="write",
+        service="home",
+        idempotent=False,
+        output_schema=output(state=state_row),
+    )
+    async def create_state(core, client, args):
+        check_pause_state(client, args["name"])
+        payload = {"name": args["name"], "kind": args["kind"]}
+        if "reset_after_s" in args:
+            payload["resetAfter"] = args["reset_after_s"]
+        data = await core.backends.request("home", "/states", payload=payload, method="POST")
+        return {"status": "ok", "state": state(data)}

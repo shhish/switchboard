@@ -42,6 +42,7 @@ More things you can ask:
 | *"Anything clash with dinner on Saturday?"* | `calendar_upcoming` | Conflicts from your real calendars |
 | *"Something with chicken, under 30 minutes"* | `recipes_search` | Recipes from your own collection |
 | *"Unlock the front door"* | `home_set_secure` | Waits for your approval, then runs once |
+| *"Turn the hall light on with motion after dark"* | `routines_propose` | A routine draft you approve once; then it runs on its own |
 | *"What did the agents do overnight?"* | `audit_digest` | A summary of calls, errors, loops and writes |
 | *"Why did Sonarr restart at 3am?"* | `audit_trace` | The chain from the restart back to the agent that caused it |
 
@@ -66,7 +67,7 @@ Every integration is optional. Turn on the ones you run. The [full tour](#the-fu
 | 🎬 **Watch things**<br/><sub>`media_*` · 17 tools</sub> | Request movies and shows through Seerr, "what should I watch?", continue watching, who watched what, downloads. |
 | 🎮 **Play**<br/><sub>`console_*` · 6 tools</sub> | PS5 on, off, temperature and storage; list your games, launch or close one. |
 | 🛡️ **Home network**<br/><sub>`dns_*` · 3 tools</sub> | AdGuard Home on the Pi: what it answered and blocked, for which devices; pause blocking for a few minutes. |
-| 💡 **Run the house**<br/><sub>`home_*` · 6 tools</sub> | Lights, accessories and scenes in Apple Home. Locks and garage doors need your approval. |
+| 💡 **Run the house**<br/><sub>`home_*` `routines_*` · 15 tools</sub> | Lights, accessories and scenes in Apple Home, and routines that run on their own: motion, held-open, time and sunset triggers. Locks and garage doors need your approval. |
 | ✅ **Get things done**<br/><sub>`tasks_*` `reminders_*` `calendar_*` · 19 tools</sub> | Things 3, Apple Reminders and Calendar: read, add, edit, complete. |
 | 📚 **Remember things**<br/><sub>`notes_*` `recipes_*` `books_*` `context_*` · 13 tools</sub> | Search your Obsidian notes and recipes, request books, and learn your names for things. |
 | 🕵️ **Keep an eye on the agents**<br/><sub>`audit_*` `alerts_*` `jobs_*` · 12 tools</sub> | A tamper-evident log of every call, "why did that happen?", and "tell me when". |
@@ -159,6 +160,8 @@ Then add `sb mcp-stdio --client <agent>` as an MCP server in each agent. Deployi
 
 - Lights, accessories and scenes through a HomeKit relay such as [HomeRelay](https://github.com/shhish/HomeRelay).
 - Locks, garage doors and other sensitive accessories sit on a separate allowlist, and every change needs an exact, single-use approval.
+- **Routines:** agents draft them in a small checked YAML language and you approve each version by its hash. Triggers: a device change or crossing, "held open for 15 minutes", offline, a time, an interval, sunrise or sunset with an offset, or a manual run. Conditions: device values, time windows, day or night, and recent history ("motion in the last 10 minutes"). Steps: set devices, run scenes, notify, wait, wait until, if/else, repeat, and any tool the routine's approved scopes allow.
+- A routine follows HomeRelay's event stream from where it left off, so a restart misses nothing; its runs and waits survive restarts too. It never re-triggers itself on its own writes, and five failures in a row turn it off.
 </details>
 
 <details>
