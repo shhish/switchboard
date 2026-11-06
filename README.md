@@ -50,7 +50,7 @@ More things you can ask:
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/readme/how-it-fits-dark.svg">
-    <img src="docs/readme/how-it-fits-light.svg" alt="Claude Code, Codex, Antigravity, ChatGPT and your own scripts call Switchboard on your Mac, which applies policy and approvals, runs 90 typed tools, keeps an audit log and shared names, and reaches Plex, Apple Home, PlayStation 5, Things 3, notes and recipes, and the Mac mini and Raspberry Pi." width="100%">
+    <img src="docs/readme/how-it-fits-light.svg" alt="Claude Code, Codex, Antigravity, ChatGPT and your own scripts call Switchboard on your Mac, which applies policy and approvals, runs 93 typed tools, keeps an audit log and shared names, and reaches Plex, Apple Home, PlayStation 5, Things 3, notes and recipes, and the Mac mini and Raspberry Pi." width="100%">
   </picture>
 </p>
 
@@ -221,5 +221,10 @@ Tests use fake backends and temporary files, never live services. [AGENTS.md](AG
 ## Why it exists
 
 It started as one person's home setup: a Mac mini and a Raspberry Pi shared by Claude Code, Codex, Antigravity, ChatGPT and an ESP32 gadget, each taught the house separately and slightly wrong. Agents come and go every few months. The house, its rules and its names shouldn't have to be relearned each time.
+
+## Related projects
+
+- **[HomeRelay](https://github.com/shhish/HomeRelay)**: the Apple Home bridge behind the `home_*` tools.
+- **[Orb](https://github.com/shhish/orb)**: a round desk display that shows agent questions as cards you can tap.
 
 MIT licensed, see [LICENSE](LICENSE).
