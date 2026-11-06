@@ -1,0 +1,89 @@
+# Copy to ~/.config/switchboard/policy.yaml with mode 0600.
+# No implicit owner bypass, wildcard scopes or unlisted clients.
+# Policy is reloaded for every tool call and tools/list; invalid policy fails closed.
+clients:
+  owner:
+    scopes: [context:read, context:write, weather:read, ops:read, ops:diagnose, ops:restart, ops:silence, ops:admin, media:read, media:request, media:compress, media:compress_read, media:watch_state, home:read, home:control, home:secure, calendar:read, calendar:write, reminders:read, reminders:write, tasks:read, tasks:write, jobs:read, jobs:cancel, orb:use, feedback:write, feedback:read, feedback:manage]
+  dot:
+    scopes: [context:read, context:write, weather:read, ops:read, ops:silence, media:read, media:request, media:compress, media:compress_read, media:watch_state, home:read, home:control, home:secure, calendar:read, calendar:write, reminders:read, reminders:write, tasks:read, tasks:write, jobs:read, jobs:cancel, orb:use, approvals:confirm, feedback:write]
+    # Enable only with a harness that actually collects human confirmation.
+    trust_client_confirmation: true
+  orb:
+    scopes: [context:read, context:write, weather:read, ops:read, ops:silence, media:read, media:request, media:compress, media:compress_read, media:watch_state, home:read, home:control, home:secure, calendar:read, calendar:write, reminders:read, reminders:write, tasks:read, tasks:write, jobs:read, jobs:cancel, feedback:write]
+  openclaw:
+    scopes: [context:read, context:write, weather:read, ops:read, ops:diagnose, ops:silence, media:read, media:request, media:compress, media:compress_read, media:watch_state, home:read, home:control, home:secure, calendar:read, calendar:write, reminders:read, reminders:write, tasks:read, tasks:write, jobs:read, jobs:cancel, feedback:write]
+  claude:
+    scopes: [context:read, context:write, weather:read, ops:read, ops:diagnose, ops:restart, ops:silence, media:read, media:request, media:compress, media:compress_read, media:watch_state, home:read, home:control, home:secure, calendar:read, calendar:write, reminders:read, reminders:write, tasks:read, tasks:write, jobs:read, jobs:cancel, orb:use, feedback:write, feedback:read, feedback:manage]
+  codex:
+    scopes: [context:read, context:write, weather:read, ops:read, ops:diagnose, ops:restart, ops:silence, media:read, media:request, media:compress, media:compress_read, media:watch_state, home:read, home:control, home:secure, calendar:read, calendar:write, reminders:read, reminders:write, tasks:read, tasks:write, jobs:read, jobs:cancel, orb:use, feedback:write, feedback:read, feedback:manage]
+  agy:
+    scopes: [context:read, context:write, weather:read, ops:read, ops:diagnose, ops:restart, ops:silence, media:read, media:request, media:compress, media:compress_read, media:watch_state, home:read, home:control, home:secure, calendar:read, calendar:write, reminders:read, reminders:write, tasks:read, tasks:write, jobs:read, jobs:cancel, feedback:write, feedback:read, feedback:manage]
+  # DeepSeek Harness reaches Switchboard only through the sb CLI and sends results to a
+  # paid remote API, so it reads service state but no personal calendar/task/home data.
+  deepseek:
+    scopes: [ops:read, media:read, weather:read, jobs:read, feedback:read, feedback:write]
+  cortex:
+    scopes: [ops:read, weather:read]
+# Resource lists use stable IDs and do not restrict read visibility.
+# Orb: explicit action names bound federation writes; the hub enforces card ownership.
+# No upstream token mapping means no Orb access, including for owner.
+# Media: allow_all lets agents request any title through Overseerr (no direct Arr
+# writes); deny_movies/deny_shows always win. With allow_all false, only listed TMDB
+# IDs (strings) can be requested.
+# Calendar/Reminders: Empty means no writes are allowed. Discover stable IDs with the list tools.
+# These lists do not restrict read visibility. Default IDs apply only when the
+# corresponding list is empty; a populated list takes precedence.
+allowlists:
+  orb:
+    tools: [orb_show, orb_ask, orb_cancel]
+    events: [card.answered, voice.transcribed]
+  media:
+    allow_all: true
+    deny_movies: []
+    deny_shows: []
+    deny_books: []  # LazyLibrarian book IDs; deny always wins.
+    movies: []  # e.g. ["438631"]; Overseerr only, no direct Arr writes.
+    shows: []
+    books: []  # LazyLibrarian book IDs when allow_all is false.
+    # Compression path admission always checks these roots, independent of allow_all.
+    # TMDB admission requires a read-only file resolver; currently use a library path.
+    compress_roots: [/Volumes/server, /Volumes/server2, /Volumes/server3]
+  plex:
+    # Watch state is reversible (mark_unwatched), so allow_all admits any rating key.
+    # Shows/seasons affect all contained episodes. Set allow_all false to require
+    # listed rating_keys only; deny_rating_keys always wins.
+    allow_all: true
+    rating_keys: []
+    deny_rating_keys: []
+  home:
+    # allow_all_safe: broad opt-in for supported SAFE accessories (lights, switches,
+    # outlets, fans, thermostats, blinds...). It never covers scenes: HomeRelay does
+    # not expose what a scene does, so a scene runs only if its ID is in `scenes`.
+    allow_all_safe: true
+    accessories: []
+    scenes: []
+    # Deny always wins, including over secure lists and allow_all_safe.
+    deny_accessories: []
+    deny_scenes: []
+    # Sensitive controls need BOTH an explicit ID here AND an exact approval grant.
+    # Defaults prohibit all secure writes. Listed IDs also force the secure tool.
+    # With exposed scene actions, target accessories must pass their own policy too.
+    secure_accessories: []
+    secure_scenes: []
+    # HomeRelay currently hides scene actions: an opaque scene runs with the ordinary
+    # write tier only when listed in `scenes`; otherwise list it in secure_scenes.
+    # Owner must review contents, deny scenes or mark them secure; names prove nothing.
+  calendar:
+    calendars: []
+    default_calendar: ""
+  reminders:
+    lists: []
+    default_list: ""
+  tasks:
+    # Deny wins, including a project's containing area. Inbox remains available
+    # when allow_all is false; otherwise project OR area must be listed by ID.
+    allow_all: true
+    projects: []
+    areas: []
+    deny_projects: []
+    deny_areas: []

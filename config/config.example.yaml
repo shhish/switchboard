@@ -1,0 +1,273 @@
+# Copy to ~/.config/switchboard/config.yaml (0600); directory 0700.
+# SWITCHBOARD_CONFIG_DIR overrides that directory for every sb command.
+# SWITCHBOARD_STATE_DIR defaults to ~/Library/Application Support/switchboard.
+# SWITCHBOARD_LOG_DIR defaults to ~/Library/Logs/switchboard.
+# Local backends accept only HTTP literal loopback URLs. Listener is always 127.0.0.1.
+# Weather uses a separate credential-free HTTPS client; no proxy or cross-host redirects.
+port: 18800
+approval_ttl_s: 1800
+# Non-finance service probes: max 60, unique names, literal loopback or RFC1918 IPs.
+# GET only; no credentials, custom headers, redirects or environment proxies.
+# 3-second timeout per probe, concurrent runs cached for 15 seconds.
+# Per-probe alert defaults true; set alert: false to opt out.
+# RFC1918 uses the native helper when eventkit is enabled; owner: sb net request-access.
+# TLS verification defaults true; false is permitted only on loopback.
+probes:
+  - name: plex
+    label: Plex Media Server
+    url: http://127.0.0.1:32400/identity
+    group: media
+  - name: sonarr
+    url: http://127.0.0.1:8989/
+    group: media
+  - name: radarr
+    url: http://127.0.0.1:7878/
+    group: media
+  - name: prowlarr
+    url: http://127.0.0.1:9696/
+    group: media
+  - name: lazylibrarian
+    label: LazyLibrarian
+    url: http://127.0.0.1:5299/
+    group: media
+  - name: bazarr
+    url: http://127.0.0.1:6767/
+    group: media
+  - name: tautulli
+    url: http://127.0.0.1:8181/
+    group: media
+  - name: nzbget
+    label: NZBGet
+    url: http://127.0.0.1:6789/
+    group: media
+  - name: seerr
+    label: Seerr
+    url: http://127.0.0.1:5055/api/v1/status
+    group: media
+  - name: calibre
+    url: http://127.0.0.1:8082/
+    group: apps
+  - name: immich
+    label: Immich (Photos)
+    url: http://127.0.0.1:2283/
+    group: apps
+  - name: nextcloud
+    label: Nextcloud (Files)
+    url: http://127.0.0.1:8090/
+    group: apps
+  - name: gitea
+    url: http://127.0.0.1:3003/
+    group: apps
+  - name: cortex
+    url: http://127.0.0.1:4444/
+    group: apps
+  - name: recipe
+    url: http://127.0.0.1:3000/
+    group: apps
+  - name: media_api
+    label: Media API
+    url: http://127.0.0.1:8010/health
+    group: apps
+  - name: homerelay
+    label: HomeRelay
+    url: http://127.0.0.1:18796/health
+    group: home
+  - name: orb_hub
+    label: Orb hub
+    url: https://127.0.0.1:8444/
+    group: home
+    tls_verify: false  # Loopback hub uses a self-signed certificate.
+  - name: openclaw
+    label: OpenClaw
+    url: http://127.0.0.1:18789/
+    group: apps
+  - name: audioshelf
+    label: AudioShelf
+    url: http://127.0.0.1:8768/
+    group: apps
+  - name: xteink
+    label: Xteink
+    url: http://127.0.0.1:8790/
+    group: apps
+  - name: frameserver
+    label: FrameServer
+    url: http://127.0.0.1:8095/health
+    group: apps
+  - name: adguard
+    label: AdGuard Home (Pi)
+    url: http://172.20.0.2:3000/
+    group: pi
+  - name: homebridge
+    label: Homebridge (Pi)
+    url: http://172.20.0.2:8581/
+    group: pi
+# Optional private hosts (max 8); SSH key must be restricted to switchboard-pi-agent.
+# Host names cannot be mac, launchd, docker, app or process (reserved runtimes).
+# Only literal RFC1918 or 100.64/10 IPv4 addresses. Paths must be absolute.
+# Both files must be owned regular 0600 files at call time; no symlinks.
+# remote_hosts:
+#   remotehost:
+#     address: 172.20.0.2
+#     user: switchboard
+#     key_file: /absolute/home/.config/switchboard/secrets/remotehost.key
+#     known_hosts_file: /absolute/home/.config/switchboard/secrets/remotehost.known_hosts
+# Optional diagnostics inventory (max 60). These examples are inert until uncommented.
+# Runtime IDs use letters, digits, dot, underscore and hyphen; no leading hyphen.
+# Log paths: up to four under HOME, /tmp, /Applications or /Library/Logs; no '..'.
+# Globs choose the newest regular file. Restart defaults false; apps cannot restart.
+# services:
+#   audioshelf:
+#     probe: audioshelf
+#     runtime: {launchd: com.example.audioshelf}
+#     logs: [~/Library/Logs/audioshelf/service*.log]
+#     restart: true
+#   seerr:
+#     probe: seerr
+#     runtime: {docker: seerr}
+#     logs: [docker]
+#     restart: true
+#   plex:
+#     probe: plex
+#     runtime: {app: com.plexapp.plexmediaserver}
+#     logs: [~/Library/Logs/Plex Media Server/Plex Media Server.log]
+#   homebridge:
+#     probe: homebridge
+#     runtime: {remotehost: homebridge}
+#     logs: remote  # May be omitted for remote runtimes; no local log sources.
+#     restart: true
+#   adguard:
+#     probe: adguard
+#     runtime: {remotehost: adguard}
+#     restart: true
+#   nginx:
+#     runtime: {remotehost: nginx}
+#     restart: true
+#   kuma:
+#     runtime: {remotehost: kuma}
+#     restart: true
+#   tailscale:
+#     runtime: {remotehost: tailscale}
+#     restart: false  # Pi agent also forbids ssh/docker/tailscale restarts.
+# Continuous monitoring is opt-in. Provision private channel files before enabling.
+monitor:
+  enabled: false
+  interval_s: 60
+  failures_before_alert: 2
+  reminder_hours: 6
+  recovery_alerts: true
+  # Dead-man ping after each completed cycle, through the enabled native EventKit helper.
+  # File contains one HTTP(S) RFC1918 IPv4 URL, no query/fragment/userinfo; path <=200.
+  # Owned regular 0600 file only; never display or log its URL.
+  # heartbeat_url_file: /absolute/home/.config/switchboard/secrets/heartbeat.url
+alerts:
+  allowed_hosts: [ntfy.sh]
+  allowed_smtp_hosts: [smtp.gmail.com]
+  # ntfy:
+  #   url_file: ~/.config/switchboard/secrets/ntfy.url  # Full HTTPS topic URL; owned 0600.
+  # email:
+  #   host: smtp.gmail.com
+  #   port: 587
+  #   starttls: true  # Mandatory; never fall back to plaintext.
+  #   username_file: ~/.config/switchboard/secrets/smtp.username
+  #   password_file: ~/.config/switchboard/secrets/smtp.password
+  #   from_file: ~/.config/switchboard/secrets/smtp.from
+  #   to_file: ~/.config/switchboard/secrets/smtp.to
+weather:
+  enabled: false
+  # Before enabling, set name, five-digit zip, numeric lat and lon for the configured location.
+  allowed_hosts: [api.weather.gov]  # NWS origin stays fixed; HTTPS only, no credentials.
+upstreams:
+  orb:
+    url: http://127.0.0.1:8445/mcp
+    # Empty mapping disables federation. No fallback to the approval notifier token.
+    # Each enabled client also needs orb:use in policy.yaml. Paths only, never values.
+    # Existing hub files must be owned regular 0600 files, with distinct credentials.
+    client_tokens:
+      dot: ~/.local/share/orb-hub/mcp/tokens/dot.token
+      claude: ~/.local/share/orb-hub/mcp/tokens/claude.token
+      codex: ~/.local/share/orb-hub/mcp/tokens/codex.token
+backends:
+  health:
+    url: http://127.0.0.1:8050
+    # Deprecated and unused. ops.health and doctor no longer contact the aggregator.
+  media:
+    url: http://127.0.0.1:8010
+    # Public loopback GET routes only. No Radarr/Sonarr credentials needed here.
+  plex:
+    url: http://127.0.0.1:32400
+    token_file: ~/.config/switchboard/secrets/plex.token
+    enabled: true
+    # Owner provisions a regular same-user 0600 file; never read other token sources.
+    # X-Plex-Token header; Accept: application/json. Watch state is this token's account.
+  tautulli:
+    url: http://127.0.0.1:8181
+    api_key_file: ~/.config/switchboard/secrets/tautulli.key
+    enabled: true
+    # Owner-provisioned regular same-user 0600 file. Fixed read commands only.
+    # apikey query parameter supports older Tautulli; request URLs are never logged.
+  maintenance:
+    path: null  # Explicit absolute path to the private maintenance snapshot when enabled.
+    enabled: false
+    # Owner-published version-1 snapshot only, regular same-user 0600, at most 1 MiB.
+    # No Media Doctor internals or luna-media access.
+  overseerr:
+    url: http://127.0.0.1:5055
+    enabled: false
+    api_key_file: ~/.config/switchboard/secrets/overseerr.key
+    # Raw X-Api-Key in an owned regular 0600 file, not a YAML value.
+    # Provision a separate owned regular 0600 key file without printing its value.
+    # Optional for an already-private JSON source, instead of a raw key file:
+    # api_key_file: /private/path/settings.json
+    # api_key_json_path: main.apiKey
+  # Optional book requests via LazyLibrarian; separate from Overseerr movie/TV requests.
+  lazylibrarian:
+    url: http://127.0.0.1:5299
+    enabled: true
+    api_key_file: ~/.config/switchboard/secrets/lazylibrarian.key
+    # Raw LL API key in an owned regular 0600 file (LL rewrites its config.ini as 0644, so it is refused).
+  media_compress:
+    # Enable only after installing the backend admission script and reviewing policy roots.
+    enabled: false
+    python: null  # Set an absolute path to the Python runtime (3.13+).
+    script: null  # Set an absolute path to the backend admission script.
+    state_dir: null  # Set an absolute path to the backend state directory.
+    timeout_s: 60  # >0 and <=60 seconds; no admission runs during doctor.
+  home:
+    url: http://127.0.0.1:18796/api/v1
+    token_file: ~/.config/switchboard/secrets/homerelay-read.token
+    control_token_file: ~/.config/switchboard/secrets/homerelay-control.token
+    # HomeRelay stores SHA256 hashes only at:
+    # ~/Library/Application Support/HomeRelay/tokens.json
+    # Owner setup (not executed by Switchboard): redirect stdout straight into
+    # a new 0600 file; do not run the mint command in an agent's visible output.
+    # umask 077
+    # mkdir -p ~/.config/switchboard/secrets
+    # ~/workspace/projects/repos/HomeRelay/scripts/homerelay-token \
+    #   add switchboard --read-only > ~/.config/switchboard/secrets/homerelay-read.token
+    # Existing token name must be revoked before minting a replacement.
+    # Read GETs always use token_file; writes use control_token_file, with no fallback.
+    # Owner provisions a separate control token (without --read-only):
+    # ~/workspace/projects/repos/HomeRelay/scripts/homerelay-token \
+    #   add switchboard-control > ~/.config/switchboard/secrets/homerelay-control.token
+  frame:
+    url: http://127.0.0.1:8095
+    # Optional when FrameServer adds authentication:
+    # token_file: ~/.config/switchboard/secrets/frameserver-read.token
+    # GET /api/state only; calendar/reminders fields, never markets or weather.
+  # Things shares the eventkit socket; may be enabled independently.
+  things:
+    enabled: false
+  eventkit:
+    enabled: false
+    socket: ~/Library/Application Support/switchboard/eventkit.sock
+    # Native signed app owns Calendar/Reminders TCC; Python must never request it.
+  orb:
+    url: http://127.0.0.1:8445/mcp
+    enabled: false
+    # Disabled means no card is posted. This is a notification client, not an Orb authority.
+    token_file: ~/.local/share/orb-hub/mcp/tokens/codex.token
+    # Hub default data dir: ~/.local/share/orb-hub (ORB_HUB_DATA may override).
+    # Hub currently provisions dot/claude/codex clients; choose an owner-provisioned
+    # local credential here. Dedicated Switchboard hub identity is future integration.
+    # Posts typed orb_ask cards only. Card answers do not yet resolve approvals;
+    # use sb approve/sb deny or a trusted client's approvals.confirm.
