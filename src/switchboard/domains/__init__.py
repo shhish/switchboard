@@ -4,8 +4,10 @@ from ..registry import Registry
 from . import (
     alerts,
     approvals,
+    audit,
     books,
     calendar,
+    console,
     context,
     feedback,
     home,
@@ -33,4 +35,6 @@ def build_registry():
     alerts.register(registry)
     recipes.register(registry)
     notes.register(registry)
+    console.register(registry)
+    audit.register(registry)
     return registry

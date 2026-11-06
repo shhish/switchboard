@@ -52,6 +52,8 @@ DEFAULT_BACKENDS = {
         ),
     },
     "frame": {"url": "http://127.0.0.1:8095"},
+    # PS5Upload's engine (loopback, no auth by its design); optional, for a jailbroken PS5.
+    "ps5upload": {"url": "http://127.0.0.1:19113", "enabled": False},
     "notes": {"enabled": False, "root": None, "exclude": []},
     "things": {"enabled": False},
     "eventkit": {

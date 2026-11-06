@@ -10,6 +10,7 @@ from .approvals import Approvals
 from .audit import Audit
 from .backends import Backends, OrbApprovalNotifier
 from .errors import CapabilityError
+from .execution import Execution
 from .jobs import Jobs
 from .monitor import Monitor
 from .names import canonical_name
@@ -36,7 +37,7 @@ class Core:
         ).hexdigest()[:16]
         self.policy = Policy(config.config_dir / "policy.yaml")
         self.storage = Storage(config.state_dir)
-        self.audit = Audit(self.storage, config.log_dir)
+        self.audit = Audit(self.storage, config.log_dir, self.catalog_version)
         self.approvals = Approvals(self.storage, config.approval_ttl_s)
         self.jobs = Jobs(self.storage)
         self.backends = Backends(config)
@@ -59,8 +60,21 @@ class Core:
         await self.orb.start()
         await self.alerts.start()
         await self.monitor.start()
+        self.maintenance = asyncio.create_task(self.maintain())
+
+    async def maintain(self):
+        """Hourly housekeeping that must run even when monitoring is disabled."""
+        while True:
+            try:
+                self.audit.maintain()
+            except Exception:
+                pass  # Doctor reports audit chain and retention state; serving continues.
+            await asyncio.sleep(600)
 
     async def close(self):
+        if task := getattr(self, "maintenance", None):
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
         await self.monitor.close()
         await self.alerts.close()
         await self.jobs.close()
@@ -98,9 +112,10 @@ class Core:
             capabilities["events"] = events or {}
         return capabilities
 
-    async def federate(self, client, method, params, *, version, meta):
+    async def federate(self, client, method, params, *, version, meta, ctx=None):
         """Fixed Orb routes share core policy and audit, preserving MCP envelopes."""
         started = time.monotonic()
+        error_code = None
         name = params.get("name")
         is_tool = method == "tools/call"
         capability = name if is_tool and isinstance(name, str) and name in TOOLS else method
@@ -131,6 +146,7 @@ class Core:
             return envelope
         except CapabilityError as exc:
             outcome = "error"
+            error_code = exc.code
             return {"error": {"code": -32000, "message": str(exc), "data": exc.result()}}
         finally:
             # All forwarded payloads are private, including text, URLs and signing secrets.
@@ -142,11 +158,14 @@ class Core:
                 decision=decision,
                 outcome=outcome,
                 duration=time.monotonic() - started,
+                ctx=ctx,
+                error_code=error_code,
             )
 
-    async def call(self, client, name, arguments):
+    async def call(self, client, name, arguments, ctx=None):
         from .domains.common import result_envelope
 
+        ctx = ctx or Execution.new("owner" if client == "owner" else "agent")
         started = time.monotonic()
         name = canonical_name(name)
         cap = self.registry.capabilities.get(name) if isinstance(name, str) else None
@@ -208,6 +227,7 @@ class Core:
             result = CapabilityError("internal_error", "Capability failed; run sb doctor").result()
             return result
         finally:
+            error = (result or {}).get("error")
             self.audit.append(
                 client=client,
                 capability=name if isinstance(name, str) else None,
@@ -218,6 +238,12 @@ class Core:
                 job_id=result.get("job_id") if result else None,
                 outcome=(result or {}).get("status", "cancelled"),
                 duration=time.monotonic() - started,
+                ctx=ctx,
+                error_code=error.get("code") if isinstance(error, dict) else None,
+                hash_fields=cap.audit_hash_fields if cap else frozenset(),
+                result_bytes=len(json.dumps(result, allow_nan=False, default=str))
+                if result
+                else None,
             )
 
     @staticmethod
@@ -239,9 +265,10 @@ class Core:
             "things": "things",
             "recipes": "recipes",
             "eventkit": "eventkit",
+            "console": "ps5",
         }.get(cap.service, "switchboard")
 
-    def resolve(self, client, approval_id, approve):
+    def resolve(self, client, approval_id, approve, ctx=None):
         started = time.monotonic()
         result = None
         try:
@@ -263,4 +290,6 @@ class Core:
                 approval_id=approval_id,
                 outcome=(result or {}).get("status", "error"),
                 duration=time.monotonic() - started,
+                ctx=ctx or Execution.new("owner"),
+                error_code=(result or {}).get("error", {}).get("code"),
             )

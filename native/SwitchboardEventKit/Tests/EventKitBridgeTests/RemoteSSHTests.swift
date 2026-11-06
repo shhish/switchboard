@@ -5,13 +5,14 @@ import Testing
 
 @Test func remoteRequestsFollowTheAgentGrammar() {
   for good in ["version", "snapshot", "checks", "refresh-updates", "status", "status homebridge",
-    "restart adguard", "logs kuma 50", "logs adguard 400"]
+    "restart adguard", "logs kuma 50", "logs adguard 400", "ps5 status", "ps5 wake", "ps5 standby"]
   {
     #expect(RemoteSSH.validRequest(good), "\(good)")
   }
   for bad in ["", " version", "version ", "version x", "status a b", "restart", "logs kuma",
     "logs kuma 0", "logs kuma 401", "logs kuma 5x", "id; ls", "Status", "reboot",
-    "restart homebridge && id", String(repeating: "a", count: 41)]
+    "restart homebridge && id", String(repeating: "a", count: 41), "ps5", "ps5 reboot",
+    "ps5 wake now", "ps5 Wake"]
   {
     #expect(!RemoteSSH.validRequest(bad), "\(bad)")
   }
@@ -38,5 +39,6 @@ import Testing
 @Test func remoteDeadlinesCoverSlowCommands() {
   #expect(RemoteSSH.deadline(for: "restart homebridge") == 100)
   #expect(RemoteSSH.deadline(for: "refresh-updates") == 190)
+  #expect(RemoteSSH.deadline(for: "ps5 wake") == 70)
   #expect(RemoteSSH.deadline(for: "snapshot") == 20)
 }

@@ -185,3 +185,42 @@ secret provisioning, tunnel switch or backend mutation is part of this build.
   audit attribution. State tracking continues, expiry alerts fresh, and previously
   delivered incidents still recover. Private policy/config remain owner-controlled.
 - [x] Regression tests use fake backends/servers and never mutate live services.
+
+
+## PlayStation 5 (2026-11-06)
+
+- [x] `console_status` (home:read), `console_wake` / `console_standby` (new
+  `console:control`), served by the Pi agent's `ps5` verb; helper and Python validate
+  the closed `ps5 status|wake|standby` grammar.
+- [ ] Owner runs `scripts/owner-setup-ps5.sh`: Pi agent v3, playactor, PSN + Link Device
+  pairing, `console:control` grants (incl. Cortex).
+- [x] Owner ran the setup; paired and granted (2026-11-06).
+- [x] PS5Upload engine (loopback :19113, `backends.ps5upload`): hardware details and the
+  open title in `console_status`, `console_games`, `console_launch`, `console_close`.
+  Fixed routes only; never its shell, files, payloads, cheats, fan, reboot or raw call.
+  Launch takes CUSA/PPSA IDs only (best effort: homebrew can reuse one).
+- [ ] The engine only runs while the PS5Upload desktop app is open; a login item (owner's
+  call) keeps details available.
+- [ ] Later: expose the PS5 to Apple Home (homebridge-playstation) if the owner wants Siri.
+
+## Next directions (design: agent-capability-layer/NEXT-DIRECTIONS.md)
+
+Order: A audit v2 → B events → C routines, with D shared memory and E per-client tool
+profiles alongside; light evals (F) follow E.
+
+- [x] **A. Audit v2 (2026-11-06).**
+  - **Rows and context:** typed `audit_log` rows replace one-JSON-per-row `audit` (migrated once on start).
+    `Execution` context carries trace/span (from `_meta.traceparent`), the `switchboard/session` and
+    `switchboard/turn` hints, MCP clientInfo, origin and causation.
+  - **Arguments:** short scalars are stored verbatim, long text as `{len, sha256}`, secret-shaped
+    values redacted in any field (`secretscan.py`), and `Capability.audit_hash_fields` forces hashing.
+  - **Integrity:** a SHA-256 hash chain, with `sb audit verify`, `/v1/audit/verify` and the doctor's
+    `audit_chain` check.
+  - **Housekeeping:** hourly maintenance writes daily anchors, rotates the JSONL daily, and after 180
+    days rolls rows up and prunes them behind a prune anchor.
+  - **Tools:** `audit_query`, `audit_trace` and `audit_digest`. `audit:read` covers own calls,
+    `audit:read_all` every client; grants are in `scripts/owner-grant-agent-access.sh`.
+  - **Wrappers:** `sb` forwards `SWITCHBOARD_SESSION`/`SWITCHBOARD_TURN`/`TRACEPARENT` as headers.
+- [ ] Off-box anchoring of daily audit heads, e.g. to the Pi or Gitea. The chain only catches edits
+  from someone who cannot rewrite the whole database.
+- [ ] B1 events, C1 routines, D1 memory, E1 tool profiles: see the design doc.

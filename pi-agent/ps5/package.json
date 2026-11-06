@@ -1,0 +1,8 @@
+{
+  "name": "switchboard-ps5",
+  "private": true,
+  "description": "Remote Play client the Pi agent uses for PS5 wake and rest mode",
+  "dependencies": {
+    "playactor": "0.4.1"
+  }
+}

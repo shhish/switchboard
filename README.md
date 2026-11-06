@@ -41,7 +41,7 @@ It started as one person's home setup, a Mac mini and a Raspberry Pi shared by C
 
 ## What's in the box
 
-- **Core:** a Python service on `127.0.0.1:18800` with a typed registry. Per-client scopes, resource allowlists, approvals, jobs, durable state and an audit log apply the same way to MCP (stateless 2026-07-28, plus legacy initialization), HTTP and the CLI. A stdio bridge serves harnesses that only speak stdio.
+- **Core:** a Python service on `127.0.0.1:18800` with a typed registry. Per-client scopes, resource allowlists, approvals, jobs, durable state and a hash-chained audit log (queryable by agents: what ran, why, and what it caused) apply the same way to MCP (stateless 2026-07-28, plus legacy initialization), HTTP and the CLI. A stdio bridge serves harnesses that only speak stdio.
 - **Integrations (each optional):**
   - service health probes, monitoring and alerts with self-ending silences;
   - service status, logs and restarts, plus host snapshots;
@@ -50,6 +50,9 @@ It started as one person's home setup, a Mac mini and a Raspberry Pi shared by C
   - Apple Home, through a HomeKit relay app;
   - Calendar and Reminders (EventKit) and Things 3;
   - NWS weather;
+  - read-only search over a Markdown notes vault (Obsidian-style), and a recipe library;
+  - PlayStation 5 power, game library, launch and close;
+  - "tell me when" watches that notify once by push or email;
   - shared owner context, an issue queue and federation to an MCP device hub.
 - **Native macOS helper (optional):** a small signed app that holds the macOS privacy grants that a launchd Python service can't get: Calendar, Reminders, Things automation and Local Network. It answers a fixed set of requests over a Unix socket.
 - **Remote host agent (optional):** one fixed command set reached over an SSH forced command for a second machine, such as a Raspberry Pi. It covers status, logs, diagnostics, allowlisted restarts and package-list refreshes, with no shell.

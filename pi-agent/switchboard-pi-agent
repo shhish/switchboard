@@ -14,6 +14,7 @@ Commands:
   checks                   DNS answers, Tailscale, Uptime Kuma monitors, pending updates
   restart <service>        restart an allowlisted service, then report its state
   refresh-updates          apt-get update (package lists only; installs nothing)
+  ps5 status|wake|standby  PlayStation 5 power state; wake/standby need owner pairing
   version                  agent version
 
 Install: see pi-agent/README.md in the Switchboard repo.
@@ -27,7 +28,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "2"
+VERSION = "3"
 SERVICES = {
     # name: (kind, target, restartable)
     "homebridge": ("systemd", "homebridge.service", True),
@@ -361,7 +362,167 @@ def restart(args):
     return {"restarted": code == 0, "service": service_status(args[0])}
 
 
+class Refused(Exception):
+    """A request the agent understood but cannot carry out; `code` is machine-readable."""
+
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
+def ddp_search(host_ids=None, attempts=3, wait=0.8):
+    """Find the PS5 with Sony's discovery protocol (UDP 9302). Needs no credentials.
+
+    Answers `200 Ok` when awake and `620 Server Standby` in rest mode; a console that is
+    fully off (or in rest mode without network) does not answer at all. Anything on the
+    LAN can answer, so once paired only the paired console's host-id is accepted.
+    """
+    import socket
+
+    probe = b"SRCH * HTTP/1.1\ndevice-discovery-protocol-version:00030010\n"
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.bind(("0.0.0.0", 0))
+        sock.settimeout(0.25)
+        for _ in range(attempts):
+            sock.sendto(probe, ("255.255.255.255", 9302))
+            deadline = time.monotonic() + wait
+            while time.monotonic() < deadline:
+                try:
+                    data, (address, _) = sock.recvfrom(2048)
+                except (TimeoutError, OSError):
+                    continue
+                fields = ddp_fields(data)
+                if (
+                    fields
+                    and fields.get("host-type") == "PS5"
+                    and (host_ids is None or fields.get("host-id") in host_ids)
+                ):
+                    return address, fields
+    finally:
+        sock.close()
+    return None, None
+
+
+def ddp_fields(data):
+    try:
+        lines = data.decode("utf-8", "replace").splitlines()
+    except (AttributeError, ValueError):
+        return None
+    if not lines or not lines[0].startswith("HTTP/1.1 "):
+        return None
+    fields = {"status": lines[0][9:12]}
+    for line in lines[1:40]:
+        key, sep, value = line.partition(":")
+        if sep and re.fullmatch(r"[a-z0-9-]{1,40}", key):
+            fields[key] = value.strip()[:120]
+    return fields
+
+
+def firmware(value):
+    # "13600007" -> "13.60"
+    return f"{int(value[:2])}.{value[2:4]}" if re.fullmatch(r"\d{8}", value or "") else None
+
+
+PS5_DIR = "/opt/switchboard-ps5"
+PLAYACTOR = PS5_DIR + "/node_modules/playactor/dist/cli/index.js"
+PS5_CREDENTIALS = PS5_DIR + "/credentials.json"
+
+
+def paired_ids():
+    """Host-ids playactor holds credentials for (keys only; values are never read out)."""
+    try:
+        fd = os.open(PS5_CREDENTIALS, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        return set()
+    try:
+        info = os.fstat(fd)
+        if (
+            (info.st_mode & 0o170000) != 0o100000
+            or info.st_uid != os.getuid()
+            or info.st_mode & 0o077
+            or info.st_size > 64 * 1024
+        ):
+            return set()
+        data = json.loads(os.read(fd, 64 * 1024 + 1))
+    except (OSError, ValueError, RecursionError):
+        return set()
+    finally:
+        os.close(fd)
+    if not isinstance(data, dict):
+        return set()
+    return {key for key in data if isinstance(key, str) and re.fullmatch(r"[0-9A-F]{12}", key)}
+
+
+def ps5_state(host_ids=None):
+    address, fields = ddp_search(host_ids)
+    if not fields:
+        return None, {"found": False, "power": "off"}
+    power = {"200": "awake", "620": "rest"}.get(fields.get("status"), "unknown")
+    title = None
+    if power == "awake" and fields.get("running-app-titleid"):
+        title = {
+            "id": fields["running-app-titleid"][:40],
+            "name": fields.get("running-app-name", "")[:120],
+        }
+    return address, {
+        "found": True,
+        "power": power,
+        "name": fields.get("host-name", "")[:60],
+        "address": address,
+        "firmware": firmware(fields.get("system-version")),
+        "running_title": title,
+    }
+
+
+def ps5(args):
+    """`ps5 status|wake|standby`: wake and standby need the owner's one-time pairing."""
+    if len(args) != 1 or args[0] not in ("status", "wake", "standby"):
+        raise ValueError("usage: ps5 status|wake|standby")
+    action, ids = args[0], paired_ids()
+    bridge = {"installed": os.path.isfile(PLAYACTOR), "paired": bool(ids)}
+    if action != "status" and not (bridge["installed"] and ids):
+        raise Refused("not_paired", "console control is not paired")
+    address, state = ps5_state(ids or None)
+    if action == "status":
+        return {"console": state, "bridge": bridge}
+    if address is None:
+        raise Refused("console_offline", "console not found on the network")
+    target = "awake" if action == "wake" else "rest"
+    if state["power"] == target:
+        return {"action": action, "changed": False, "reached": True, "console": state}
+    code, _, _ = run(
+        [
+            "/usr/bin/node",
+            PLAYACTOR,
+            action,
+            "--ip",
+            address,
+            "--no-auth",
+            "--no-open-urls",
+            "--credentials",
+            PS5_CREDENTIALS,
+            "--timeout",
+            "8000",
+            "--connect-timeout",
+            "15000",
+        ],
+        timeout=35,
+    )
+    if code != 0:
+        raise Refused("control_failed", f"{action} was not accepted")
+    deadline = time.monotonic() + 20
+    while True:
+        _, state = ps5_state(ids)
+        if state["power"] == target or time.monotonic() > deadline:
+            break
+        time.sleep(1.5)
+    return {"action": action, "changed": True, "reached": state["power"] == target, "console": state}
+
+
 COMMANDS = {
+    "ps5": ps5,
     "snapshot": lambda args: snapshot(),
     "status": status,
     "logs": logs,
@@ -383,6 +544,9 @@ def main():
         result = COMMANDS[request[0]](request[1:])
     except PermissionError as exc:
         print(json.dumps({"ok": False, "error": str(exc), "code": "not_allowed"}))
+        return 3
+    except Refused as exc:
+        print(json.dumps({"ok": False, "error": str(exc), "code": exc.code}))
         return 3
     except (ValueError, RuntimeError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}))

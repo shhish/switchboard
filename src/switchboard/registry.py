@@ -25,6 +25,9 @@ class Capability:
     idempotent: bool = True
     service: str = "switchboard"
     preflight: Any = field(default=None, repr=False, compare=False)
+    # Free-text fields the audit log stores only as {len, sha256}, whatever their length
+    # (message bodies, notes, memory text). Short scalars elsewhere are kept verbatim.
+    audit_hash_fields: frozenset = field(default=frozenset(), compare=False)
 
     def __post_init__(self):
         from .domains.common import result_schema

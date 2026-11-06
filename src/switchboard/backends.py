@@ -164,6 +164,7 @@ class Backends:
             "overseerr": "/api/v1/auth/me",
             "home": "/health",
             "frame": "/api/state",
+            "ps5upload": "/api/version",
             "plex": "/library/sections",
             "tautulli": "/api/v2",
             # Authenticated getVersion, so a wrong key shows as down.

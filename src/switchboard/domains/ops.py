@@ -38,6 +38,13 @@ CHECKS = obj(
             "maxItems": 8,
         },
         "probes": obj({"status": string(), "configured": {"type": "integer"}}),
+        "audit_chain": obj(
+            {
+                **CHECK["properties"],
+                "rows": {"type": "integer", "minimum": 0},
+                "seq": {"type": "integer", "minimum": 0},
+            }
+        ),
         "monitor": obj(
             {
                 "status": string(),

@@ -29,3 +29,8 @@ so there's no shell, forwarding or PTY, and no other command.
   - Restarts are limited to homebridge, adguard, nginx and kuma.
   - `refresh-updates` runs `apt-get update` only.
   - Never add reboot, package installs or arbitrary commands. Switchboard's hard rules exclude reboot.
+- **PS5:** `ps5 status` uses Sony's discovery protocol (UDP 9302, stdlib only, no
+  credentials). `ps5 wake|standby` run playactor 0.4.1 from `/opt/switchboard-ps5`
+  (manifest in `pi-agent/ps5/`) with the pairing in `/opt/switchboard-ps5/credentials.json`
+  (0600). Install and pairing are the owner's `scripts/owner-setup-ps5.sh`; pairing is
+  never exposed as a request.

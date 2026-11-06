@@ -74,8 +74,44 @@ class Storage:
                 status TEXT NOT NULL, progress REAL NOT NULL, result TEXT,
                 created_at REAL NOT NULL, updated_at REAL NOT NULL
             );
-            CREATE TABLE IF NOT EXISTS audit (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, record TEXT NOT NULL
+            -- v1 kept one JSON record per row in `audit`; Audit.migrate() moves those
+            -- rows here once and drops that table.
+            CREATE TABLE IF NOT EXISTS audit_log (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+                ts_ms INTEGER NOT NULL, client TEXT, client_name TEXT, client_version TEXT,
+                catalog_hash TEXT, trace_id TEXT, span_id TEXT, parent_span_id TEXT,
+                session_key TEXT, turn_key TEXT, episode_id TEXT, origin TEXT,
+                causation_id TEXT, capability TEXT, tier TEXT, decision TEXT,
+                deny_code TEXT, error_code TEXT, approval_id TEXT, job_id TEXT,
+                outcome TEXT, duration_ms INTEGER, args_json TEXT, args_hash TEXT,
+                result_bytes INTEGER, asserted INTEGER NOT NULL DEFAULT 0,
+                prev_hash TEXT NOT NULL, entry_hash TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS audit_ts ON audit_log(ts_ms);
+            CREATE INDEX IF NOT EXISTS audit_client ON audit_log(client, seq);
+            CREATE INDEX IF NOT EXISTS audit_capability ON audit_log(capability, ts_ms);
+            CREATE INDEX IF NOT EXISTS audit_trace ON audit_log(trace_id);
+            CREATE INDEX IF NOT EXISTS audit_cause ON audit_log(causation_id)
+                WHERE causation_id IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS audit_approval ON audit_log(approval_id)
+                WHERE approval_id IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS audit_job ON audit_log(job_id) WHERE job_id IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS audit_episode ON audit_log(episode_id);
+            CREATE INDEX IF NOT EXISTS audit_session ON audit_log(session_key)
+                WHERE session_key IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS audit_problems ON audit_log(ts_ms)
+                WHERE decision<>'allowed' OR error_code IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS audit_loops
+                ON audit_log(client, capability, args_hash, ts_ms);
+            CREATE TABLE IF NOT EXISTS audit_anchor (
+                kind TEXT NOT NULL, day TEXT, seq INTEGER NOT NULL,
+                entry_hash TEXT NOT NULL, created_at REAL NOT NULL,
+                PRIMARY KEY (kind, seq), UNIQUE (kind, day)
+            );
+            CREATE TABLE IF NOT EXISTS audit_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS audit_rollup (
+                day TEXT NOT NULL, client TEXT, capability TEXT, outcome TEXT,
+                n INTEGER NOT NULL, UNIQUE (day, client, capability, outcome)
             );
             CREATE TABLE IF NOT EXISTS issues (
                 id TEXT PRIMARY KEY, client TEXT NOT NULL, kind TEXT NOT NULL,

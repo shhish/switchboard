@@ -44,6 +44,8 @@ def valid_request(request):
         and len(args) <= 1
         or command == "restart"
         and len(args) == 1
+        or command == "ps5"
+        and args in (["status"], ["wake"], ["standby"])
         or command == "logs"
         and len(args) == 2
         and args[1].isascii()
