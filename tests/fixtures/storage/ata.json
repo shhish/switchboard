@@ -1,0 +1,51 @@
+{
+  "smartctl": {
+    "exit_status": 0
+  },
+  "smart_support": {
+    "available": true,
+    "enabled": true
+  },
+  "smart_status": {
+    "passed": true
+  },
+  "temperature": {
+    "current": 40
+  },
+  "power_on_time": {
+    "hours": 12345
+  },
+  "ata_smart_attributes": {
+    "table": [
+      {
+        "id": 5,
+        "raw": {
+          "value": 0,
+          "string": "0"
+        }
+      },
+      {
+        "id": 197,
+        "raw": {
+          "value": 0,
+          "string": "0"
+        }
+      },
+      {
+        "id": 198,
+        "raw": {
+          "value": 0,
+          "string": "0"
+        }
+      },
+      {
+        "id": 199,
+        "raw": {
+          "value": 0,
+          "string": "0"
+        }
+      }
+    ]
+  },
+  "model_name": "ST12000VN0007-2GS116"
+}

@@ -25,9 +25,9 @@ def register(registry):
     @registry.declare(
         "reminders_due",
         "Due reminders",
-        "Use when checking overdue and upcoming reminders. Requires reminder read access and "
-        "a window up to 31 days. Returns reminders and coverage; FrameServer fallback lacks "
-        "due dates and IDs.",
+        "Apple Reminders overdue and upcoming items. Use when checking overdue and upcoming "
+        "reminders. Requires reminder read access and a window up to 31 days. Returns reminders "
+        "and coverage; FrameServer fallback lacks due dates and IDs.",
         obj({"days": DAYS, "list_ids": IDS}),
         scope="reminders:read",
         service="eventkit+frame",
@@ -74,8 +74,8 @@ def register(registry):
     @registry.declare(
         "reminders_list_lists",
         "List reminder lists",
-        "Use when choosing a reminder list. Requires authorized EventKit reminder access. "
-        "Returns stable list IDs and defaults.",
+        "Apple Reminders list IDs and defaults. Use when choosing a reminder list. Requires "
+        "authorized EventKit reminder access. Returns stable list IDs and defaults.",
         scope="reminders:read",
         service="eventkit",
         output_schema=output(lists=array(LIST), truncated={"type": "boolean"}, **TIME),
@@ -92,9 +92,9 @@ def register(registry):
     @registry.declare(
         "reminders_add",
         "Add reminder",
-        "Use when adding a reminder. Requires an allowlisted list ID and confirmed reminder "
-        "details. Due accepts YYYY-MM-DD for all-day or an ISO datetime. "
-        "Returns created reminder metadata; all-day due dates stay YYYY-MM-DD.",
+        "Apple Reminders: add a reminder. Use when adding a reminder. Requires an allowlisted "
+        "list ID and confirmed reminder details. Due accepts YYYY-MM-DD for all-day or an ISO "
+        "datetime. Returns created reminder metadata; all-day due dates stay YYYY-MM-DD.",
         obj(
             {
                 "list_id": string(1000),
@@ -123,8 +123,8 @@ def register(registry):
     @registry.declare(
         "reminders_complete",
         "Complete reminder",
-        "Use when completing a reminder. Requires a discovered ID in an allowlisted list. "
-        "Returns updated reminder metadata.",
+        "Apple Reminders: complete a discovered reminder. Use when completing a reminder. "
+        "Requires a discovered ID in an allowlisted list. Returns updated reminder metadata.",
         obj({"reminder_id": string(1000)}, ("reminder_id",)),
         scope="reminders:write",
         tier="write",
@@ -149,9 +149,10 @@ def register(registry):
     @registry.declare(
         "reminders_update",
         "Update reminder",
-        "Use when editing a discovered reminder after confirming the exact change with the human. "
-        "Requires its current list to allow writes. Returns updated reminder metadata; "
-        "due accepts a date or datetime, or null to clear.",
+        "Apple Reminders: edit a discovered reminder. Use when editing a discovered reminder "
+        "after confirming the exact change with the human. Requires its current list to allow "
+        "writes. Returns updated reminder metadata; due accepts a date or datetime, or null to "
+        "clear.",
         obj(
             {
                 "reminder_id": string(1000),

@@ -105,9 +105,10 @@ def register(registry):
     @registry.declare(
         "recipes_search",
         "Search recipes",
-        "Use when finding recipes by text, ingredient, tag, cuisine or total cooking time. "
-        "Requires an enabled Recipe backend and notes read access. Returns up to 20 compact "
-        "recipes; total-time filtering applies to the bounded API result page.",
+        "Recipes: search by ingredients, tags, cuisine and cooking time. Use when finding "
+        "recipes by text, ingredient, tag, cuisine or total cooking time. Requires an enabled "
+        "Recipe backend and notes read access. Returns up to 20 compact recipes; total-time "
+        "filtering applies to the bounded API result page.",
         obj(
             {
                 "query": string(200),
@@ -151,9 +152,11 @@ def register(registry):
     @registry.declare(
         "recipes_get",
         "Read a recipe",
-        "Use when reading a chosen recipe. Requires its recipe ID, an enabled Recipe "
-        "backend and notes read access. Returns servings, times, ingredients and ordered steps.",
+        "Recipe servings, ingredients and cooking steps. Use when reading a chosen recipe. "
+        "Requires its recipe ID, an enabled Recipe backend and notes read access. Returns "
+        "servings, times, ingredients and ordered steps.",
         obj({"id": {"type": "integer", "minimum": 1}}, ("id",)),
+        max_result_chars=500_000,  # 100 x 4k steps + ingredient rows; Claude's hard ceiling.
         scope="notes:read",
         service="recipes",
         output_schema=output(

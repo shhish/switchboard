@@ -430,7 +430,7 @@ async def test_room_names_in_distinct_homes_are_ambiguous(core, context, fake_ba
     assert {r["id"] for r in result["candidates"]} == {"a2", "a3", "a-other"}
 
 
-async def test_policy_example_cortex_ops_and_weather_only(core, config):
+async def test_policy_example_cortex_ops_weather_and_git_reads(core, config):
     from pathlib import Path
 
     (config.config_dir / "policy.yaml").write_text(
@@ -438,9 +438,17 @@ async def test_policy_example_cortex_ops_and_weather_only(core, config):
     )
     assert [t["name"] for t in core.tools("cortex")] == [
         "dns_stats",
+        "git_ci_log",
+        "git_ci_runs",
+        "git_local_status",
+        "git_pr",
+        "git_prs",
+        "git_repos",
         "ops_alerts_status",
         "ops_health",
         "ops_switchboard_status",
+        "storage_history",
+        "storage_status",
         "weather_alerts",
         "weather_forecast",
         "weather_hourly",

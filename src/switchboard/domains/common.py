@@ -208,3 +208,11 @@ def selected(fields):
 
 def output(**properties):
     return obj({"status": {"type": "string"}, **properties}, ("status",))
+
+
+def require_one(args, *keys):
+    """Handler-side alternatives for connector-compatible flat input objects."""
+    if sum(key in args for key in keys) != 1:
+        from ..errors import CapabilityError
+
+        raise CapabilityError("invalid_arguments", "Invalid arguments: schema constraint")

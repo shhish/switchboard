@@ -13,6 +13,7 @@ from switchboard.protocol import (
     MODERN_VERSION,
     VERSION_KEY,
     request_headers,
+    server_instructions,
 )
 
 from .conftest import bearer
@@ -37,14 +38,20 @@ async def post(server, config, body, client="dot", overrides=None):
 
 
 async def test_modern_stateless_discover_list_and_call(server, config):
+    core, _, _ = server
     status, body = await post(server, config, message("server/discover"))
     assert status == 200
     result = body["result"]
     assert result["resultType"] == "complete"
     assert MODERN_VERSION in result["supportedVersions"]
-    assert result["capabilities"] == {"tools": {"listChanged": True}}
-    assert len(INSTRUCTIONS) <= 512
-    assert result["instructions"] == INSTRUCTIONS
+    assert result["capabilities"] == {
+        "tools": {"listChanged": True},
+        "prompts": {},
+        "resources": {},
+    }
+    assert len(result["instructions"]) <= 3500
+    assert result["instructions"].startswith(INSTRUCTIONS)
+    assert result["instructions"] == server_instructions(t["name"] for t in core.tools("dot"))
     assert result["_meta"]["io.modelcontextprotocol/serverInfo"]["name"] == "switchboard"
     _, catalog = await post(server, config, message("tools/list"))
     tools = catalog["result"]["tools"]
@@ -188,10 +195,131 @@ def test_annotations_and_manifest_documentation():
         assert hints["readOnlyHint"] == (capability.tier == "read")
         assert hints["destructiveHint"] == (capability.tier == "approval")
         assert hints["openWorldHint"] is False
+        assert hints["idempotentHint"] == capability.idempotent
         assert capability.input_schema["additionalProperties"] is False
         assert capability.output_schema["type"] == "object"
     root = Path(__file__).resolve().parents[1]
     assert (root / "docs/CAPABILITIES.md").read_text() == registry.markdown()
+
+
+@pytest.mark.parametrize("modern", [True, False])
+async def test_declarative_tool_meta_both_eras(server, config, modern):
+    core, _, _ = server
+    from .conftest import change_policy
+
+    change_policy(
+        config,
+        lambda p: p["clients"]["owner"].update(
+            scopes=sorted({cap.scope for cap in core.registry.capabilities.values()}),
+            trust_client_confirmation=True,
+        ),
+    )
+    _, reply = await post(server, config, message("tools/list", modern=modern), client="owner")
+    tools = {t["name"]: t for t in reply["result"]["tools"]}
+    assert {
+        name for name, tool in tools.items() if tool.get("_meta", {}).get("anthropic/alwaysLoad")
+    } == {"ops_health", "context_resolve", "switchboard_report_issue"}
+    large = {"ops_service_logs", "notes_get", "recipes_get", "audit_query", "audit_trace"}
+    for name, cap in core.registry.capabilities.items():
+        tool = tools[name]
+        meta = tool.get("_meta", {})
+        if cap.tier == "approval":
+            assert meta["anthropic/requiresUserInteraction"] is True
+        else:
+            assert "anthropic/requiresUserInteraction" not in meta
+        assert bool(meta.get("anthropic/alwaysLoad")) == cap.always_load
+        if name in large or name.endswith("_log"):
+            assert 50_000 < meta["anthropic/maxResultSizeChars"] <= 500_000
+            assert meta["anthropic/maxResultSizeChars"] == cap.max_result_chars
+        assert tool["annotations"] == cap.annotations
+
+
+def test_registry_rejects_union_inputs_and_invalid_meta():
+    from dataclasses import replace
+
+    cap = build_registry().capabilities["home_get"]
+    for keyword in ("oneOf", "anyOf", "allOf"):
+        with pytest.raises(ValueError, match="single flat object"):
+            replace(cap, input_schema={**cap.input_schema, keyword: [{"required": ["name"]}]})
+    for size in (0, 500_001, True, "100000"):
+        with pytest.raises(ValueError, match="max_result_chars"):
+            replace(cap, max_result_chars=size)
+    with pytest.raises(ValueError, match="always_load"):
+        replace(cap, always_load="true")
+
+
+def test_instructions_domains_follow_registered_tools():
+    names = build_registry().capabilities
+    instructions = server_instructions(names)
+    assert len(instructions) <= 3500
+    assert "console_*: PS5" in instructions and "media_*: Plex" in instructions
+    assert "storage_*: disk space" in instructions and "git_*: Gitea" in instructions
+    assert "orb_*:" not in instructions
+    extended = server_instructions([*names, "orb_show"])
+    assert "orb_*:" in extended
+    assert len(extended) <= 3500
+    limited = server_instructions(["jobs_get"])
+    assert "jobs_*:" in limited and "home_*:" not in limited
+
+
+@pytest.mark.parametrize("modern", [True, False])
+@pytest.mark.parametrize(
+    "method,params,overrides",
+    [
+        (
+            "tools/call",
+            {"name": "home_get", "arguments": {"accessory_id": "a1"}},
+            {"Mcp-Name": "wrong"},
+        ),
+        ("prompts/get", {"name": "switchboard"}, {"Mcp-Name": "wrong"}),
+        ("resources/read", {"uri": "switchboard://skills/switchboard"}, {"Mcp-Name": "wrong"}),
+        ("ping", {}, {"Mcp-Method": "tools/call"}),
+        ("ping", {}, {"Mcp-Name": "unexpected"}),
+    ],
+)
+async def test_present_headers_must_match_in_both_eras(
+    server, config, modern, method, params, overrides
+):
+    core, _, _ = server
+    before = core.audit.tail()
+    status, body = await post(
+        server, config, message(method, modern=modern, **params), overrides=overrides
+    )
+    assert status == 400 and body["error"]["code"] == -32020
+    assert core.audit.tail() == before  # No mismatched request is dispatched.
+
+
+@pytest.mark.parametrize("modern", [True, False])
+async def test_header_mismatch_on_notifications_is_rejected(server, config, modern):
+    _, url, session = server
+    body = message("ping", modern=modern)
+    del body["id"]
+    response = await session.post(
+        url + "/mcp",
+        json=body,
+        headers={
+            **bearer(config),
+            **request_headers(body),
+            "Mcp-Method": "tools/call",
+            "Accept": "application/json, text/event-stream",
+        },
+    )
+    assert response.status == 400
+    assert (await response.json())["error"]["code"] == -32020
+
+
+async def test_legacy_headers_optional_but_modern_mirrors_required(server, config):
+    _, url, session = server
+    for modern in (False, True):
+        response = await session.post(
+            url + "/mcp",
+            json=message("ping", modern=modern),
+            headers={
+                **bearer(config),
+                "Accept": "application/json, text/event-stream",
+            },
+        )
+        assert response.status == (400 if modern else 200)
 
 
 async def test_stdio_emits_tools_list_changed_when_catalog_changes(config):

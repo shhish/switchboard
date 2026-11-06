@@ -1,0 +1,17 @@
+{
+  "smartctl": {
+    "exit_status": 0
+  },
+  "model_name": "APPLE SSD",
+  "serial_number": "DO-NOT-EXPOSE",
+  "smart_status": {
+    "passed": true
+  },
+  "nvme_smart_health_information_log": {
+    "temperature": 39,
+    "power_on_hours": 4321,
+    "percentage_used": 12,
+    "media_errors": 0,
+    "available_spare": 100
+  }
+}

@@ -1,0 +1,80 @@
+[
+  {
+    "device": "/dev/disk3s1s1",
+    "mount": "/",
+    "readonly": true,
+    "fs": "apfs"
+  },
+  {
+    "device": "/dev/disk3s5",
+    "mount": "/System/Volumes/Data",
+    "readonly": false,
+    "fs": "apfs"
+  },
+  {
+    "device": "/dev/disk6s2",
+    "mount": "/Volumes/library",
+    "readonly": false,
+    "fs": "hfs"
+  },
+  {
+    "device": "/dev/disk8s1",
+    "mount": "/Volumes/library2",
+    "readonly": false,
+    "fs": "apfs"
+  },
+  {
+    "device": "/dev/disk10s1",
+    "mount": "/Volumes/archive",
+    "readonly": false,
+    "fs": "apfs"
+  },
+  {
+    "device": "/dev/disk10s2",
+    "mount": "/Volumes/LaptopBackup",
+    "readonly": false,
+    "fs": "apfs"
+  },
+  {
+    "device": "/dev/disk10s3",
+    "mount": "/Volumes/DesktopBackup",
+    "readonly": false,
+    "fs": "apfs"
+  },
+  {
+    "device": "/dev/disk3s2",
+    "mount": "/System/Volumes/Preboot",
+    "readonly": false,
+    "fs": "apfs"
+  },
+  {
+    "device": "/dev/disk3s3",
+    "mount": "/System/Volumes/VM",
+    "readonly": false,
+    "fs": "apfs"
+  },
+  {
+    "device": "/dev/disk3s4",
+    "mount": "/Volumes/Recovery",
+    "readonly": false,
+    "fs": "apfs"
+  },
+  {
+    "device": "/dev/disk11s1",
+    "mount": "/Library/Developer/CoreSimulator/Volumes/runtime",
+    "readonly": true,
+    "fs": "apfs"
+  },
+  {
+    "device": "/dev/disk12s1",
+    "mount": "/Volumes/App Installer",
+    "readonly": true,
+    "fs": "hfs"
+  },
+  {
+    "device": "/dev/disk13s1",
+    "mount": "/Volumes/Quarantined",
+    "readonly": false,
+    "fs": "hfs"
+  }
+]

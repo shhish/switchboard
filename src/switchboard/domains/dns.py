@@ -48,9 +48,10 @@ def register(registry):
     @registry.declare(
         "dns_stats",
         "Home DNS filtering stats",
-        "Use when checking home DNS filtering (AdGuard Home on the Pi). Requires ops:read. "
-        "Returns queries, share blocked, answer time, per-day series, top blocked domains "
-        "and devices for its 14-day window, protection state and pause time left.",
+        "AdGuard Home DNS filtering statistics and protection state. Use when checking home DNS "
+        "filtering (AdGuard Home on the Pi). Requires ops:read. Returns queries, share blocked, "
+        "answer time, per-day series, top blocked domains and devices for its 14-day window, "
+        "protection state and pause time left.",
         scope="ops:read",
         service="dns",
         timeout_s=30,
@@ -62,9 +63,10 @@ def register(registry):
     @registry.declare(
         "dns_pause",
         "Pause DNS filtering",
-        "Use when a site is wrongly blocked and the owner wants DNS filtering off briefly. "
-        "Requires dns:control and 1-120 minutes; AdGuard resumes by itself and DNS keeps "
-        "answering. Returns whether protection is on and the pause length.",
+        "AdGuard Home DNS filtering: temporary pause. Use when a site is wrongly blocked and "
+        "the owner wants DNS filtering off briefly. Requires dns:control and 1-120 minutes; "
+        "AdGuard resumes by itself and DNS keeps answering. Returns whether protection is on "
+        "and the pause length.",
         obj(
             {
                 "minutes": {"type": "integer", "minimum": 1, "maximum": 120},
@@ -85,8 +87,8 @@ def register(registry):
     @registry.declare(
         "dns_resume",
         "Resume DNS filtering",
-        "Use when a DNS filtering pause should end early. Requires dns:control. "
-        "Returns whether AdGuard protection is back on.",
+        "AdGuard Home DNS filtering: resume protection. Use when a DNS filtering pause should "
+        "end early. Requires dns:control. Returns whether AdGuard protection is back on.",
         obj({"reason": string(200)}, ("reason",)),
         scope="dns:control",
         tier="write",

@@ -15,8 +15,15 @@ from .hostcmd import remote_token, runtime_id
 from .netrules import REMOTE_NETWORKS, RFC1918_NETWORKS
 from .nws import DEFAULT_WEATHER
 from .nws import validate_settings as validate_weather
+from .storage_config import storage_settings
 
 DEFAULT_BACKENDS = {
+    "gitea": {
+        "url": "http://127.0.0.1:3003/api/v1",
+        "enabled": False,
+        "token_file": None,
+        "owner": "",
+    },
     "health": {"url": "http://127.0.0.1:8050"},
     "media": {"url": "http://127.0.0.1:8010"},
     "recipes": {"url": "http://127.0.0.1:3000", "enabled": False, "token_file": None},
@@ -295,6 +302,27 @@ def validate_services(services, probes, remote_hosts=None):
     return result
 
 
+def validate_git(settings):
+    if not isinstance(settings, dict) or set(settings) != {"roots"}:
+        raise ValueError("git requires only roots")
+    roots = settings["roots"]
+    if not isinstance(roots, list) or len(roots) > 8:
+        raise ValueError("git.roots must contain at most eight absolute directories")
+    result = []
+    for root in roots:
+        if (
+            not isinstance(root, str)
+            or not Path(root).is_absolute()
+            or any(ord(c) < 32 or ord(c) == 127 for c in root)
+        ):
+            raise ValueError("git.roots must be absolute directories")
+        resolved = Path(root).resolve()
+        if resolved.exists() and not resolved.is_dir():
+            raise ValueError("git.roots must be directories")
+        result.append(str(resolved))
+    return {"roots": list(dict.fromkeys(result))}
+
+
 @dataclass
 class Config:
     config_dir: Path
@@ -312,11 +340,15 @@ class Config:
     probes: list = field(default_factory=list)
     services: dict = field(default_factory=dict)
     remote_hosts: dict = field(default_factory=dict)
+    git: dict = field(default_factory=lambda: {"roots": []})
 
     monitor: dict = field(default_factory=dict)
     alerts: dict = field(default_factory=dict)
+    storage: dict = field(default_factory=dict)
 
     def __post_init__(self):
+        self.storage = storage_settings(self.storage)
+        self.git = validate_git(self.git)
         self.monitor = monitor_settings(self.monitor)
         self.alerts = alert_settings(self.alerts)
         self.probes = validate_probes(self.probes)
@@ -347,7 +379,9 @@ class Config:
             "remote_hosts",
             "weather",
             "monitor",
+            "storage",
             "alerts",
+            "git",
         }:
             raise ValueError("Invalid config fields")
         result = cls(
@@ -362,7 +396,9 @@ class Config:
         for key in ("port", "approval_ttl_s"):
             if key in data:
                 setattr(result, key, data[key])
+        result.storage = storage_settings(data.get("storage", {}))
         result.monitor = monitor_settings(data.get("monitor", {}))
+        result.git = validate_git(data.get("git", {"roots": []}))
         result.alerts = alert_settings(data.get("alerts", {}))
         result.weather = validate_weather(data.get("weather", {}))
         if type(result.port) is not int or not 1 <= result.port <= 65535:
@@ -379,7 +415,9 @@ class Config:
             raise ValueError("Invalid backend names")
         for name, settings in backends.items():
             fields = (
-                {"enabled", "python", "script", "state_dir", "timeout_s"}
+                {"url", "enabled", "token_file", "owner"}
+                if name == "gitea"
+                else {"enabled", "python", "script", "state_dir", "timeout_s"}
                 if name == "media_compress"
                 else {"enabled", "root", "exclude"}
                 if name == "notes"
@@ -403,6 +441,8 @@ class Config:
             if "control_token_file" in settings and name != "home":
                 raise ValueError("control_token_file is only valid for home")
             for key in ("token_file", "control_token_file", "api_key_file", "api_key_json_path"):
+                if name == "gitea" and key == "token_file" and settings.get(key) is None:
+                    continue
                 if name == "recipes" and key == "token_file" and settings.get(key) is None:
                     continue
                 if key in settings and (
@@ -411,6 +451,11 @@ class Config:
                     raise ValueError("Secret references must be nonempty strings")
             result.backends[name].update(settings)
         for name, settings in result.backends.items():
+            if name == "gitea":
+                from .gitea import validate_settings
+
+                validate_settings(settings)
+                continue
             if name == "media_compress":
                 from .media_compress import validate_settings
 

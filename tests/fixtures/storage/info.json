@@ -1,0 +1,73 @@
+{
+  "disk0": {
+    "DeviceIdentifier": "disk0",
+    "Internal": true,
+    "WholeDisk": true,
+    "MediaName": "APPLE SSD",
+    "TotalSize": 1000000000000,
+    "BusProtocol": "PCI-Express",
+    "SerialNumber": "DO-NOT-EXPOSE"
+  },
+  "disk0s2": {
+    "DeviceIdentifier": "disk0s2",
+    "ParentWholeDisk": "disk0",
+    "Content": "Apple_APFS",
+    "WritableVolume": false,
+    "SystemImage": false,
+    "DiskUUID": "fixture-partition-0",
+    "APFSContainerReference": "disk3"
+  },
+  "disk6": {
+    "DeviceIdentifier": "disk6",
+    "Internal": false,
+    "WholeDisk": true,
+    "MediaName": "IronWolf",
+    "TotalSize": 12000000000000,
+    "BusProtocol": "USB",
+    "SerialNumber": "DO-NOT-EXPOSE"
+  },
+  "disk6s2": {
+    "DeviceIdentifier": "disk6s2",
+    "ParentWholeDisk": "disk6",
+    "Content": "Apple_HFS",
+    "WritableVolume": true,
+    "SystemImage": false,
+    "DiskUUID": "fixture-partition-6"
+  },
+  "disk7": {
+    "DeviceIdentifier": "disk7",
+    "Internal": false,
+    "WholeDisk": true,
+    "MediaName": "WD HDD",
+    "TotalSize": 14000000000000,
+    "BusProtocol": "USB",
+    "SerialNumber": "DO-NOT-EXPOSE"
+  },
+  "disk7s2": {
+    "DeviceIdentifier": "disk7s2",
+    "ParentWholeDisk": "disk7",
+    "Content": "Apple_APFS",
+    "WritableVolume": false,
+    "SystemImage": false,
+    "DiskUUID": "fixture-partition-7",
+    "APFSContainerReference": "disk8"
+  },
+  "disk9": {
+    "DeviceIdentifier": "disk9",
+    "Internal": false,
+    "WholeDisk": true,
+    "MediaName": "Archive HDD",
+    "TotalSize": 8000000000000,
+    "BusProtocol": "USB",
+    "SerialNumber": "DO-NOT-EXPOSE"
+  },
+  "disk9s2": {
+    "DeviceIdentifier": "disk9s2",
+    "ParentWholeDisk": "disk9",
+    "Content": "Apple_APFS",
+    "WritableVolume": false,
+    "SystemImage": false,
+    "DiskUUID": "fixture-partition-9",
+    "APFSContainerReference": "disk10"
+  }
+}

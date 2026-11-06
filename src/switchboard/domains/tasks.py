@@ -87,7 +87,7 @@ def register(registry):
             @registry.declare(
                 "tasks_" + name,
                 "Things " + list_name,
-                f"Use when reading Things {list_name} to-dos. "
+                f"Things {list_name} to-dos. Use when reading Things {list_name} to-dos. "
                 "Requires authorized Things read access. Returns bounded to-dos; honor truncation.",
                 obj({"limit": LIMIT}),
                 scope="tasks:read",
@@ -112,9 +112,9 @@ def register(registry):
     @registry.declare(
         "tasks_search",
         "Search Things",
-        "Use when finding a Things to-do by name. Requires a nonblank query and authorized "
-        "Things access. Returns bounded matches; resolve ambiguity before completing a "
-        "discovered ID.",
+        "Things to-dos: search by name. Use when finding a Things to-do by name. Requires a "
+        "nonblank query and authorized Things access. Returns bounded matches; resolve "
+        "ambiguity before completing a discovered ID.",
         obj({"query": string(200), "limit": {**LIMIT, "maximum": 50}}, ("query",)),
         scope="tasks:read",
         service="things",
@@ -136,8 +136,8 @@ def register(registry):
     @registry.declare(
         "tasks_list_projects",
         "List Things projects",
-        "Use when choosing a Things project. Requires authorized Things read access. Returns "
-        "project IDs and parent areas.",
+        "Things projects and parent areas. Use when choosing a Things project. Requires "
+        "authorized Things read access. Returns project IDs and parent areas.",
         scope="tasks:read",
         service="things",
         output_schema=output(projects=array(TODO), truncated={"type": "boolean"}, **TIME),
@@ -154,8 +154,8 @@ def register(registry):
     @registry.declare(
         "tasks_list_areas",
         "List Things areas",
-        "Use when choosing a Things area. Requires authorized Things read access. Returns "
-        "area names and stable IDs.",
+        "Things areas and stable IDs. Use when choosing a Things area. Requires authorized "
+        "Things read access. Returns area names and stable IDs.",
         scope="tasks:read",
         service="things",
         output_schema=output(areas=array(AREA), truncated={"type": "boolean"}, **TIME),
@@ -172,9 +172,9 @@ def register(registry):
     @registry.declare(
         "tasks_add",
         "Add Things to-do",
-        "Use when adding an owner task to Things. Requires confirmed dates and an allowed "
-        "destination; prefer Inbox when unsure. Returns created to-do; use existing tags and "
-        "no nonempty checklist.",
+        "Things to-do creation. Use when adding an owner task to Things. Requires confirmed "
+        "dates and an allowed destination; prefer Inbox when unsure. Returns created to-do; use "
+        "existing tags and no nonempty checklist.",
         obj(
             {
                 "title": string(200),
@@ -216,8 +216,8 @@ def register(registry):
     @registry.declare(
         "tasks_complete",
         "Complete Things to-do",
-        "Use when completing one Things to-do. Requires a discovered ID and allowed current "
-        "project and area. Returns updated to-do; never mass-complete.",
+        "Things to-do completion. Use when completing one Things to-do. Requires a discovered "
+        "ID and allowed current project and area. Returns updated to-do; never mass-complete.",
         obj({"todo_id": string(1000)}, ("todo_id",)),
         scope="tasks:write",
         tier="write",
@@ -233,9 +233,10 @@ def register(registry):
     @registry.declare(
         "tasks_update",
         "Update Things to-do",
-        "Use when editing one discovered open Things to-do after confirming the exact change "
-        "with the human. Requires allowed current and new destinations. Returns updated to-do; "
-        "projects and completed/canceled to-dos cannot be edited. Tags must already exist.",
+        "Things open to-do edits. Use when editing one discovered open Things to-do after "
+        "confirming the exact change with the human. Requires allowed current and new "
+        "destinations. Returns updated to-do; projects and completed/canceled to-dos cannot be "
+        "edited. Tags must already exist.",
         obj(
             {
                 "todo_id": string(1000),

@@ -86,6 +86,7 @@ def register(registry):
     @registry.declare(
         "routines_list",
         "List routines",
+        "Home routines (automations): which exist, which are active, last runs. "
         "Use when checking which home routines exist, which are active and how they last ran. "
         "Requires routine read access. Returns each routine's newest version, status, last run "
         "and the engine's health.",
@@ -113,6 +114,7 @@ def register(registry):
     @registry.declare(
         "routines_get",
         "Show a routine",
+        "Home routine detail: YAML, versions, approved scopes and recent runs. "
         "Use when reading a routine's YAML, versions, approved scopes and recent runs. "
         "Requires the routine name. Returns every version, newest first.",
         obj({"routine": NAME}, ("routine",)),
@@ -134,6 +136,7 @@ def register(registry):
     @registry.declare(
         "routines_runs",
         "Routine runs",
+        "Home routine run history: what a routine did and why. "
         "Use when checking what a routine did and why. Requires a routine name, a run ID, or "
         "neither for all routines. Returns recent runs, or one run's journaled steps.",
         obj(
@@ -174,6 +177,7 @@ def register(registry):
     @registry.declare(
         "routines_propose",
         "Propose a routine",
+        "Propose a home routine (automation) for the owner to approve. "
         "Use when drafting a home automation for the owner to approve. Requires routine YAML "
         "(see the switchboard-routines skill). Returns the checked scopes, the hash the owner "
         "approves and a dry run. Never activates anything.",
@@ -227,6 +231,7 @@ def register(registry):
     @registry.declare(
         "routines_plan",
         "Dry-run a routine",
+        "Dry-run a home routine: what it would do right now. "
         "Use when checking what a routine would do right now without doing it. Requires YAML, "
         "or a routine name for its active version. Returns resolved devices, next scheduled "
         "times, whether conditions pass now, and each step's calls.",
@@ -257,6 +262,7 @@ def register(registry):
     @registry.declare(
         "routines_run",
         "Run a routine now",
+        "Run an approved home routine now. "
         "Use when the owner asks to run an approved routine that has a manual trigger. "
         "Requires the routine name. Conditions are skipped for manual runs. Returns the run ID.",
         obj({"routine": NAME}, ("routine",)),
@@ -277,6 +283,7 @@ def register(registry):
     @registry.declare(
         "routines_disable",
         "Turn a routine off",
+        "Turn a home routine off. "
         "Use when a routine misbehaves or the owner asks to stop it. Requires the routine and a "
         "short reason. Returns the disabled routine; its runs stop and it needs a new approval.",
         obj({"routine": NAME, "reason": string(200)}, ("routine", "reason")),
@@ -296,6 +303,7 @@ def register(registry):
     @registry.declare(
         "routines_approve",
         "Approve a routine version",
+        "Approve a home routine version (owner only). "
         "Use when the owner has reviewed a proposed routine and wants it live. Requires the owner "
         "and the exact version hash. Returns the activated version, which replaces the old one.",
         obj({"routine": NAME, "hash": HASH}, ("routine", "hash")),
@@ -339,6 +347,7 @@ def register(registry):
     @registry.declare(
         "routines_pause",
         "Pause or resume all routines",
+        "Pause or resume all home routines (owner only). "
         "Use when the owner wants every routine stopped at once, or resumed. Requires the owner. "
         "Returns the new state; running routines stop at their next step.",
         obj({"paused": {"type": "boolean"}}, ("paused",)),

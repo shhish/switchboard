@@ -22,8 +22,9 @@ def register(registry):
     @registry.declare(
         "jobs_get",
         "Get job",
-        "Use when checking progress of a long-running action. Requires your job ID or owner "
-        "access. Returns job state and result; poll until terminal.",
+        "Background job progress and results. Use when checking progress of a long-running "
+        "action. Requires your job ID or owner access. Returns job state and result; poll until "
+        "terminal.",
         obj({"job_id": string(128)}, ("job_id",)),
         scope="jobs:read",
         output_schema=JOB,
@@ -34,8 +35,8 @@ def register(registry):
     @registry.declare(
         "jobs_list",
         "List jobs",
-        "Use when finding recent jobs. Requires jobs read access. Returns your bounded job "
-        "history; owner sees all clients.",
+        "Background job history. Use when finding recent jobs. Requires jobs read access. "
+        "Returns your bounded job history; owner sees all clients.",
         obj({"limit": {"type": "integer", "minimum": 1, "maximum": 100}}),
         scope="jobs:read",
         output_schema=output(jobs=array(JOB)),
@@ -53,8 +54,8 @@ def register(registry):
     @registry.declare(
         "jobs_cancel",
         "Cancel job",
-        "Use when stopping a queued or running job. Requires your job ID or owner access. "
-        "Returns updated state; cancellation is cooperative.",
+        "Background job cancellation. Use when stopping a queued or running job. Requires your "
+        "job ID or owner access. Returns updated state; cancellation is cooperative.",
         obj({"job_id": string(128)}, ("job_id",)),
         scope="jobs:cancel",
         tier="write",

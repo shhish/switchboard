@@ -60,9 +60,9 @@ def register(registry):
     @registry.declare(
         "context_get",
         "Owner context",
-        "Use when checking owner defaults, aliases or preferences. Requires context read "
-        "access. Returns shared profile and cached backend discovery; unavailable sections "
-        "do not imply empty inventories.",
+        "Owner names, defaults, aliases and preferences. Use when checking owner defaults, "
+        "aliases or preferences. Requires context read access. Returns shared profile and "
+        "cached backend discovery; unavailable sections do not imply empty inventories.",
         scope="context:read",
         service="system+home+eventkit+things+sqlite",
         output_schema=output(**PROFILE),
@@ -73,10 +73,11 @@ def register(registry):
     @registry.declare(
         "context_resolve",
         "Resolve owner phrase",
-        "Use when resolving owner names for lights, tasks, calendars or media. Requires a "
-        "phrase and optional domain. Returns ranked stable-ID candidates; ask on ambiguity "
-        "and never act on a fuzzy guess.",
+        "Owner names: resolve phrases to stable resource IDs. Use when resolving owner names "
+        "for lights, tasks, calendars or media. Requires a phrase and optional domain. Returns "
+        "ranked stable-ID candidates; ask on ambiguity and never act on a fuzzy guess.",
         obj({"phrase": string(120), "domain": DOMAIN}, ("phrase",)),
+        always_load=True,
         scope="context:read",
         service="home+eventkit+things+media",
         timeout_s=30,
@@ -94,9 +95,9 @@ def register(registry):
     @registry.declare(
         "context_set_alias",
         "Save owner alias",
-        "Use when saving an owner name for a known entity. Requires a target verified in "
-        "fresh discovery. Returns the previous alias if replaced; aliases never grant "
-        "permission.",
+        "Owner names: save a verified entity alias. Use when saving an owner name for a known "
+        "entity. Requires a target verified in fresh discovery. Returns the previous alias if "
+        "replaced; aliases never grant permission.",
         obj(
             {"alias": string(80), "domain": DOMAIN, "kind": string(30), "target_id": string(1000)},
             ("alias", "domain", "kind", "target_id"),
@@ -113,8 +114,9 @@ def register(registry):
     @registry.declare(
         "context_remove_alias",
         "Remove owner alias",
-        "Use when forgetting a shared entity alias. Requires an exact alias and domain. "
-        "Returns the previous alias; target resources stay unchanged.",
+        "Owner names: remove an entity alias. Use when forgetting a shared entity alias. "
+        "Requires an exact alias and domain. Returns the previous alias; target resources stay "
+        "unchanged.",
         obj({"alias": string(80), "domain": DOMAIN}, ("alias", "domain")),
         scope="context:write",
         tier="write",
@@ -138,9 +140,9 @@ def register(registry):
     @registry.declare(
         "context_set_preference",
         "Save owner preference",
-        "Use when saving shared owner guidance. Requires a valid preference key and "
-        "nonsecret text. Returns the previous preference; preferences never change policy or "
-        "approvals.",
+        "Owner preferences: save shared guidance. Use when saving shared owner guidance. "
+        "Requires a valid preference key and nonsecret text. Returns the previous preference; "
+        "preferences never change policy or approvals.",
         obj({"key": string(64), "value": string(500)}, ("key", "value")),
         scope="context:write",
         tier="write",
@@ -170,8 +172,8 @@ def register(registry):
     @registry.declare(
         "context_remove_preference",
         "Remove owner preference",
-        "Use when forgetting shared owner guidance. Requires an exact preference key. "
-        "Returns the previous preference.",
+        "Owner preferences: remove shared guidance. Use when forgetting shared owner guidance. "
+        "Requires an exact preference key. Returns the previous preference.",
         obj({"key": string(64)}, ("key",)),
         scope="context:write",
         tier="write",

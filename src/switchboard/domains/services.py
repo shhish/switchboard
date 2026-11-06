@@ -150,10 +150,10 @@ def register(registry):
     @registry.declare(
         "ops_service_status",
         "Configured service status",
-        "Use when diagnosing one or all configured services. Requires ops:diagnose. "
-        "Returns runtime, process metrics, probe state and silence. Apps use launchctl "
-        "list application.<bundle id>. labels. Remote status batches once per configured host; "
-        "failed commands report unknown per service.",
+        "Configured service runtime and process status. Use when diagnosing one or all "
+        "configured services. Requires ops:diagnose. Returns runtime, process metrics, probe "
+        "state and silence. Apps use launchctl list application.<bundle id>. labels. Remote "
+        "status batches once per configured host; failed commands report unknown per service.",
         obj({"service": SERVICE_NAME}),
         scope="ops:diagnose",
         timeout_s=30,
@@ -165,9 +165,10 @@ def register(registry):
     @registry.declare(
         "ops_service_logs",
         "Redacted service log tail",
-        "Use when diagnosing a configured service's logs. Requires ops:diagnose. "
-        "Returns up to 200 redacted lines from one configured source (default index 0); "
-        "contains is a literal case-insensitive filter. Matched counts only the bounded tail.",
+        "Configured service logs: redacted tail and literal filtering. Use when diagnosing a "
+        "configured service's logs. Requires ops:diagnose. Returns up to 200 redacted lines "
+        "from one configured source (default index 0); contains is a literal case-insensitive "
+        "filter. Matched counts only the bounded tail.",
         obj(
             {
                 "service": SERVICE_NAME,
@@ -177,6 +178,7 @@ def register(registry):
             },
             ("service",),
         ),
+        max_result_chars=128_000,  # 200 lines x 500 chars plus JSON framing.
         scope="ops:diagnose",
         timeout_s=25,
         output_schema=output(
@@ -192,9 +194,9 @@ def register(registry):
     @registry.declare(
         "ops_host_snapshot",
         "Host resource snapshot",
-        "Use when diagnosing Mac or configured remote host CPU, memory, swap or disks. "
-        "Requires ops:diagnose. "
-        "Returns load, uptime and top eight processes by CPU/RSS; command basenames only.",
+        "Mac and remote host CPU, memory, swap and disk resources. Use when diagnosing Mac or "
+        "configured remote host CPU, memory, swap or disks. Requires ops:diagnose. Returns "
+        "load, uptime and top eight processes by CPU/RSS; command basenames only.",
         obj({"host": SERVICE_NAME}),
         scope="ops:diagnose",
         timeout_s=25,
@@ -206,8 +208,9 @@ def register(registry):
     @registry.declare(
         "ops_host_checks",
         "Remote host checks",
-        "Use when diagnosing a configured remote host's DNS, Tailscale, Kuma and updates. "
-        "Requires ops:diagnose. Returns bounded read-only checks from the Pi agent.",
+        "Remote host DNS, Tailscale, Kuma and update checks. Use when diagnosing a configured "
+        "remote host's DNS, Tailscale, Kuma and updates. Requires ops:diagnose. Returns bounded "
+        "read-only checks from the Pi agent.",
         obj({"host": SERVICE_NAME}, ("host",)),
         scope="ops:diagnose",
         timeout_s=25,
@@ -222,8 +225,9 @@ def register(registry):
     @registry.declare(
         "ops_host_refresh_updates",
         "Refresh remote package lists",
-        "Use when checking a configured remote host for new updates; installs nothing. "
-        "Requires ops:restart. Returns the upgradable list after apt-get update.",
+        "Remote host package list refresh without installs. Use when checking a configured "
+        "remote host for new updates; installs nothing. Requires ops:restart. Returns the "
+        "upgradable list after apt-get update.",
         obj({"host": SERVICE_NAME}, ("host",)),
         scope="ops:restart",
         tier="write",
@@ -242,10 +246,11 @@ def register(registry):
     @registry.declare(
         "ops_service_restart",
         "Restart configured service",
-        "Use when restarting an allowlisted launchd/docker/remote service. Requires "
-        "ops:restart and a reason. Returns a recovery job (up to 120s) after automatically "
-        "silencing its probe for ten minutes; enforces a durable ten-minute cooldown. "
-        "Poll jobs_get for recovered; Switchboard cannot restart itself.",
+        "Configured launchd, Docker and remote service restart. Use when restarting an "
+        "allowlisted launchd/docker/remote service. Requires ops:restart and a reason. Returns "
+        "a recovery job (up to 120s) after automatically silencing its probe for ten minutes; "
+        "enforces a durable ten-minute cooldown. Poll jobs_get for recovered; Switchboard "
+        "cannot restart itself.",
         obj({"service": SERVICE_NAME, "reason": string(200)}, ("service", "reason")),
         scope="ops:restart",
         tier="write",

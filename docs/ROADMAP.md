@@ -229,3 +229,23 @@ profiles alongside; light evals (F) follow E.
   `docs/home-automation/PLAN.md` in the owner's workspace.
 - [ ] B1 events (Switchboard's own event log for routines' `event:` triggers), C2 (`ask`
   on the Orb, `wait_for`, `classify`), D1 memory, E1 tool profiles: see the design doc.
+
+## Phase 18: storage health
+
+- [x] Opt-in `storage_status` / `storage_history` under `ops:read`, including cortex:
+  physical NVMe/USB SMART with standby-safe six-hour cache, native mount discovery
+  tied to physical-store APFS references, shared container fill, hourly SQLite
+  history (35 days), seven-day least-squares forecast and monitor incidents/silences.
+  Remote fill reuses snapshot; doctor, owner-only SMART enable script and fake fixtures.
+- [ ] Owner reviews private config, enables storage/monitor channels and deploys the
+  reviewed release. APFS backup roles remain unknown with physical-only diskutil
+  discovery; legacy Time Machine directories are detected. No live drive mutation.
+## Git workflows
+
+- [x] `git_*` tools for Gitea repositories, PRs, exact-commit CI and redacted job
+  logs; allowlisted PR creation/comments/merge, CI reruns and annotated release
+  tags. CI gates and SHA pinning prevent unchecked merges/tags. Local status uses
+  fixed read-only Git commands and realpath-constrained roots/worktrees.
+- [ ] Owner provisions the disabled Gitea backend, local roots and write-repository
+  allowlist, runs the idempotent agent-grant script, reviews and deploys. No live
+  configuration, checkout mutation, Gitea write or deployment performed here.

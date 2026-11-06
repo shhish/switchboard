@@ -55,9 +55,10 @@ def register(registry):
     @registry.declare(
         "switchboard_report_issue",
         "Report a Switchboard issue",
-        "Use when a Switchboard tool fails, is confusing or lacks a capability. Requires a "
-        "short issue title and details without secrets. Returns a recorded issue ID; "
-        "repeated reports may deduplicate.",
+        "Switchboard issue reporting: bugs and missing capabilities. Use when a Switchboard "
+        "tool fails, is confusing or lacks a capability. Requires a short issue title and "
+        "details without secrets. Returns a recorded issue ID; repeated reports may "
+        "deduplicate.",
         obj(
             {
                 "kind": {"type": "string", "enum": KINDS},
@@ -67,6 +68,7 @@ def register(registry):
             },
             ("kind", "title", "details"),
         ),
+        always_load=True,
         scope="feedback:write",
         tier="write",
         idempotent=False,
@@ -110,8 +112,9 @@ def register(registry):
     @registry.declare(
         "switchboard_list_issues",
         "List Switchboard issues",
-        "Use when starting Switchboard maintenance or reviewing bugs. Requires feedback read "
-        "access. Returns bounded reported issues and resolutions.",
+        "Switchboard reported issues and resolutions. Use when starting Switchboard maintenance "
+        "or reviewing bugs. Requires feedback read access. Returns bounded reported issues and "
+        "resolutions.",
         obj(
             {
                 "status": {"type": "string", "enum": ["open", "closed", "all"]},
@@ -139,8 +142,8 @@ def register(registry):
     @registry.declare(
         "switchboard_close_issue",
         "Close a Switchboard issue",
-        "Use when recording a fixed or declined Switchboard issue. Requires an open issue ID "
-        "and resolution. Returns the closed issue ID.",
+        "Switchboard issue resolution. Use when recording a fixed or declined Switchboard "
+        "issue. Requires an open issue ID and resolution. Returns the closed issue ID.",
         obj({"issue_id": string(32), "resolution": string(500)}, ("issue_id", "resolution")),
         scope="feedback:manage",
         tier="write",

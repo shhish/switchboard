@@ -3,6 +3,7 @@
 import asyncio
 import os
 import re
+from pathlib import Path
 
 LAUNCHCTL = "/bin/launchctl"
 DOCKER = "/usr/local/bin/docker"
@@ -11,7 +12,32 @@ SYSCTL = "/usr/sbin/sysctl"
 VM_STAT = "/usr/bin/vm_stat"
 STATE_FORMAT = "{{json .State}} {{.RestartCount}}"
 SSH = "/usr/bin/ssh"
+DISKUTIL = "/usr/sbin/diskutil"
+SMARTCTL = "/opt/homebrew/bin/smartctl"
 OUTPUT_LIMIT = 256 * 1024
+GIT = "/usr/bin/git"
+GIT_PREFIX = [
+    GIT,
+    "-c",
+    "maintenance.auto=false",
+    "-c",
+    "core.fsmonitor=false",
+    "--no-optional-locks",
+    "-C",
+]
+GIT_LOG_FORMAT = "%h%x00%ct%x00%s"
+GIT_COMMANDS = (
+    ["status", "--porcelain=v2", "--branch"],
+    ["worktree", "list", "--porcelain"],
+    ["stash", "list", "--format=%gd"],
+    ["log", "-1", "--format=" + GIT_LOG_FORMAT],
+    ["rev-parse", "--show-toplevel"],
+    ["rev-parse", "--absolute-git-dir"],
+)
+
+
+def git_argv(path, command):
+    return [*GIT_PREFIX, str(path), *command]
 
 
 def runtime_id(value):
@@ -87,9 +113,51 @@ def ssh_argv(host, request):
     ]
 
 
-def valid_argv(argv, remote_hosts=None):
+def disk_id(value, *, whole=False):
+    pattern = r"disk[0-9]{1,3}" + ("" if whole else r"(s[0-9]{1,3}){0,2}")
+    return isinstance(value, str) and re.fullmatch(pattern, value) is not None
+
+
+def physical_inventory(data):
+    """Only whole physical disks and their explicitly listed partitions are targets."""
+    whole, members = set(), set()
+    rows = data.get("AllDisksAndPartitions")
+    if not isinstance(rows, list):
+        raise ValueError("Invalid physical disk inventory")
+    for disk in rows[:64]:
+        if not isinstance(disk, dict) or not isinstance(disk.get("Partitions", []), list):
+            raise ValueError("Invalid physical disk inventory")
+        identifier = disk.get("DeviceIdentifier")
+        if not disk_id(identifier, whole=True):
+            continue
+        whole.add(identifier)
+        members.add(identifier)
+        for partition in disk.get("Partitions", [])[:128]:
+            if not isinstance(partition, dict):
+                raise ValueError("Invalid physical disk inventory")
+            part = partition.get("DeviceIdentifier")
+            if disk_id(part) and part.startswith(identifier + "s"):
+                members.add(part)
+    return whole, members
+
+
+def valid_argv(argv, remote_hosts=None, *, physical_disks=None):
     if not isinstance(argv, list) or not all(isinstance(v, str) for v in argv):
         return False
+    if argv == [DISKUTIL, "list", "-plist", "physical"]:
+        return True
+    if len(argv) == 4 and argv[:3] == [DISKUTIL, "info", "-plist"]:
+        return disk_id(argv[-1]) and argv[-1] in (physical_disks or {}).get("members", ())
+    if len(argv) == 8 and argv[:7] == [SMARTCTL, "-j", "-n", "standby", "-H", "-A", "-i"]:
+        return disk_id(argv[-1], whole=True) and argv[-1] in (physical_disks or {}).get("whole", ())
+    if argv[:1] == [GIT]:
+        return (
+            argv[: len(GIT_PREFIX)] == GIT_PREFIX
+            and len(argv) > len(GIT_PREFIX) + 1
+            and Path(argv[len(GIT_PREFIX)]).is_absolute()
+            and not any(ord(c) < 32 for c in argv[len(GIT_PREFIX)])
+            and argv[len(GIT_PREFIX) + 1 :] in GIT_COMMANDS
+        )
     if argv[:1] == [SSH]:
         # Reconstruct the entire vector from validated configuration. No extra options,
         # alternative ordering, identities, destinations or request whitespace escape.
@@ -135,13 +203,13 @@ def valid_argv(argv, remote_hosts=None):
     return False
 
 
-async def run(argv, timeout_s=10, *, remote_hosts=None):
+async def run(argv, timeout_s=10, *, remote_hosts=None, physical_disks=None):
     """Return (code, stdout, stderr); -1 means timeout/output limit/unavailable.
 
     Cancellation kills and reaps the child. Both pipes share a 256 KiB budget;
     reaching it stops the child rather than buffering its remaining output.
     """
-    if not valid_argv(argv, remote_hosts):
+    if not valid_argv(argv, remote_hosts, physical_disks=physical_disks):
         raise ValueError("Unsupported host command")
     process = None
     chunks = [bytearray(), bytearray()]
@@ -160,7 +228,18 @@ async def run(argv, timeout_s=10, *, remote_hosts=None):
         async with asyncio.timeout(timeout_s):
             process = await asyncio.create_subprocess_exec(
                 *argv,
-                env={"PATH": "/usr/bin:/bin"},
+                env={
+                    "PATH": "/usr/bin:/bin",
+                    **(
+                        {
+                            "GIT_CONFIG_NOSYSTEM": "1",
+                            "GIT_CONFIG_GLOBAL": "/dev/null",
+                            "GIT_TERMINAL_PROMPT": "0",
+                        }
+                        if argv[:1] == [GIT]
+                        else {}
+                    ),
+                },
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=(

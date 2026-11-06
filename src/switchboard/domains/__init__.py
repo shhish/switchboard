@@ -11,6 +11,7 @@ from . import (
     context,
     dns,
     feedback,
+    git,
     home,
     jobs,
     media,
@@ -20,6 +21,7 @@ from . import (
     reminders,
     routines,
     services,
+    storage,
     tasks,
     watch,
     weather,
@@ -31,6 +33,7 @@ def build_registry():
     for domain in (ops, media, watch, home, calendar, reminders, tasks, jobs, approvals, feedback):
         domain.register(registry)
     services.register(registry)
+    storage.register(registry)
     books.register(registry)
     context.register(registry)
     weather.register(registry)
@@ -41,4 +44,5 @@ def build_registry():
     dns.register(registry)
     routines.register(registry)
     audit.register(registry)
+    git.register(registry)
     return registry

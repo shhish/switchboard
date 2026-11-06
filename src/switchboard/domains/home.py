@@ -4,7 +4,7 @@ from urllib.parse import quote
 
 from ..errors import CapabilityError
 from ..schema import obj, string
-from .common import array, output, pick, selected
+from .common import array, output, pick, require_one, selected
 
 SAFE_TYPES = {
     "lightbulb",
@@ -105,14 +105,19 @@ def check_accessory(core, row, secure):
     core.policy.require_home("accessories", row["id"], secure=secure)
 
 
-async def set_accessory(core, client, args, secure):
+def set_preflight(core, client, args):
     action = args["action"]
-    if (action == "set") != ("characteristic" in args and "value" in args) or (
-        action != "set" and ("characteristic" in args or "value" in args)
-    ):
+    if action == "set" and not {"characteristic", "value"} <= args.keys():
+        raise CapabilityError("invalid_arguments", "Invalid arguments: schema constraint")
+    if action != "set" and ("characteristic" in args or "value" in args):
         raise CapabilityError(
             "invalid_arguments", "Only action set requires characteristic and value"
         )
+
+
+async def set_accessory(core, client, args, secure):
+    set_preflight(core, client, args)
+    action = args["action"]
     row = await read_accessory(core, args["accessory_id"])
     check_accessory(core, row, secure)
     path = "/accessories/" + path_id(row["id"])
@@ -334,14 +339,15 @@ def register(registry):
     @registry.declare(
         "home_set",
         "Control accessory",
-        "Use when turning lights on or off or adjusting a safe accessory. Requires a "
-        "discovered stable ID and control allowlisting. Returns HomeRelay action receipt; "
-        "sensitive devices require home_set_secure.",
+        "Apple Home lights and safe accessory control. Use when turning lights on or off or "
+        "adjusting a safe accessory. Requires a discovered stable ID and control allowlisting. "
+        "Returns HomeRelay action receipt; sensitive devices require home_set_secure.",
         set_schema,
         scope="home:control",
         tier="write",
         service="home",
         idempotent=False,
+        preflight=set_preflight,
         output_schema=set_output,
     )
     async def set_home(core, client, args):
@@ -350,14 +356,15 @@ def register(registry):
     @registry.declare(
         "home_set_secure",
         "Control sensitive accessory",
-        "Use when controlling a sensitive Home accessory. Requires secure allowlisting and "
-        "exact human approval. Returns HomeRelay action receipt; first call requests an "
-        "expiring grant.",
+        "Apple Home sensitive accessory control with approval. Use when controlling a sensitive "
+        "Home accessory. Requires secure allowlisting and exact human approval. Returns "
+        "HomeRelay action receipt; first call requests an expiring grant.",
         set_schema,
         scope="home:secure",
         tier="approval",
         service="home",
         idempotent=False,
+        preflight=set_preflight,
         output_schema=set_output,
     )
     async def set_secure(core, client, args):
@@ -373,9 +380,9 @@ def register(registry):
     @registry.declare(
         "home_run_scene",
         "Run home scene",
-        "Use when running a Home scene. Requires a discovered scene ID and scene "
-        "allowlisting. Returns HomeRelay receipt; opaque scene contents require prior "
-        "review.",
+        "Apple Home scene control. Use when running a Home scene. Requires a discovered scene "
+        "ID and scene allowlisting. Returns HomeRelay receipt; opaque scene contents require "
+        "prior review.",
         scene_schema,
         scope="home:control",
         tier="write",
@@ -389,9 +396,9 @@ def register(registry):
     @registry.declare(
         "home_run_scene_secure",
         "Run sensitive home scene",
-        "Use when running a sensitive Home scene. Requires secure scene allowlisting and "
-        "exact human approval. Returns HomeRelay receipt; first call requests an expiring "
-        "grant.",
+        "Apple Home sensitive scene control with approval. Use when running a sensitive Home "
+        "scene. Requires secure scene allowlisting and exact human approval. Returns HomeRelay "
+        "receipt; first call requests an expiring grant.",
         scene_schema,
         scope="home:secure",
         tier="approval",
@@ -405,8 +412,9 @@ def register(registry):
     @registry.declare(
         "home_list",
         "List home",
-        "Use when finding lights, rooms, accessories or scenes. Requires Home read access. "
-        "Returns bounded HomeRelay names and stable IDs.",
+        "Apple Home homes, rooms, accessories and scenes. Use when finding lights, rooms, "
+        "accessories or scenes. Requires Home read access. Returns bounded HomeRelay names and "
+        "stable IDs.",
         scope="home:read",
         service="home",
         output_schema=output(
@@ -442,17 +450,15 @@ def register(registry):
     @registry.declare(
         "home_get",
         "Get accessory",
-        "Use when checking a light or other accessory state. Requires a discovered ID or "
-        "Room/Name. Returns current compact HomeRelay state.",
-        {
-            **obj({"accessory_id": string(200), "name": string(200)}),
-            "oneOf": [{"required": ["accessory_id"]}, {"required": ["name"]}],
-        },
+        "Apple Home light and accessory state. Use when checking a light or other accessory "
+        "state. Requires a discovered ID or Room/Name. Returns current compact HomeRelay state.",
+        obj({"accessory_id": string(200), "name": string(200)}),
         scope="home:read",
         service="home",
         output_schema=output(accessory=ACCESSORY),
     )
     async def get_home(core, client, args):
+        require_one(args, "accessory_id", "name")
         ref = args.get("accessory_id") or args["name"]
         if ref in (".", ".."):
             raise CapabilityError("invalid_arguments", "Use an accessory ID or name")
@@ -497,6 +503,7 @@ def register(registry):
     @registry.declare(
         "home_states",
         "List States",
+        "Apple Home virtual switches and sensors (HomeRelay States). "
         "Use when checking HomeRelay's virtual switches and sensors (States) such as Guest "
         "mode. Requires Home read access. Returns each State's id, name, kind and value.",
         scope="home:read",
@@ -512,6 +519,7 @@ def register(registry):
     @registry.declare(
         "home_state_set",
         "Set a State",
+        "Turn a HomeRelay State (virtual switch or sensor) on or off. "
         "Use when turning a virtual switch or sensor (a State such as Guest mode) on or off. "
         "Requires the State's id or name. Returns the State afterwards.",
         obj({"state": string(64), "on": {"type": "boolean"}}, ("state", "on")),
@@ -530,6 +538,7 @@ def register(registry):
     @registry.declare(
         "home_state_create",
         "Create a State",
+        "Create a HomeRelay State: a virtual switch or sensor for routines. "
         "Use when the owner wants a new virtual switch or sensor for routines and the Home app. "
         "Requires a name and kind (switch, contact, motion, occupancy, leak). Returns the State.",
         obj(

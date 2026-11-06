@@ -25,9 +25,9 @@ def register(registry):
     @registry.declare(
         "calendar_upcoming",
         "Upcoming calendar events",
-        "Use when checking upcoming events or a calendar conflict. Requires calendar read "
-        "access and a window up to 31 days. Returns events and coverage; FrameServer "
-        "fallback has limited dates and no IDs.",
+        "Calendar upcoming events and conflicts. Use when checking upcoming events or a "
+        "calendar conflict. Requires calendar read access and a window up to 31 days. Returns "
+        "events and coverage; FrameServer fallback has limited dates and no IDs.",
         obj({"days": DAYS, "calendar_ids": IDS}),
         scope="calendar:read",
         service="eventkit+frame",
@@ -82,8 +82,9 @@ def register(registry):
     @registry.declare(
         "calendar_list_calendars",
         "List calendars",
-        "Use when choosing a calendar for an event. Requires authorized EventKit calendar "
-        "access. Returns stable calendar IDs, defaults and writability.",
+        "Calendar IDs, defaults and writability. Use when choosing a calendar for an event. "
+        "Requires authorized EventKit calendar access. Returns stable calendar IDs, defaults "
+        "and writability.",
         scope="calendar:read",
         service="eventkit",
         output_schema=output(calendars=array(CALENDAR), truncated={"type": "boolean"}, **TIME),
@@ -100,8 +101,8 @@ def register(registry):
     @registry.declare(
         "calendar_create_event",
         "Create calendar event",
-        "Use when adding a calendar event. Requires an allowlisted calendar ID and confirmed "
-        "dates and timezone. Returns created event metadata.",
+        "Calendar event creation. Use when adding a calendar event. Requires an allowlisted "
+        "calendar ID and confirmed dates and timezone. Returns created event metadata.",
         obj(
             {
                 "calendar_id": string(1000),
@@ -137,10 +138,11 @@ def register(registry):
     @registry.declare(
         "calendar_update_event",
         "Update calendar event",
-        "Use when editing a discovered event after confirming the exact change with the human. "
-        "Requires its current calendar to allow writes. Changes only the identified occurrence "
-        "of recurring events (.thisEvent). Attendees or another organizer require Calendar. "
-        "Returns updated event metadata.",
+        "Calendar event edits for one discovered occurrence. Use when editing a discovered "
+        "event after confirming the exact change with the human. Requires its current calendar "
+        "to allow writes. Changes only the identified occurrence of recurring events "
+        "(.thisEvent). Attendees or another organizer require Calendar. Returns updated event "
+        "metadata.",
         obj(
             {
                 "event_id": string(1000),

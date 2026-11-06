@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from ..errors import CapabilityError
 from ..media_compress import NOTE, REQUEST_ID, STATUSES, validate_receipt, validate_status
 from ..schema import obj, string
-from .common import array, output, pick, sanitize_text, selected
+from .common import array, output, pick, require_one, sanitize_text, selected
 from .watch import identifier, integer, rows
 
 COUNTS = selected(
@@ -321,6 +321,7 @@ async def active_downloads(core):
 
 
 def compress_preflight(core, client, args):
+    require_one(args, "tmdb_id", "path")
     core.backends.media_compress.settings()
     if "path" in args:
         core.policy.require_compress_path(args["path"])
@@ -442,18 +443,16 @@ def register(registry):
     @registry.declare(
         "media_compress",
         "Request per-title compression",
-        "Use when requesting compression for one library title. Requires an enabled Media "
-        "Doctor backend and an allowlisted library file path. Returns a request ID; exact "
-        "human approval is required and lanes may skip ineligible titles.",
-        {
-            **obj(
-                {
-                    "tmdb_id": {"type": "integer", "minimum": 1, "maximum": 10**9},
-                    "path": string(1024),
-                }
-            ),
-            "oneOf": [{"required": ["tmdb_id"]}, {"required": ["path"]}],
-        },
+        "Media Doctor compression for one library title. Use when requesting compression for "
+        "one library title. Requires an enabled Media Doctor backend and an allowlisted library "
+        "file path. Returns a request ID; exact human approval is required and lanes may skip "
+        "ineligible titles.",
+        obj(
+            {
+                "tmdb_id": {"type": "integer", "minimum": 1, "maximum": 10**9},
+                "path": string(1024),
+            }
+        ),
         scope="media:compress",
         tier="approval",
         service="media_compress",
@@ -506,9 +505,9 @@ def register(registry):
     @registry.declare(
         "media_compress_status",
         "Get compression status",
-        "Use when checking a compression request. Requires a recorded request ID belonging "
-        "to you or owner access. Returns lane status; poll sparingly and expect skipped "
-        "titles.",
+        "Media Doctor compression request status. Use when checking a compression request. "
+        "Requires a recorded request ID belonging to you or owner access. Returns lane status; "
+        "poll sparingly and expect skipped titles.",
         obj({"request_id": string(33)}, ("request_id",)),
         scope="media:compress_read",
         service="media_compress",
@@ -535,8 +534,9 @@ def register(registry):
     @registry.declare(
         "media_compress_list",
         "List compression requests",
-        "Use when recovering recent compression request IDs. Requires compression read "
-        "access. Returns your recorded requests; owner sees all clients.",
+        "Media Doctor compression request history. Use when recovering recent compression "
+        "request IDs. Requires compression read access. Returns your recorded requests; owner "
+        "sees all clients.",
         obj({"limit": {"type": "integer", "minimum": 1, "maximum": 50}}),
         scope="media:compress_read",
         output_schema=output(
@@ -575,9 +575,9 @@ def register(registry):
     @registry.declare(
         "media_request_movie",
         "Request movie",
-        "Use when adding a movie to the library. Requires a confirmed TMDB ID and media "
-        "request allowlisting. Returns Seerr acceptance or existing availability; "
-        "blocklisted movies are never requested.",
+        "Seerr movie requests. Use when adding a movie to the library. Requires a confirmed "
+        "TMDB ID and media request allowlisting. Returns Seerr acceptance or existing "
+        "availability; blocklisted movies are never requested.",
         obj({"tmdb_id": {"type": "integer", "minimum": 1}}, ("tmdb_id",)),
         scope="media:request",
         tier="write",
@@ -592,9 +592,9 @@ def register(registry):
     @registry.declare(
         "media_request_show",
         "Request show",
-        "Use when adding a TV show or seasons to the library. Requires a confirmed TMDB ID "
-        "and media request allowlisting. Returns Seerr acceptance or existing availability; "
-        "blocklisted shows are never requested.",
+        "Seerr TV show and season requests. Use when adding a TV show or seasons to the "
+        "library. Requires a confirmed TMDB ID and media request allowlisting. Returns Seerr "
+        "acceptance or existing availability; blocklisted shows are never requested.",
         obj(
             {
                 "tmdb_id": {"type": "integer", "minimum": 1},
@@ -625,8 +625,9 @@ def register(registry):
     @registry.declare(
         "media_library_status",
         "Media library status",
-        "Use when checking media counts, storage and library health. Requires media read "
-        "access. Returns compact library totals and degraded services.",
+        "Plex media library counts, storage and health. Use when checking media counts, storage "
+        "and library health. Requires media read access. Returns compact library totals and "
+        "degraded services.",
         scope="media:read",
         service="media",
         output_schema=output(
@@ -667,8 +668,8 @@ def register(registry):
     @registry.declare(
         "media_downloads",
         "Media downloads",
-        "Use when checking downloads and recent completions. Requires media read access. "
-        "Returns active downloads and bounded history.",
+        "Media downloads and recent completions. Use when checking downloads and recent "
+        "completions. Requires media read access. Returns active downloads and bounded history.",
         scope="media:read",
         service="media",
         output_schema=output(
@@ -699,8 +700,9 @@ def register(registry):
     @registry.declare(
         "media_search",
         "Search media",
-        "Use when finding a movie or TV show before requesting it. Requires a title query. "
-        "Returns library and Seerr matches; resolve ambiguity using year, kind and TMDB ID.",
+        "Movies and TV shows: search the library and Seerr. Use when finding a movie or TV show "
+        "before requesting it. Requires a title query. Returns library and Seerr matches; "
+        "resolve ambiguity using year, kind and TMDB ID.",
         obj(
             {"query": string(200), "kind": {"type": "string", "enum": ["movie", "show"]}},
             ("query",),
@@ -797,20 +799,17 @@ def register(registry):
     @registry.declare(
         "media_show_detail",
         "Show season and episode availability",
-        "Use when checking latest seasons or aired episodes in Plex. Requires Seerr and "
-        "Plex read access and exactly one TMDB ID or library title. Returns aired, present "
-        "and watched counts; inspects up to six seasons, omitting skipped season detail "
-        "and marking truncated.",
-        {
-            **obj(
-                {
-                    "tmdb_id": {"type": "integer", "minimum": 1},
-                    "title": string(200),
-                    "include_specials": {"type": "boolean"},
-                }
-            ),
-            "oneOf": [{"required": ["tmdb_id"]}, {"required": ["title"]}],
-        },
+        "Plex TV seasons and aired episode availability. Use when checking latest seasons or "
+        "aired episodes in Plex. Requires Seerr and Plex read access and exactly one TMDB ID or "
+        "library title. Returns aired, present and watched counts; inspects up to six seasons, "
+        "omitting skipped season detail and marking truncated.",
+        obj(
+            {
+                "tmdb_id": {"type": "integer", "minimum": 1},
+                "title": string(200),
+                "include_specials": {"type": "boolean"},
+            }
+        ),
         scope="media:read",
         service="media+overseerr+plex",
         timeout_s=90,
@@ -835,6 +834,7 @@ def register(registry):
         ),
     )
     async def detail(core, client, args):
+        require_one(args, "tmdb_id", "title")
         if "title" in args and not args["title"].strip():
             raise CapabilityError("invalid_arguments", "title must contain non-whitespace text")
         try:
