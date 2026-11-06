@@ -10,6 +10,7 @@ from .auth import read_private
 from .errors import CapabilityError
 from .eventkit import EventKit
 from .execution import ROUTINE_CAUSE
+from .gitea import Gitea
 from .media_compress import MediaCompress
 from .notes import Notes
 from .nws import NWS
@@ -27,6 +28,7 @@ class Backends:
         self.things = Things(config)
         self.notes = Notes(config)
         self.weather = NWS(config)
+        self.gitea = Gitea(self)
 
     async def start(self):
         await self.weather.start()
@@ -138,6 +140,8 @@ class Backends:
         return await self.request(name, path, **kwargs)
 
     async def probe(self, name):
+        if name == "gitea":
+            return await self.gitea.probe()
         if name == "media_compress":
             return self.media_compress.probe()
         if name == "eventkit":

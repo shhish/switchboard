@@ -6,6 +6,10 @@
 # Weather uses a separate credential-free HTTPS client; no proxy or cross-host redirects.
 port: 18800
 approval_ttl_s: 1800
+# Local Git discovery is off until absolute root directories are provided.
+# Repositories one level deep and their registered worktrees must stay under roots.
+git:
+  roots: []
 # Non-finance service probes: max 60, unique names, literal loopback or RFC1918 IPs.
 # GET only; no credentials, custom headers, redirects or environment proxies.
 # 3-second timeout per probe, concurrent runs cached for 15 seconds.
@@ -187,6 +191,12 @@ upstreams:
       claude: ~/.local/share/orb-hub/mcp/tokens/claude.token
       codex: ~/.local/share/orb-hub/mcp/tokens/codex.token
 backends:
+  gitea:
+    enabled: false
+    url: http://127.0.0.1:3003/api/v1
+    owner: example-owner
+    token_file: ~/.config/gitea/token
+    # Owner-provisioned regular 0600 file; never put the token value here.
   health:
     url: http://127.0.0.1:8050
     # Deprecated and unused. ops.health and doctor no longer contact the aggregator.
@@ -276,3 +286,17 @@ backends:
     # local credential here. Dedicated Switchboard hub identity is future integration.
     # Posts typed orb_ask cards only. Card answers do not yet resolve approvals;
     # use sb approve/sb deny or a trusted client's approvals.confirm.
+
+# Physical disk/container health. Sampling runs in maintenance even when monitor
+# is disabled; notification delivery additionally needs monitor.enabled + alerts.
+storage:
+  enabled: false
+  warn_percent: 90
+  critical_percent: 95
+  warn_days_to_full: 14
+  hysteresis_percent: 2
+  temperature_c: 55
+  nvme_percentage_used: 90
+  # Hourly fill samples, 35-day retention, seven-day regression; SMART every six
+  # hours (or explicit storage_status refresh), always using -n standby.
+  # Install smartmontools at /opt/homebrew/bin/smartctl before enabling.

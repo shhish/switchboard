@@ -338,8 +338,8 @@ def register(registry):
     @registry.declare(
         "media_continue_watching",
         "Continue watching",
-        "Use when resuming a movie or TV episode. Requires configured Plex read access. "
-        "Returns up to 20 On Deck items and progress.",
+        "Plex continue watching: On Deck and progress. Use when resuming a movie or TV episode. "
+        "Requires configured Plex read access. Returns up to 20 On Deck items and progress.",
         scope="media:read",
         service="plex",
         output_schema=list_output,
@@ -350,8 +350,8 @@ def register(registry):
     @registry.declare(
         "media_recently_added",
         "Recently added to Plex",
-        "Use when finding new library arrivals. Requires configured Plex read access. "
-        "Returns bounded recently added movies and shows.",
+        "Plex recently added movies and shows. Use when finding new library arrivals. Requires "
+        "configured Plex read access. Returns bounded recently added movies and shows.",
         obj({"kind": KIND, "limit": {"type": "integer", "minimum": 1, "maximum": 20}}),
         scope="media:read",
         service="plex",
@@ -365,8 +365,9 @@ def register(registry):
     @registry.declare(
         "media_watch_history",
         "Watch history",
-        "Use when checking what people watched. Requires configured Tautulli read access. "
-        "Returns bounded multi-user history; it may be truncated.",
+        "Tautulli watch history across users. Use when checking what people watched. Requires "
+        "configured Tautulli read access. Returns bounded multi-user history; it may be "
+        "truncated.",
         obj(
             {
                 "days": {"type": "integer", "minimum": 1, "maximum": 90},
@@ -434,8 +435,9 @@ def register(registry):
     @registry.declare(
         "media_now_playing",
         "Now playing",
-        "Use when checking current Plex playback. Requires configured Plex read access. "
-        "Returns bounded titles, users, products, episode identity, progress and bandwidth.",
+        "Plex now playing: current sessions and progress. Use when checking current Plex "
+        "playback. Requires configured Plex read access. Returns bounded titles, users, "
+        "products, episode identity, progress and bandwidth.",
         scope="media:read",
         service="plex",
         output_schema=output(sessions=array(SESSION), truncated={"type": "boolean"}),
@@ -491,9 +493,9 @@ def register(registry):
     @registry.declare(
         "media_find_unwatched",
         "Find unwatched candidates",
-        "Use when deciding what should I watch. Requires configured Plex read access and "
-        "movie or show kind. Returns unwatched library candidates; bounded scans may be "
-        "truncated.",
+        "Plex unwatched movie and TV show candidates. Use when deciding what should I watch. "
+        "Requires configured Plex read access and movie or show kind. Returns unwatched library "
+        "candidates; bounded scans may be truncated.",
         obj(
             {
                 "kind": KIND,
@@ -518,9 +520,9 @@ def register(registry):
     @registry.declare(
         "media_mark_watched",
         "Mark Plex item watched",
-        "Use when correcting a Plex item to watched. Requires an explicit owner request and "
-        "allowlisted rating key. Returns verified watch state; already matching items are "
-        "unchanged.",
+        "Plex watched state: mark one item watched. Use when correcting a Plex item to watched. "
+        "Requires an explicit owner request and allowlisted rating key. Returns verified watch "
+        "state; already matching items are unchanged.",
         write_schema,
         scope="media:watch_state",
         tier="write",
@@ -533,9 +535,9 @@ def register(registry):
     @registry.declare(
         "media_mark_unwatched",
         "Mark Plex item unwatched",
-        "Use when correcting a Plex item to unwatched. Requires an explicit owner request "
-        "and allowlisted rating key. Returns verified watch state; already matching items "
-        "are unchanged.",
+        "Plex watched state: mark one item unwatched. Use when correcting a Plex item to "
+        "unwatched. Requires an explicit owner request and allowlisted rating key. Returns "
+        "verified watch state; already matching items are unchanged.",
         write_schema,
         scope="media:watch_state",
         tier="write",
@@ -548,9 +550,9 @@ def register(registry):
     @registry.declare(
         "media_maintenance_status",
         "Media Doctor status",
-        "Use when checking Media Doctor queues or repairs. Requires a configured private "
-        "maintenance snapshot. Returns work lanes, attention titles and space freed; stale "
-        "snapshots are marked.",
+        "Media Doctor queues, repairs and space freed. Use when checking Media Doctor queues or "
+        "repairs. Requires a configured private maintenance snapshot. Returns work lanes, "
+        "attention titles and space freed; stale snapshots are marked.",
         scope="media:read",
         service="maintenance",
         output_schema=STATUS_SCHEMA,

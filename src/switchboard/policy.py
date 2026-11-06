@@ -42,6 +42,19 @@ class Policy:
             for domain, lists in allowlists.items():
                 if not isinstance(domain, str) or not isinstance(lists, dict):
                     raise ValueError
+                if domain == "git":
+                    from .gitea import SLUG
+
+                    entries = lists.get("write_repos", [])
+                    if (
+                        set(lists) - {"write_repos"}
+                        or not isinstance(entries, list)
+                        or not all(
+                            isinstance(v, str) and re.fullmatch(SLUG + r"/(?:" + SLUG + r"|\*)", v)
+                            for v in entries
+                        )
+                    ):
+                        raise ValueError
                 if domain == "tasks" and set(lists) - {
                     "allow_all",
                     "projects",
@@ -126,6 +139,11 @@ class Policy:
         blanket = domain in ("media", "plex") and lists.get("allow_all", False)
         if not blanket and identifier not in self.allowed_ids(domain, kind, rules=lists):
             raise CapabilityError("resource_denied", "Resource is not allowlisted")
+
+    def require_git_repo(self, repo):
+        entries = self.load().get("allowlists", {}).get("git", {}).get("write_repos", [])
+        if repo not in entries and repo.split("/", 1)[0] + "/*" not in entries:
+            raise CapabilityError("resource_denied", "Git repository is not allowlisted for writes")
 
     def allowed_ids(self, domain, kind, *, rules=None):
         """Effective IDs from one snapshot; explicit denials always win."""

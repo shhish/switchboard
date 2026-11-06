@@ -1,6 +1,6 @@
 ---
 name: switchboard-routines
-description: Draft home automations (routines) for the owner to approve: triggers, conditions and steps in a small checked YAML language, run by Switchboard against Apple Home through HomeRelay.
+description: "Draft home automations (routines) for the owner to approve: triggers, conditions and steps in a small checked YAML language, run by Switchboard against Apple Home through HomeRelay."
 ---
 
 A routine is data, not code: a YAML definition Switchboard checks, the owner

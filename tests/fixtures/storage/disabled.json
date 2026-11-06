@@ -1,0 +1,15 @@
+{
+  "smartctl": {
+    "exit_status": 4,
+    "messages": [
+      {
+        "string": "SMART Disabled. Use option -s with argument 'on' to enable it.",
+        "severity": "error"
+      }
+    ]
+  },
+  "smart_support": {
+    "available": true,
+    "enabled": false
+  }
+}

@@ -288,10 +288,10 @@ def register(registry):
     @registry.declare(
         "console_status",
         "PlayStation status",
-        "Use when checking whether the PS5 is on, in rest mode or off, how hot it runs, "
-        "how much space is free or which game is open. Requires Home read access. Returns "
-        "power and wake/rest pairing; temperatures, storage and uptime only while it is "
-        "awake and the PS5Upload app is open on the Mac.",
+        "PS5 power state, temperatures, storage and running game. Use when checking whether the "
+        "PS5 is on, in rest mode or off, how hot it runs, how much space is free or which game "
+        "is open. Requires Home read access. Returns power and wake/rest pairing; temperatures, "
+        "storage and uptime only while it is awake and the PS5Upload app is open on the Mac.",
         scope="home:read",
         service="console",
         timeout_s=25,
@@ -335,9 +335,9 @@ def register(registry):
     @registry.declare(
         "console_wake",
         "Wake PlayStation",
-        "Use when turning the PS5 on from rest mode. Requires console:control and the "
-        "owner's one-time pairing. Returns whether it reached awake within about 20s; "
-        "a fully powered-off console cannot be woken.",
+        "PS5 power: wake from rest mode. Use when turning the PS5 on from rest mode. Requires "
+        "console:control and the owner's one-time pairing. Returns whether it reached awake "
+        "within about 20s; a fully powered-off console cannot be woken.",
         scope="console:control",
         tier="write",
         service="console",
@@ -350,9 +350,9 @@ def register(registry):
     @registry.declare(
         "console_standby",
         "Put PlayStation in rest mode",
-        "Use when turning the PS5 off into rest mode. Requires console:control and the "
-        "owner's one-time pairing; any game in progress is suspended. Returns whether it "
-        "reached rest within about 20s.",
+        "PS5 power: suspend into rest mode. Use when turning the PS5 off into rest mode. "
+        "Requires console:control and the owner's one-time pairing; any game in progress is "
+        "suspended. Returns whether it reached rest within about 20s.",
         scope="console:control",
         tier="write",
         service="console",
@@ -365,10 +365,10 @@ def register(registry):
     @registry.declare(
         "console_games",
         "PlayStation game library",
-        "Use when listing the games and apps installed on the PS5, or finding a title ID "
-        "before console_launch. Requires Home read access and the PS5Upload app open on "
-        "the Mac. Returns titles by name with platform, whether Switchboard may launch it, "
-        "and the title open now.",
+        "PS5 installed games and apps with launchable title IDs. Use when listing the games and "
+        "apps installed on the PS5, or finding a title ID before console_launch. Requires Home "
+        "read access and the PS5Upload app open on the Mac. Returns titles by name with "
+        "platform, whether Switchboard may launch it, and the title open now.",
         scope="home:read",
         service="console",
         timeout_s=20,
@@ -395,10 +395,10 @@ def register(registry):
     @registry.declare(
         "console_launch",
         "Launch PlayStation game",
-        "Use when starting an installed PS4 or PS5 game or app on the PS5. Requires "
-        "console:control, an installed CUSA/PPSA title ID from console_games, the console "
-        "awake and the PS5Upload app open. Loader-style homebrew IDs are refused. Returns "
-        "the title it asked the console to start.",
+        "PS5 game and app launch. Use when starting an installed PS4 or PS5 game or app on the "
+        "PS5. Requires console:control, an installed CUSA/PPSA title ID from console_games, the "
+        "console awake and the PS5Upload app open. Loader-style homebrew IDs are refused. "
+        "Returns the title it asked the console to start.",
         obj({"title_id": GAME_ID_SCHEMA}, ("title_id",)),
         scope="console:control",
         tier="write",
@@ -423,10 +423,10 @@ def register(registry):
     @registry.declare(
         "console_close",
         "Close PlayStation game",
-        "Use when closing the game or app open on the PS5. Requires console:control and the "
-        "PS5Upload app open. Unsaved progress is lost, so confirm with the human first. "
-        "Optional title_id closes only that title. Returns what was closed (empty if "
-        "nothing was open).",
+        "PS5 running game or app closure. Use when closing the game or app open on the PS5. "
+        "Requires console:control and the PS5Upload app open. Unsaved progress is lost, so "
+        "confirm with the human first. Optional title_id closes only that title. Returns what "
+        "was closed (empty if nothing was open).",
         obj({"title_id": GAME_ID_SCHEMA}),
         scope="console:control",
         tier="write",

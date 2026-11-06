@@ -205,7 +205,12 @@ async def test_modern_events_work_and_legacy_initialize_omits_unserved_events(
     server, config, upstream
 ):
     _, discover = await post(server, config, message("server/discover"))
-    assert discover["result"]["capabilities"] == {"tools": {"listChanged": True}, "events": {}}
+    assert discover["result"]["capabilities"] == {
+        "tools": {"listChanged": True},
+        "prompts": {},
+        "resources": {},
+        "events": {},
+    }
     _, initialize = await post(
         server,
         config,
@@ -280,7 +285,11 @@ async def test_scope_enforced_on_hidden_routes(server, config, upstream, method,
     assert denied["error"]["data"]["error"]["code"] == "scope_denied"
     assert upstream["calls"] == []
     _, discover = await post(server, config, message("server/discover"))
-    assert discover["result"]["capabilities"] == {"tools": {"listChanged": True}}
+    assert discover["result"]["capabilities"] == {
+        "tools": {"listChanged": True},
+        "prompts": {},
+        "resources": {},
+    }
     audit = server[0].audit.tail(1)[0]
     assert audit["decision"] == "denied" and audit["args"] == "[REDACTED]"
 
@@ -430,7 +439,11 @@ async def test_upstream_failure_preserves_local_tools_and_doctor(server, config,
     assert "ops_health" in {t["name"] for t in catalog["result"]["tools"]}
     assert not TOOLS & {t["name"] for t in catalog["result"]["tools"]}
     _, discover = await post(server, config, message("server/discover"))
-    assert discover["result"]["capabilities"] == {"tools": {"listChanged": True}}
+    assert discover["result"]["capabilities"] == {
+        "tools": {"listChanged": True},
+        "prompts": {},
+        "resources": {},
+    }
     _, local = await post(server, config, message("tools/call", name="home_list"))
     assert local["result"]["isError"] is False
     _, failed = await post(server, config, message("tools/call", name="orb_status"))

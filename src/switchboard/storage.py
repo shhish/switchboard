@@ -18,6 +18,19 @@ class Storage:
         self.db.row_factory = sqlite3.Row
         self.db.executescript("""
             PRAGMA journal_mode=WAL;
+            CREATE TABLE IF NOT EXISTS storage_samples (
+                label TEXT NOT NULL, bucket INTEGER NOT NULL, sampled_at REAL NOT NULL,
+                used_bytes INTEGER NOT NULL, total_bytes INTEGER NOT NULL,
+                PRIMARY KEY (label, bucket)
+            );
+            CREATE INDEX IF NOT EXISTS storage_samples_time ON storage_samples(sampled_at);
+            CREATE TABLE IF NOT EXISTS storage_smart (
+                identity TEXT PRIMARY KEY, sampled_at REAL NOT NULL,
+                reading TEXT NOT NULL, baseline TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS storage_inventory (
+                host TEXT PRIMARY KEY, sampled_at REAL NOT NULL, payload TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS monitor_state (
                 name TEXT PRIMARY KEY, status TEXT NOT NULL,
                 consecutive_failures INTEGER NOT NULL, down_since REAL,

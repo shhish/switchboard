@@ -38,8 +38,11 @@ def test_advertised_names_are_function_calling_safe_and_unique():
     assert all(re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", name) for name in names)
     for cap in registry.capabilities.values():
         assert canonical_name(cap.name.replace("_", ".", 1)) == cap.name
-        assert len(cap.description) <= 300
-        assert cap.description.startswith("Use when ")
+        assert len(cap.description) <= 400
+        assert not cap.description.startswith("Use when ")
+        assert " Use when " in cap.description
+        assert len(cap.description.split(" Use when ", 1)[0]) <= 120
+        assert not {"oneOf", "anyOf", "allOf"} & cap.input_schema.keys()
         assert ". Requires " in cap.description and ". Returns " in cap.description
         assert cap.output_schema["additionalProperties"] is False
     assert TOOLS == {
@@ -96,6 +99,42 @@ async def test_dotted_aliases_share_http_mcp_cli_and_canonical_audit(server, con
         assert value["outcome"] == "ok" and value["source"] == "homerelay"
         assert datetime.fromisoformat(value["as_of"]).utcoffset() == UTC.utcoffset(None)
     assert {row["capability"] for row in core.audit.tail()} == {"home_get"}
+
+
+@pytest.mark.parametrize(
+    "name,args",
+    [
+        ("home_get", {}),
+        ("home_get", {"accessory_id": "a1", "name": "Lamp"}),
+        ("home_set", {"accessory_id": "a1", "action": "set"}),
+        ("home_set", {"accessory_id": "a1", "action": "set", "value": 0}),
+        ("home_set_secure", {"accessory_id": "a1", "action": "set"}),
+        (
+            "home_set_secure",
+            {"accessory_id": "a1", "action": "set", "characteristic": "lockTarget"},
+        ),
+        ("media_compress", {}),
+        ("media_compress", {"tmdb_id": 42, "path": "/library/movie.mkv"}),
+        ("media_show_detail", {}),
+        ("media_show_detail", {"tmdb_id": 42, "title": "Example"}),
+    ],
+)
+async def test_flat_input_alternatives_fail_before_io_or_grants(core, monkeypatch, name, args):
+    from .conftest import change_policy
+
+    change_policy(
+        core.config,
+        lambda p: p["clients"]["dot"]["scopes"].append(core.registry.capabilities[name].scope),
+    )
+
+    async def unexpected(*args, **kwargs):
+        pytest.fail("Invalid alternatives must fail before backend access")
+
+    monkeypatch.setattr(core.backends, "get", unexpected)
+    result = await core.call("dot", name, args)
+    assert result["error"]["code"] == "invalid_arguments"
+    assert result["error"]["message"] == "Invalid arguments: schema constraint"
+    assert_no_approval(core)
 
 
 async def test_dotted_approval_records_survive_rename_and_bind_canonical_tool(core, fake_approval):

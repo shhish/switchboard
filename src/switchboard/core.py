@@ -9,8 +9,10 @@ from .alerts import AlertDelivery
 from .approvals import Approvals
 from .audit import Audit
 from .backends import Backends, OrbApprovalNotifier
+from .disk_health import DiskHealth
 from .errors import CapabilityError
 from .execution import Execution
+from .guidance import SkillCatalog
 from .jobs import Jobs
 from .monitor import Monitor
 from .names import canonical_name
@@ -30,6 +32,7 @@ class Core:
 
         self.config = config
         self.registry = registry or build_registry()
+        self.skills = SkillCatalog()
         # Changes whenever a deploy changes any tool's name, schema or description, so
         # the stdio bridge can tell clients to re-fetch (notifications/tools/list_changed).
         self.catalog_version = hashlib.sha256(
@@ -46,6 +49,8 @@ class Core:
         self.watches = Watches(self)
         self.monitor = Monitor(config, self.storage, self.probes, self.alerts, self.watches)
         self.services = Services(self)
+        self.disk_health = DiskHealth(self)
+        self.monitor.disk_health = self.disk_health
         self.context = OwnerContext(self)
         self.orb = OrbUpstream(config, self.policy)
         self.media_request_lock = asyncio.Lock()
@@ -76,6 +81,10 @@ class Core:
                 self.audit.maintain()
             except Exception:
                 pass  # Doctor reports audit chain and retention state; serving continues.
+            try:
+                await self.disk_health.maintain()
+            except Exception:
+                pass  # Storage discovery must not stop audit housekeeping.
             await asyncio.sleep(600)
 
     async def close(self):
@@ -114,11 +123,37 @@ class Core:
 
     async def mcp_capabilities(self, client):
         self.policy.client(client)
-        capabilities = {"tools": {"listChanged": True}}
+        capabilities = {"tools": {"listChanged": True}, "prompts": {}, "resources": {}}
         events = await self.orb.events_capability(client)
         if self.events(client) or events is not None:
             capabilities["events"] = events or {}
         return capabilities
+
+    def guidance(self, client, method, params, ctx=None):
+        """Public release guidance needs a known client, but no tool scope or grant."""
+        decision, outcome = "denied", "error"
+        error_code = None
+        try:
+            self.policy.client(client)
+            result = self.skills.request(method, params)
+            # An unknown prompt or resource is a denied request, as for unknown tools.
+            decision, outcome = "allowed", "ok"
+            return result
+        except CapabilityError as exc:
+            error_code = exc.code
+            raise
+        finally:
+            # Do not persist prompt tasks or arbitrary resource names as plain text.
+            self.audit.append(
+                client=client,
+                capability=method,
+                args=params,
+                decision=decision,
+                outcome=outcome,
+                error_code=error_code,
+                ctx=ctx,
+                hash_fields=frozenset({"task", "name", "uri"}),
+            )
 
     async def federate(self, client, method, params, *, version, meta, ctx=None):
         """Fixed Orb routes share core policy and audit, preserving MCP envelopes."""
@@ -274,6 +309,8 @@ class Core:
             "recipes": "recipes",
             "eventkit": "eventkit",
             "console": "ps5",
+            "gitea": "gitea",
+            "local_git": "local_git",
         }.get(cap.service, "switchboard")
 
     def resolve(self, client, approval_id, approve, ctx=None):

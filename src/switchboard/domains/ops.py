@@ -29,8 +29,10 @@ CHECKS = obj(
                 "alerts_email",
                 "alerts",
                 "home_control_token",
+                "gitea_token",
                 "policy",
                 "heartbeat",
+                "storage",
             )
         },
         "remote_hosts": {
@@ -72,8 +74,9 @@ def register(registry):
     @registry.declare(
         "ops_health",
         "Service health",
-        "Use when checking local service health. Requires ops read access. Returns cached "
-        "non-finance probe status.",
+        "Service health: cached non-finance probes. Use when checking local service health. "
+        "Requires ops read access. Returns cached non-finance probe status.",
+        always_load=True,
         scope="ops:read",
         timeout_s=35,
         output_schema=obj(
@@ -98,8 +101,9 @@ def register(registry):
     @registry.declare(
         "ops_switchboard_status",
         "Switchboard doctor",
-        "Use when a tool fails or Switchboard needs diagnosis. Requires ops read access. "
-        "Returns configuration and backend health checks.",
+        "Switchboard doctor: configuration and backend health. Use when a tool fails or "
+        "Switchboard needs diagnosis. Requires ops read access. Returns configuration and "
+        "backend health checks.",
         scope="ops:read",
         timeout_s=60,
         output_schema=output(
@@ -124,8 +128,9 @@ def register(registry):
     @registry.declare(
         "ops_alerts_status",
         "Monitoring and alerts",
-        "Use when checking monitoring incidents and alert delivery. Requires ops read "
-        "access. Returns cycle times, incidents and delivery status.",
+        "Service monitoring incidents and alert delivery. Use when checking monitoring "
+        "incidents and alert delivery. Requires ops read access. Returns cycle times, incidents "
+        "and delivery status.",
         scope="ops:read",
         output_schema=obj(
             {
@@ -133,7 +138,7 @@ def register(registry):
                 "silences": array(
                     obj(
                         {
-                            "probe": string(40),
+                            "probe": string(80),
                             "until": string(100),
                             "reason": string(200),
                             "client": string(40),
@@ -155,7 +160,7 @@ def register(registry):
                 "open_incidents": array(
                     obj(
                         {
-                            "name": string(40),
+                            "name": string(80),
                             "status": string(),
                             "down_since": {"type": "number"},
                             "alerted": {"type": "boolean"},
@@ -200,9 +205,9 @@ def register(registry):
     @registry.declare(
         "ops_alerts_test",
         "Send test alerts",
-        "Use when testing configured notification channels. Requires ops admin access and "
-        "provisioned channels. Returns queued test IDs; inspect ops_alerts_status for "
-        "delivery.",
+        "Service alerts: send notification channel tests. Use when testing configured "
+        "notification channels. Requires ops admin access and provisioned channels. Returns "
+        "queued test IDs; inspect ops_alerts_status for delivery.",
         scope="ops:admin",
         tier="write",
         idempotent=False,
@@ -217,12 +222,13 @@ def register(registry):
     @registry.declare(
         "ops_alerts_silence",
         "Silence planned maintenance alerts",
-        "Use when planning maintenance to silence down/reminder alerts for a configured "
-        "probe or all probes. Requires ops silence access, a reason and 1–240 minutes. "
-        "Returns probe and expiry; state tracking and awaited recoveries continue.",
+        "Service and storage alerts: silence planned maintenance. Use when planning maintenance "
+        "to silence down/reminder alerts for a configured probe, a storage:<label> or "
+        "smart:<health_id> alert, or all probes. Requires ops silence access, a reason and 1–240 "
+        "minutes. Returns probe and expiry; state tracking and awaited recoveries continue.",
         obj(
             {
-                "probe": string(40),
+                "probe": string(80),
                 "minutes": {"type": "integer", "minimum": 1, "maximum": 240},
                 "reason": string(200),
             },
@@ -231,7 +237,7 @@ def register(registry):
         scope="ops:silence",
         tier="write",
         idempotent=False,
-        output_schema=output(probe=string(40), until=string(100)),
+        output_schema=output(probe=string(80), until=string(100)),
     )
     async def alerts_silence(core, client, args):
         return core.monitor.silence(args["probe"], args["minutes"], args["reason"], client)
@@ -239,13 +245,13 @@ def register(registry):
     @registry.declare(
         "ops_alerts_unsilence",
         "End alert silence",
-        "Use when maintenance ends to remove a configured probe's silence, or the all "
-        "silence. Requires ops silence access. Returns the probe; normal outage alerting "
-        "resumes on the next monitor cycle.",
-        obj({"probe": string(40)}, ("probe",)),
+        "Service and storage alerts: end a maintenance silence. Use when maintenance ends to "
+        "remove a probe's or storage alert's silence, or the all silence. Requires ops silence "
+        "access. Returns the probe; normal outage alerting resumes on the next monitor cycle.",
+        obj({"probe": string(80)}, ("probe",)),
         scope="ops:silence",
         tier="write",
-        output_schema=output(probe=string(40)),
+        output_schema=output(probe=string(80)),
     )
     async def alerts_unsilence(core, client, args):
         return core.monitor.unsilence(args["probe"])

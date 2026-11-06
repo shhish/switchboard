@@ -75,11 +75,20 @@ Agree interface changes with its maintainer before implementing them.
 - `config/`: examples only; `skills/`: canonical workflow text;
   `docs/CAPABILITIES.md`: generated catalog; `docs/ROADMAP.md`: remaining phases.
 
-To add a capability: declare its name/title/concise use description, closed input
-schema, output schema, scope, tier, timeout, idempotency and backend in its domain;
+To add a capability: declare its name/title/description, closed input schema,
+output schema, scope, tier, timeout, idempotency and backend in its domain;
 write a handler entering through Core; add fake-backend and denial tests;
 regenerate `docs/CAPABILITIES.md` with `.venv/bin/sb manifest --markdown` and
-update the relevant skill. The manifest emits all metadata as JSON. Our schema
+update the relevant skill. Descriptions lead with a searchable subject (first
+clause at most 120 characters), then `Use when ...`, `Requires ...`, and
+`Returns ...`; keep all requirements/limits and stay within 400 characters.
+Input schemas must be single flat objects with all properties at the top level:
+no top-level `oneOf`, `anyOf` or `allOf` (ChatGPT drops union properties).
+Validate alternative argument combinations in the handler, and in preflight
+when needed before approval creation, without changing canonical grant binding.
+Declare `always_load` sparingly and `max_result_chars` from bounded output sizes
+(at most 500000); approval-tier tools automatically require user interaction.
+The manifest emits all metadata as JSON. Our schema
 validator deliberately implements a small documented JSON Schema subset; new
 keywords must be implemented/tested rather than silently ignored.
 

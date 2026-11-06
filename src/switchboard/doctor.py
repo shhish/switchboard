@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import remote
+from . import hostcmd, remote
 from .auth import CLIENTS, Tokens
 from .errors import CapabilityError
 from .monitor import heartbeat_status
@@ -55,6 +55,18 @@ async def diagnose(config, backends, policy, orb=None, monitor=None, *, core=Non
         # serve refuses to start when the audit log directory is wider than 0700.
         "log_dir": mode_check(config.log_dir, 0o700),
         "probes": {"status": "ok", "configured": len(config.probes)},
+    }
+    checks["storage"] = {
+        "status": "disabled"
+        if not config.storage["enabled"]
+        else "ok"
+        if os.access(hostcmd.SMARTCTL, os.X_OK)
+        else "degraded",
+        "reason": "not configured"
+        if not config.storage["enabled"]
+        else "configured; smartctl available"
+        if os.access(hostcmd.SMARTCTL, os.X_OK)
+        else "smartctl missing or not executable",
     }
     from .alerts import AlertDelivery
 
@@ -121,6 +133,13 @@ async def diagnose(config, backends, policy, orb=None, monitor=None, *, core=Non
             mode_check(Path(control_file), 0o600)
             if control_file
             else {"status": "down", "reason": "control token path missing"}
+        )
+    if config.backends["gitea"].get("enabled", False):
+        token_file = config.backends["gitea"].get("token_file")
+        checks["gitea_token"] = (
+            mode_check(Path(token_file), 0o600)
+            if token_file
+            else {"status": "down", "reason": "token path missing"}
         )
     try:
         data = policy.load()

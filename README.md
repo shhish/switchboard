@@ -5,15 +5,15 @@
 **One set of hands in your house for every AI agent you use.**
 
 Ask Claude to wake the PS5. Ask Codex why Sonarr restarted at 3am. Ask ChatGPT to dim the bedroom lights.<br/>
-They all go through the same 93 tools, one rulebook and one audit log, running on your own Mac.
+They all go through the same 118 tools, one rulebook and one audit log, running on your own Mac.
 
 [![MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.13+-3776AB?style=flat-square&logo=python&logoColor=white)
 ![macOS](https://img.shields.io/badge/macOS-host-000000?style=flat-square&logo=apple&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-server-8A2BE2?style=flat-square)
-![93 tools](https://img.shields.io/badge/tools-93-success?style=flat-square)
+![118 tools](https://img.shields.io/badge/tools-118-success?style=flat-square)
 
-[What it does](#what-it-can-do) · [See it](#a-day-with-switchboard) · [Guard rails](#guard-rails) · [Quick start](#quick-start) · [All 93 tools](docs/CAPABILITIES.md)
+[What it does](#what-it-can-do) · [See it](#a-day-with-switchboard) · [Guard rails](#guard-rails) · [Quick start](#quick-start) · [All 118 tools](docs/CAPABILITIES.md)
 
 </div>
 
@@ -42,8 +42,10 @@ More things you can ask:
 | *"Anything clash with dinner on Saturday?"* | `calendar_upcoming` | Conflicts from your real calendars |
 | *"Something with chicken, under 30 minutes"* | `recipes_search` | Recipes from your own collection |
 | *"Unlock the front door"* | `home_set_secure` | Waits for your approval, then runs once |
+| *"Is this PR green, and is the checkout safe to edit?"* | `git_pr` → `git_local_status` | Gitea CI results and changes in each local worktree |
 | *"Turn the hall light on with motion after dark"* | `routines_propose` | A routine draft you approve once; then it runs on its own |
 | *"What did the agents do overnight?"* | `audit_digest` | A summary of calls, errors, loops and writes |
+| *"Will a disk fill up soon?"* | `storage_status` → `storage_history` | Shared APFS free space, fill estimates and drive-health warnings |
 | *"Why did Sonarr restart at 3am?"* | `audit_trace` | The chain from the restart back to the agent that caused it |
 
 ## How it fits together
@@ -51,7 +53,7 @@ More things you can ask:
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/readme/how-it-fits-dark.svg">
-    <img src="docs/readme/how-it-fits-light.svg" alt="Claude Code, Codex, Antigravity, ChatGPT and your own scripts call Switchboard on your Mac, which applies policy and approvals, runs 93 typed tools, keeps an audit log and shared names, and reaches Plex, Apple Home, PlayStation 5, Things 3, notes and recipes, and the Mac mini and Raspberry Pi." width="100%">
+    <img src="docs/readme/how-it-fits-light.svg" alt="Claude Code, Codex, Antigravity, ChatGPT and your own scripts call Switchboard on your Mac, which applies policy and approvals, runs 118 typed tools, keeps an audit log and shared names, and reaches Plex, Apple Home, PlayStation 5, Things 3, notes and recipes, and the Mac mini and Raspberry Pi." width="100%">
   </picture>
 </p>
 
@@ -64,7 +66,9 @@ Every integration is optional. Turn on the ones you run. The [full tour](#the-fu
 | Area | What it does |
 | --- | --- |
 | 🖥️ **Keep the servers alive**<br/><sub>`ops_*` · 12 tools</sub> | Health checks every minute, alerts to your phone and email, logs and restarts, plus a Raspberry Pi as a second host. |
+| 💾 **Watch disk health**<br/><sub>`storage_*` · 2 tools</sub> | Disk space, fill trends and SMART warnings for NVMe and USB drives; fill history for the Raspberry Pi. |
 | 🎬 **Watch things**<br/><sub>`media_*` · 17 tools</sub> | Request movies and shows through Seerr, "what should I watch?", continue watching, who watched what, downloads. |
+| 🔀 **Ship code**<br/><sub>`git_*` · 11 tools</sub> | Gitea PRs, CI jobs and redacted logs; shared checkout status; allowlisted PR creation, comments, green merges, reruns and annotated release tags. |
 | 🎮 **Play**<br/><sub>`console_*` · 6 tools</sub> | PS5 on, off, temperature and storage; list your games, launch or close one. |
 | 🛡️ **Home network**<br/><sub>`dns_*` · 3 tools</sub> | AdGuard Home on the Pi: what it answered and blocked, for which devices; pause blocking for a few minutes. |
 | 💡 **Run the house**<br/><sub>`home_*` `routines_*` · 15 tools</sub> | Lights, accessories and scenes in Apple Home, and routines that run on their own: motion, held-open, time and sunset triggers. Locks and garage doors need your approval. |
@@ -82,6 +86,7 @@ Every integration is optional. Turn on the ones you run. The [full tour](#the-fu
 <br/>
 ![Plex](https://img.shields.io/badge/Plex-EBAF00?style=flat-square&logo=plex&logoColor=white)
 ![Seerr](https://img.shields.io/badge/Seerr-6366F1?style=flat-square)
+![Gitea](https://img.shields.io/badge/Gitea-609926?style=flat-square&logo=gitea&logoColor=white)
 ![Tautulli](https://img.shields.io/badge/Tautulli-E5A00D?style=flat-square)
 ![Apple Home](https://img.shields.io/badge/Apple_Home-000000?style=flat-square&logo=apple&logoColor=white)
 ![PlayStation 5](https://img.shields.io/badge/PlayStation_5-0070D1?style=flat-square&logo=playstation&logoColor=white)
@@ -118,12 +123,16 @@ Then add `sb mcp-stdio --client <agent>` as an MCP server in each agent. Deployi
 
 ## The full tour
 
+For Gitea PR, CI and release workflows, see [switchboard-git](skills/switchboard-git/SKILL.md).
+Local Git reads stay under configured roots; merges and release tags pin the SHA checked by CI.
+
 <details>
 <summary><b>Keep the servers alive</b> · <code>ops_*</code></summary>
 
 - **Health checks** every minute, with alerts to your phone (ntfy) and email. Each check has its own timeout and threshold, so a slow USB-disk service doesn't page you at 2am. Silences end by themselves when the service recovers.
 - **A dead-man heartbeat** to a second machine, so you still hear about it when the whole server dies.
 - **Logs, status, CPU, memory, swap and disk** for launchd jobs, Docker containers and apps, with secrets stripped from log lines.
+- **Disk health:** shared APFS container space, hourly fill charts and seven-day forecasts. SMART warnings cover failing health, new bad sectors, NVMe wear and hot HDDs; sleeping drives stay asleep during SMART reads.
 - **Restarts** of allowlisted services, which silence their own alerts and respect a cooldown.
 - **A Raspberry Pi as a second host** over SSH, with a key that can only run a fixed set of commands: status, logs, DNS / Tailscale / uptime checks, allowlisted restarts. No shell, no reboot.
 </details>

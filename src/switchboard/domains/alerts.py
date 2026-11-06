@@ -31,9 +31,10 @@ def register(registry):
     @registry.declare(
         "alerts_watch_add",
         "Watch media or a download",
-        "Use when asked to tell me when media arrives or let me know if a download gets stuck. "
-        "Requires a resolved TMDB title or download title fragment. Returns a watch ID; "
-        "one notification arrives by phone/email, not in chat. Defaults to 14 days.",
+        "Media arrival and stuck download notification watches. Use when asked to tell me when "
+        "media arrives or let me know if a download gets stuck. Requires a resolved TMDB title "
+        "or download title fragment. Returns a watch ID; one notification arrives by "
+        "phone/email, not in chat. Defaults to 14 days.",
         obj(WATCH_ARGS, ("kind",)),
         scope="media:read",
         tier="write",
@@ -48,8 +49,9 @@ def register(registry):
     @registry.declare(
         "alerts_watch_list",
         "List notification watches",
-        "Use when checking one-off notification requests. Requires media read access. "
-        "Returns your active and recently fired watches; owner sees all clients.",
+        "Media notification watches: active and recently fired. Use when checking one-off "
+        "notification requests. Requires media read access. Returns your active and recently "
+        "fired watches; owner sees all clients.",
         scope="media:read",
         output_schema=output(watches=array(WATCH)),
     )
@@ -59,8 +61,9 @@ def register(registry):
     @registry.declare(
         "alerts_watch_remove",
         "Remove a notification watch",
-        "Use when cancelling a one-off notification. Requires your watch ID and media "
-        "read access. Returns the removed ID; owner may remove any client's watch.",
+        "Media notification watch cancellation. Use when cancelling a one-off notification. "
+        "Requires your watch ID and media read access. Returns the removed ID; owner may remove "
+        "any client's watch.",
         obj({"watch_id": string(64)}, ("watch_id",)),
         scope="media:read",
         tier="write",

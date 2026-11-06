@@ -158,9 +158,10 @@ def register(registry):
     @registry.declare(
         "books_search",
         "Search books",
-        "Use when finding a book before requesting it. Requires a title or author query. "
-        "Returns ranked book IDs and ebook/audiobook state; confirm the exact title, author "
-        "and format before books_request.",
+        "Books: search ebooks and audiobooks by title or author. Use when finding a book before "
+        "requesting it. Requires a title or author query. Returns ranked book IDs and "
+        "ebook/audiobook state; confirm the exact title, author and format before "
+        "books_request.",
         obj(
             {"query": string(200), "limit": {"type": "integer", "minimum": 1, "maximum": 10}},
             ("query",),
@@ -206,9 +207,10 @@ def register(registry):
     @registry.declare(
         "books_request",
         "Request book",
-        "Use when requesting an ebook, audiobook or both. Requires a policy-allowed book ID "
-        "and human-confirmed title, author and format. Returns queued/already formats; "
-        "Wanted is never re-queued, but repeating restarts its search. Poll books_status instead.",
+        "Books: request ebooks and audiobooks. Use when requesting an ebook, audiobook or both. "
+        "Requires a policy-allowed book ID and human-confirmed title, author and format. "
+        "Returns queued/already formats; Wanted is never re-queued, but repeating restarts its "
+        "search. Poll books_status instead.",
         obj(
             {"book_id": BOOK_ID, "format": {"type": "string", "enum": [*FORMATS, "both"]}},
             ("book_id",),
@@ -278,9 +280,10 @@ def register(registry):
     @registry.declare(
         "books_status",
         "Book request status",
-        "Use when checking book requests or availability. Requires an optional book ID "
-        "or bounded limit. Returns ebook/audiobook state and download progress; Open/Have "
-        "means available in Calibre/AudioShelf. Without an ID, lists active books newest first.",
+        "Book requests, availability and download progress. Use when checking book requests or "
+        "availability. Requires an optional book ID or bounded limit. Returns ebook/audiobook "
+        "state and download progress; Open/Have means available in Calibre/AudioShelf. Without "
+        "an ID, lists active books newest first.",
         obj({"book_id": BOOK_ID, "limit": {"type": "integer", "minimum": 1, "maximum": 50}}),
         scope="media:read",
         service="lazylibrarian",

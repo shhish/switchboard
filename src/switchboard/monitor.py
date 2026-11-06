@@ -111,6 +111,10 @@ class Monitor:
                     (("last_heartbeat_at", time.time()), ("last_heartbeat_ok", int(ok))),
                 )
 
+    def storage_probes(self):
+        health = getattr(self, "disk_health", None)
+        return health.probe_names() if health else set()
+
     def process(self, services, now):
         configs = {row["name"]: row for row in self.config.probes}
         failing = {"down", "degraded"}
@@ -148,6 +152,7 @@ class Monitor:
             active = {name for name, row in configs.items() if row.get("alert", True)} | {
                 SYSTEM_PROBE
             }
+            active |= self.storage_probes()
             for row in self.db.execute("SELECT name FROM monitor_state").fetchall():
                 if row["name"] not in active:
                     self.db.execute("DELETE FROM monitor_state WHERE name=?", (row["name"],))
@@ -223,7 +228,15 @@ class Monitor:
         name = display_name(probe)
         since = local_time(state["down_since"])
         elapsed = duration(now - state["down_since"])
-        if probe["name"] == SYSTEM_PROBE and kind == "recovery":
+        if "storage_detail" in probe:
+            severity = "Critical" if state["status"] == "down" else "Warning"
+            title = f"[{name}] [{'Recovered' if kind == 'recovery' else severity}]"
+            body = (
+                f"Storage health recovered after {elapsed}."
+                if kind == "recovery"
+                else probe["storage_detail"]
+            )
+        elif probe["name"] == SYSTEM_PROBE and kind == "recovery":
             title = f"[{name}] [✅ Up]"
             body = f"Services are reachable again after {elapsed}."
         elif probe["name"] == SYSTEM_PROBE and kind == "reminder":
@@ -248,7 +261,9 @@ class Monitor:
         return self.delivery.queue(key, payload, now)
 
     def validate_probe(self, name):
-        if name != "all" and name not in {probe["name"] for probe in self.config.probes}:
+        if name != "all" and name not in (
+            {probe["name"] for probe in self.config.probes} | self.storage_probes()
+        ):
             raise CapabilityError("invalid_arguments", "Unknown configured probe")
 
     def silenced(self, name, now):
@@ -324,6 +339,7 @@ class Monitor:
         active = {row["name"] for row in self.config.probes if row.get("alert", True)} | {
             SYSTEM_PROBE
         }
+        active |= self.storage_probes()
         incidents = [
             {
                 "name": row["name"],

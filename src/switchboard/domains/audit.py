@@ -58,10 +58,11 @@ def register(registry):
     @registry.declare(
         "audit_query",
         "Search the activity log",
-        "Use when checking what agents or routines did: recent calls, failures, denials or "
-        "one tool's history. Requires audit:read (own calls) or audit:read_all (everyone). "
-        "Returns newest-first compact rows with safe arguments; follow trace_id, approval_id "
-        "or episode_id with audit_trace.",
+        "Agent activity log: recent calls, failures and tool history. Use when checking what "
+        "agents or routines did: recent calls, failures, denials or one tool's history. "
+        "Requires audit:read (own calls) or audit:read_all (everyone). Returns newest-first "
+        "compact rows with safe arguments; follow trace_id, approval_id or episode_id with "
+        "audit_trace.",
         obj(
             {
                 "hours": HOURS,
@@ -84,6 +85,7 @@ def register(registry):
                 "limit": {"type": "integer", "minimum": 1, "maximum": 200},
             }
         ),
+        max_result_chars=500_000,  # Up to 200 rows with 8 KiB args each; Claude's hard ceiling.
         scope="audit:read",
         output_schema=output(rows=array(ROW), see_all={"type": "boolean"}),
     )
@@ -107,11 +109,13 @@ def register(registry):
     @registry.declare(
         "audit_trace",
         "Trace why something happened",
-        "Use when asking why an action happened or what followed it, e.g. why a service "
-        "restarted. Requires any ID from audit_query: call, trace, approval, job, episode or "
-        "session. Returns the ordered chain: the calls in that trace and episode, the "
-        "approval request and answer, and calls it caused.",
+        "Agent activity trace: why an action happened and what followed. Use when asking why an "
+        "action happened or what followed it, e.g. why a service restarted. Requires any ID "
+        "from audit_query: call, trace, approval, job, episode or session. Returns the ordered "
+        "chain: the calls in that trace and episode, the approval request and answer, and calls "
+        "it caused.",
         obj({"ref": ID, "limit": {"type": "integer", "minimum": 1, "maximum": 200}}, ("ref",)),
+        max_result_chars=500_000,  # Same bounded rows as query; Claude's hard ceiling.
         scope="audit:read",
         output_schema=output(rows=array(ROW)),
     )
@@ -132,10 +136,10 @@ def register(registry):
     @registry.declare(
         "audit_digest",
         "Summarize recent agent activity",
-        "Use when reporting what agents did overnight or spotting problems. Requires "
-        "audit:read. Returns counts per client and tool against a 7-day baseline, errors and "
-        "denials by code, approvals, write actions, repeated-call loops and catalog changes; "
-        "write the narrative yourself.",
+        "Agent activity summary: counts, errors, approvals and loops. Use when reporting what "
+        "agents did overnight or spotting problems. Requires audit:read. Returns counts per "
+        "client and tool against a 7-day baseline, errors and denials by code, approvals, write "
+        "actions, repeated-call loops and catalog changes; write the narrative yourself.",
         obj({"hours": HOURS}),
         scope="audit:read",
         output_schema=output(

@@ -48,6 +48,46 @@ Use `ops_host_checks {"host": "remotehost"}` for DNS, Tailscale, Kuma and pendin
 private IPv4 addresses and absolute key/known-hosts paths; both files must be
 owned regular 0600 files. No automatic pairing or host-key acceptance is supported.
 
+## Storage
+
+Use `storage_status` (`ops:read`, including cortex) for physical disks, mounted
+volumes, shared APFS container fill, trends and open storage incidents. Omit host
+for `mac`, or pass a configured remote host for fill-only data from its snapshot.
+Enable `storage.enabled` in private config; alerts also need `monitor.enabled`
+and a notification channel. No tool enables SMART or changes a drive.
+
+APFS volumes sharing a container have the same `label`, usage and free space;
+`shares_space_with` names the other mounts. Count each container once. The internal
+Data mount is used; sealed system, auxiliary system, simulator and image mounts
+are excluded. Discovery matches native read-only mount data against physical-store
+container references; the host command allowlist never accepts synthesized IDs.
+`role` is `time_machine` when a legacy backup directory is detectable, `data` for
+the internal Data mount, otherwise null (especially APFS backup roles).
+
+SMART `passed: null` is unknown, never a pass. `standby` means a sleeping drive
+was left asleep; `disabled` needs the owner to review and run
+`scripts/owner-enable-smart.sh`. Agents must never run that script. `unsupported`
+may mean the bridge cannot forward SMART or the read failed. `warnings` and
+`sampled_at` describe the last read; normal reads use a persistent six-hour cache.
+`refresh: true` forces a read with `-n standby`, which still leaves sleeping HDDs
+asleep. No serial numbers are returned or retained.
+
+For charts, call `storage_history {"label": "<returned label>", "days": 1-35}`
+(default seven days). At most 840 hourly points are returned. Trends use least
+squares over seven days; a rising series reports `days_to_full`, while insufficient,
+flat or falling data returns null. Estimates assume the recent rate continues.
+Container resizing starts a new trend fit; 35 days of history remain available.
+
+Before planned disk work, read `storage_status`, then silence its exact
+`storage:<label>` and/or `smart:<health_id>` probe (both from `storage_status`) with `ops_alerts_silence`, a reason
+and 1–240 minutes. Names must have been discovered, and the existing three-silence
+agent limit applies. `ops_alerts_status` includes these incidents and silences;
+unsilence afterwards. Default fill warnings are 90%, critical at 95%, or less
+than 14 days to full; an open fill incident resolves at or below 88% once its forecast
+is safe. SMART counter increases persist until the next actual readable sample;
+standby or unavailable readings never resolve a fault. Alerts use the existing
+incident, reminder and notification outbox pipeline.
+
 Before any planned restart of a monitored service, call `ops_alerts_silence`
 with its configured probe name, 1–240 minutes and a short maintenance reason.
 Use `probe: "all"` for host-wide maintenance. Call `ops_alerts_unsilence` afterwards;
@@ -79,6 +119,12 @@ name, bundle ID and signing identity. See docs/SETUP.md "Monitoring and results"
 0600 secret-file provisioning; never display topic URLs or SMTP credentials.
 
 Use `sb list` for your permitted tools and `sb manifest` for declared contracts.
+The release's public `skills/*/SKILL.md` guidance is also available over MCP:
+`prompts/list` and `prompts/get` expose each directory name as a prompt with an
+optional `task` argument; Claude Code turns these into slash commands.
+`resources/list` and `resources/read` expose the same skills as Markdown at
+`switchboard://skills/<name>` for @-mentions. Any authenticated, policy-known
+client can read this guidance; it grants no scopes, allowlists or approvals.
 Prefer the capabilities to raw service APIs whenever a capability exists.
 The MCP catalog also merges Orb's existing `orb_*` tools for clients with
 `orb:use` and their own mapped hub token. These federated contracts are MCP-only;

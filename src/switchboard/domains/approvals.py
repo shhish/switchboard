@@ -8,9 +8,10 @@ def register(registry):
     @registry.declare(
         "approvals_confirm",
         "Confirm approval",
-        "Use when confirming an exact requested action after a human agrees. Requires "
-        "trusted confirmation policy and your own unexpired approval ID. Returns resolved "
-        "single-use approval; notification answers alone grant nothing.",
+        "Human approval: confirm an exact requested action. Use when confirming an exact "
+        "requested action after a human agrees. Requires trusted confirmation policy and your "
+        "own unexpired approval ID. Returns resolved single-use approval; notification answers "
+        "alone grant nothing.",
         obj({"approval_id": string(128)}, ("approval_id",)),
         scope="approvals:confirm",
         tier="approval",
