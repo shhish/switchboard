@@ -21,9 +21,18 @@ They all go through the same 93 tools, one rulebook and one audit log, running o
 
 ## A day with Switchboard
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/readme/chat-dark.svg">
+    <img src="docs/readme/chat-light.svg" alt="A real Claude Code chat using Switchboard: all 26 services up, the PS5 in rest mode, and three new Plex arrivals." width="760">
+  </picture>
+</p>
+<p align="center"><sub>A real conversation through Switchboard on 6 November 2026, lightly trimmed.</sub></p>
+
+More things you can ask:
+
 | You say… | …the agent calls | What happens |
 | --- | --- | --- |
-| *"Is anything down?"* | `ops_health` | Checks every service on the Mac mini and the Pi |
 | *"Turn on the PS5 and start Astro Bot"* | `console_wake` → `console_launch` | The console wakes from rest and the game boots |
 | *"Tell me when Dune: Part Two is ready"* | `alerts_watch_add` | One notification on your phone when it lands in Plex |
 | *"What should we watch tonight?"* | `media_find_unwatched` | Unwatched picks from your Plex library |
@@ -38,23 +47,12 @@ They all go through the same 93 tools, one rulebook and one audit log, running o
 
 ## How it fits together
 
-```mermaid
-flowchart LR
-  CC["Claude Code"] --> SB
-  CX["Codex"] --> SB
-  AG["Antigravity"] --> SB
-  GPT["ChatGPT · Dot"] --> SB
-  ORB["Orb device"] --> SB
-
-  SB{{"Switchboard<br/>policy · 93 tools · audit log"}}
-
-  SB --> MEDIA["Plex · Seerr · Tautulli"]
-  SB --> HOME["Apple Home"]
-  SB --> PS5["PlayStation 5"]
-  SB --> LIFE["Things 3 · Reminders · Calendar"]
-  SB --> MIND["Notes · Recipes · Books"]
-  SB --> OPS["Mac mini · Raspberry Pi · AdGuard"]
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/readme/how-it-fits-dark.svg">
+    <img src="docs/readme/how-it-fits-light.svg" alt="Claude Code, Codex, Antigravity, ChatGPT and Orb call Switchboard on your Mac, which applies policy and approvals, runs 90 typed tools, keeps an audit log and shared names, and reaches Plex, Apple Home, PlayStation 5, Things 3, notes and recipes, and the Mac mini and Raspberry Pi." width="100%">
+  </picture>
+</p>
 
 Each agent gets its own token and its own permissions. House knowledge (which library is which, what "the bedroom lights" means, that the garage door needs a human) is kept here once, and every agent uses it.
 
