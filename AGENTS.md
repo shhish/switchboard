@@ -110,7 +110,7 @@ Run:
 - MCP registrations and skill symlinks must reference the deployed release under
   `~/.local/share/switchboard/current`, never a development checkout.
 - Deployment settings belong in private `~/.config/switchboard/deploy.env` (0600).
-  See README.md for launchd templates and stable native signing.
+  See docs/SETUP.md for launchd templates and stable native signing.
 
 Policy, tokens and deployed binaries are owner-controlled trust roots.
 Agents with filesystem access to them can bypass a capability server; routine

@@ -88,7 +88,7 @@ This tool cannot start, cancel, approve, repair or install anything. Media Docto
 owns all repair/compression workflows; no contact with its planner or internals.
 
 On failures use `ops_switchboard_status` or `sb doctor`. Missing private Plex or
-Tautulli credential files require owner provisioning from README. Report a
+Tautulli credential files require owner provisioning (docs/SETUP.md). Report a
 reproducible capability problem with `switchboard_report_issue` without secrets.
 
 
