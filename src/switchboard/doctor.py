@@ -32,6 +32,20 @@ def mode_check(path, mode):
         return {"status": "down", "reason": "missing or inaccessible"}
 
 
+def audit_chain(db):
+    from .audit import read_checkpoint, verify_db
+
+    try:
+        # Incremental from the last hourly verification; `sb audit verify` does a full pass.
+        result = verify_db(db, start=read_checkpoint(db))
+    except sqlite3.Error:
+        return {"status": "unknown", "reason": "audit tables unavailable"}
+    if result["ok"]:
+        return {"status": "ok", "rows": result["checked"]}
+    # A break means rows were edited or deleted outside Switchboard.
+    return {"status": "down", "reason": "audit hash chain broken", "seq": result["broken_at_seq"]}
+
+
 async def diagnose(config, backends, policy, orb=None, monitor=None, *, core=None):
     checks = {
         "config_dir": mode_check(config.config_dir, 0o700),
@@ -49,6 +63,7 @@ async def diagnose(config, backends, policy, orb=None, monitor=None, *, core=Non
     if monitor is not None:
         last_cycle = monitor.status()["last_cycle_at"]
         heartbeat = heartbeat_status(config, monitor.db)
+        checks["audit_chain"] = audit_chain(monitor.db)
     else:
         try:
             path = config.state_dir / "state.sqlite3"
@@ -58,6 +73,7 @@ async def diagnose(config, backends, policy, orb=None, monitor=None, *, core=Non
                 ).fetchone()
                 last_cycle = row[0] if row else None
                 heartbeat = heartbeat_status(config, db)
+                checks["audit_chain"] = audit_chain(db)
         except (OSError, ValueError, sqlite3.Error):
             pass
     age = max(0, time.time() - last_cycle) if last_cycle is not None else None

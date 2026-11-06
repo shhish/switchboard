@@ -349,8 +349,8 @@ def outputs_match_advertised_schema(monkeypatch):
 
     original = Core.call
 
-    async def checked(self, client, name, arguments):
-        result = await original(self, client, name, arguments)
+    async def checked(self, client, name, arguments, ctx=None):
+        result = await original(self, client, name, arguments, ctx)
         cap = (
             self.registry.capabilities.get(canonical_name(name)) if isinstance(name, str) else None
         )

@@ -23,6 +23,22 @@ def private_files(host):
             raise ValueError("Unsafe remote credential file")
 
 
+# Per-command deadlines; the native helper mirrors these in RemoteSSH.deadline(for:).
+TIMEOUTS = {"restart": 100, "refresh-updates": 190, "ps5": 70}
+
+# Agent refusals that mean something specific to the caller.
+REFUSALS = {
+    "not_allowed": ("resource_denied", "Remote service restart is not allowed", None),
+    "not_paired": (
+        "owner_required",
+        "Console control is not paired yet",
+        "The owner pairs it once with scripts/owner-setup-ps5.sh",
+    ),
+    "console_offline": ("backend_down", "Console is off or not on the network", None),
+    "control_failed": ("backend_error", "Console did not accept the request", None),
+}
+
+
 async def via_helper(core, host, request, argv, deadline_s, hosts):
     """Run the fixed ssh through the native helper, which holds the Local Network grant.
 
@@ -65,7 +81,7 @@ async def call(core, host_name, *tokens):
     if not hostcmd.valid_request(request):
         raise CapabilityError("invalid_arguments", "Unsupported remote request")
     host = hosts[host_name]
-    timeout = {"restart": 100, "refresh-updates": 190}.get(tokens[0], 20)
+    timeout = TIMEOUTS.get(tokens[0], 20)
     runner = getattr(getattr(core, "services", None), "runner", hostcmd.run)
     try:
         async with asyncio.timeout(timeout):
@@ -91,8 +107,9 @@ async def call(core, host_name, *tokens):
     except (ValueError, TypeError, RecursionError):
         raise CapabilityError("backend_invalid", "Invalid remote agent response") from None
     if not data["ok"]:
-        if data.get("code") == "not_allowed":
-            raise CapabilityError("resource_denied", "Remote service restart is not allowed")
+        if data.get("code") in REFUSALS:
+            code, message, hint = REFUSALS[data["code"]]
+            raise CapabilityError(code, message, hint=hint)
         invalid = isinstance(data.get("error"), str) and (
             data["error"] in {"unsupported request", "unknown service"}
             or (isinstance(data.get("error"), str) and data["error"].startswith("usage:"))
@@ -108,14 +125,18 @@ async def call(core, host_name, *tokens):
 def project(data, schema):
     """Keep declared fields only, bound collections, then validate untrusted JSON."""
 
+    def kinds(spec):
+        kind = spec.get("type")
+        return set(kind) if isinstance(kind, list) else {kind}
+
     def select(value, spec):
-        if isinstance(value, dict) and spec.get("type") == "object":
+        if isinstance(value, dict) and "object" in kinds(spec):
             return {
                 key: select(value[key], child)
                 for key, child in spec["properties"].items()
                 if key in value
             }
-        if isinstance(value, list) and spec.get("type") == "array":
+        if isinstance(value, list) and "array" in kinds(spec):
             return [select(item, spec["items"]) for item in value[: spec.get("maxItems", 200)]]
         return value
 

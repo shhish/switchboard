@@ -8,7 +8,7 @@ import Synchronization
 /// command runner: every argument is revalidated here and the argv shape is fixed.
 public enum RemoteSSH {
   static let commands: Set<String> = [
-    "version", "snapshot", "checks", "status", "logs", "restart", "refresh-updates",
+    "version", "snapshot", "checks", "status", "logs", "restart", "refresh-updates", "ps5",
   ]
 
   static func token(_ value: Substring) -> Bool {
@@ -25,6 +25,7 @@ public enum RemoteSSH {
     case "version", "snapshot", "checks", "refresh-updates": return args.isEmpty
     case "status": return args.count <= 1
     case "restart": return args.count == 1
+    case "ps5": return args.count == 1 && ["status", "wake", "standby"].contains(String(args.first!))
     case "logs":
       guard args.count == 2, let n = Int(args.last!), (1...400).contains(n) else { return false }
       return true
@@ -62,6 +63,7 @@ public enum RemoteSSH {
     switch request.split(separator: " ").first {
     case "restart": return 100
     case "refresh-updates": return 190
+    case "ps5": return 70
     default: return 20
     }
   }

@@ -64,7 +64,7 @@ async def pi(core, tmp_path):
         if argv[0] != hostcmd.SSH:
             return 0, "42 99 99999 /bin/mac\n", ""
         assert kwargs["remote_hosts"] == core.config.remote_hosts
-        expected = {"restart": 100, "refresh-updates": 190}.get(argv[-1].split(" ")[0], 20)
+        expected = remote.TIMEOUTS.get(argv[-1].split(" ")[0], 20)
         assert kwargs["timeout_s"] == expected
         value = replies.get((argv[-2], argv[-1]), replies.get(argv[-1], {"ok": True}))
         if isinstance(value, Exception):
@@ -657,3 +657,289 @@ async def test_refresh_updates_and_sampled_snapshot_fields(pi):
     assert (await core.call("dot", "ops_host_refresh_updates", {"host": "remotehost"}))["error"][
         "code"
     ] == "scope_denied"
+
+
+CONSOLE = {
+    "found": True,
+    "power": "awake",
+    "name": "PS5-123",
+    "address": ip(192, 168, 50, 9),
+    "firmware": "13.60",
+    "running_title": {"id": "PPSA01234_00", "name": "A Game"},
+}
+
+
+async def test_console_status_needs_no_pairing(pi):
+    core, calls, replies = pi
+    assert remote.TIMEOUTS["ps5"] == 70
+    replies["ps5 status"] = {
+        "ok": True,
+        "console": {
+            **CONSOLE,
+            "host_id": "PRIVATE",
+            "running_title": {**CONSOLE["running_title"], "art": "PRIVATE"},
+        },
+        "bridge": {"installed": False, "paired": False},
+    }
+    result = await core.call("dot", "console_status", {})
+    assert result["console"]["power"] == "awake" and result["console"]["firmware"] == "13.60"
+    assert result["console"]["running_title"]["name"] == "A Game"
+    assert result["bridge"] == {"installed": False, "paired": False}
+    assert "PRIVATE" not in json.dumps(result)
+    replies["ps5 status"] = {
+        "ok": True,
+        "console": {"found": False, "power": "off"},
+        "bridge": {"installed": True, "paired": True},
+    }
+    assert (await core.call("dot", "console_status", {}))["console"] == {
+        "found": False,
+        "power": "off",
+    }
+    replies["ps5 status"] = {"ok": True, "console": {"found": True, "power": "on"}}
+    result = await core.call("dot", "console_status", {})
+    assert result["error"]["code"] == "backend_invalid"
+    assert ssh_calls(calls) == ["ps5 status"] * 3
+
+
+async def test_console_control_scope_and_refusals(pi):
+    core, calls, replies = pi
+    for tool in ("console_wake", "console_standby"):
+        assert (await core.call("codex", tool, {}))["error"]["code"] == "scope_denied"
+        assert (await core.call("codex", tool, {"action": "x"}))["error"]["code"] in (
+            "scope_denied",
+            "invalid_arguments",
+        )
+    assert ssh_calls(calls) == []
+    change_policy(core.config, lambda p: p["clients"]["codex"]["scopes"].append("console:control"))
+    replies["ps5 wake"] = {
+        "ok": True,
+        "action": "wake",
+        "changed": True,
+        "reached": True,
+        "console": CONSOLE,
+    }
+    result = await core.call("codex", "console_wake", {})
+    assert result["reached"] and result["console"]["power"] == "awake"
+    replies["ps5 standby"] = (
+        3,
+        json.dumps({"ok": False, "error": "PRIVATE", "code": "not_paired"}),
+        "",
+    )
+    result = await core.call("codex", "console_standby", {})
+    assert result["error"]["code"] == "owner_required"
+    assert "owner-setup-ps5" in result["error"]["hint"] and "PRIVATE" not in json.dumps(result)
+    for code, expected in (
+        ("console_offline", "backend_down"),
+        ("control_failed", "backend_error"),
+    ):
+        replies["ps5 standby"] = (3, json.dumps({"ok": False, "error": "x", "code": code}), "")
+        assert (await core.call("codex", "console_standby", {}))["error"]["code"] == expected
+    assert ssh_calls(calls) == ["ps5 wake"] + ["ps5 standby"] * 3
+
+
+async def test_console_needs_exactly_one_remote_host(pi):
+    core, calls, _ = pi
+    core.config.remote_hosts = {}
+    assert (await core.call("dot", "console_status", {}))["error"]["code"] == "backend_disabled"
+    assert ssh_calls(calls) == []
+
+
+@pytest.mark.parametrize(
+    "ssh_request", ["ps5", "ps5 reboot", "ps5 wake now", "ps5 Wake", "ps5 pair"]
+)
+def test_console_requests_are_closed(ssh_request):
+    assert not hostcmd.valid_request(ssh_request)
+    assert all(hostcmd.valid_request(f"ps5 {a}") for a in ("status", "wake", "standby"))
+
+
+ENGINE_STATE = {
+    "/api/consoles": {"consoles": [{"host": ip(192, 168, 50, 9), "name": "PS5", "id": "x"}]},
+    "/api/ps5/hw/temps": {
+        "cpu_temp": 39,
+        "soc_temp": 37,
+        "m2_temp": 41,
+        "cpu_freq_mhz": 800,
+        "cpu_usage_pct": -1,
+        "stale": False,
+    },
+    "/api/ps5/hw/storage": {"user_total_bytes": 1000, "user_free_bytes": 250},
+    "/api/ps5/hw/power": {"operating_time_sec": 4399},
+    "/api/ps5/hw/info": {"model": "CFI-1215A 01X", "serial": "PRIVATE-SERIAL"},
+    "/api/ps5/status": {"version": "11.2.4", "ps5_kernel": "PRIVATE"},
+    "/api/ps5/process/list": {
+        "processes": [
+            {"pid": 1, "title_id": "NPXS40087", "app_id": 7, "kind": "system"},
+            {"pid": 2, "title_id": "", "app_id": 0, "kind": "payload"},
+            {"pid": 3, "title_id": "PPSA01935", "app_id": 24, "kind": "app"},
+        ]
+    },
+    "/api/ps5/apps/installed": {
+        "titles": [
+            {"title_id": "PPSA01935", "title_name": "Plex", "system": False},
+            {"title_id": "CUSA01163", "title_name": "Rocket League", "system": False},
+            {"title_id": "PLDM00001", "title_name": "Payload Manager", "system": False},
+            {"title_id": "NPXS40087", "title_name": "Shell", "system": True},
+            {"title_id": "bad id", "title_name": "x", "system": False},
+        ]
+    },
+    "/api/games/installed": [{"title_id": "PPSA01935", "title": "Plex"}],
+}
+
+
+@pytest.fixture
+def engine(pi, monkeypatch):
+    core, calls, replies = pi
+    core.config.backends["ps5upload"] = {"url": "http://127.0.0.1:19113", "enabled": True}
+    state, posts = json.loads(json.dumps(ENGINE_STATE)), []
+    real_request = core.backends.request
+
+    async def request(name, path="", *, params=None, payload=None, **kwargs):
+        if name != "ps5upload":
+            return await real_request(name, path, params=params, payload=payload, **kwargs)
+        if payload is not None:
+            posts.append((path, payload))
+            return state.get(("POST", path), {"ok": True})
+        if path != "/api/consoles" and path != "/api/games/installed":
+            assert params == {"addr": ip(192, 168, 50, 9)}
+        value = state[path]
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    monkeypatch.setattr(core.backends, "request", request)
+    monkeypatch.setattr(core.backends, "get", lambda name, path="", **kw: request(name, path, **kw))
+    replies["ps5 status"] = {
+        "ok": True,
+        "console": dict(CONSOLE, running_title=None),
+        "bridge": {"installed": True, "paired": True},
+    }
+    change_policy(core.config, lambda p: p["clients"]["codex"]["scopes"].append("console:control"))
+    return core, state, posts
+
+
+async def test_console_status_adds_engine_details(engine):
+    core, state, _ = engine
+    result = await core.call("dot", "console_status", {})
+    assert result["source"] == "ps5"
+    assert result["details"] == {
+        "model": "CFI-1215A",
+        "cpu_temp_c": 39,
+        "soc_temp_c": 37,
+        "ssd_temp_c": 41,
+        "cpu_mhz": 800,
+        "uptime_s": 4399,
+        "storage_total_bytes": 1000,
+        "storage_free_bytes": 250,
+        "helper_version": "11.2.4",
+    }
+    assert result["console"]["running_title"] == {"id": "PPSA01935", "name": "Plex"}
+    assert "PRIVATE" not in json.dumps(result)
+    # Engine closed: power still answers, details explain why they're missing.
+    from switchboard.errors import CapabilityError as E
+
+    for path in list(state):
+        state[path] = E("backend_down", "ps5upload: unreachable")
+    result = await core.call("dot", "console_status", {})
+    assert result["console"]["power"] == "awake" and "details" not in result
+    assert "PS5Upload" in result["details_unavailable"]
+
+
+async def test_console_status_skips_details_when_not_awake(pi, engine):
+    core, _, _ = engine
+    _, _, replies = pi
+    replies["ps5 status"] = {
+        "ok": True,
+        "console": {"found": True, "power": "rest", "name": "PS5-123"},
+        "bridge": {"installed": True, "paired": True},
+    }
+    result = await core.call("dot", "console_status", {})
+    assert "details" not in result and "details_unavailable" not in result
+    assert "running_title" not in result["console"]
+    core.config.backends["ps5upload"]["enabled"] = False
+    replies["ps5 status"]["console"]["power"] = "awake"
+    result = await core.call("dot", "console_status", {})
+    assert "details" not in result and "PS5Upload" in result["details_unavailable"]
+    assert (await core.call("dot", "console_games", {}))["error"]["code"] == "backend_disabled"
+
+
+async def test_console_games_launch_and_close(engine):
+    core, state, posts = engine
+    games = await core.call("dot", "console_games", {})
+    assert [g["title_id"] for g in games["games"]] == ["PPSA01935", "CUSA01163", "PLDM00001"]
+    assert [g["launchable"] for g in games["games"]] == [True, True, False]
+    assert games["games"][2]["platform"] == "homebrew" and games["running"]["name"] == "Plex"
+    assert (await core.call("dot", "console_launch", {"title_id": "CUSA01163"}))["error"][
+        "code"
+    ] == "scope_denied"
+    for bad in ("PLDM00001", "NPXS40087", "CUSA0116", "cusa01163"):
+        result = await core.call("codex", "console_launch", {"title_id": bad})
+        assert result["error"]["code"] == "invalid_arguments", bad
+    assert (await core.call("codex", "console_launch", {"title_id": "CUSA99999"}))["error"][
+        "code"
+    ] == "not_found"
+    result = await core.call("codex", "console_launch", {"title_id": "CUSA01163"})
+    assert result["launched"] == {"id": "CUSA01163", "name": "Rocket League"}
+    assert posts == [
+        ("/api/ps5/app/launch", {"addr": ip(192, 168, 50, 9), "title_id": "CUSA01163"})
+    ]
+    state[("POST", "/api/ps5/app/launch")] = {"ok": False}
+    assert (await core.call("codex", "console_launch", {"title_id": "CUSA01163"}))["error"][
+        "code"
+    ] == "backend_error"
+    posts.clear()
+    assert (await core.call("codex", "console_close", {"title_id": "CUSA01163"}))["closed"] == []
+    result = await core.call("codex", "console_close", {})
+    assert result["closed"] == [{"id": "PPSA01935", "name": "Plex"}]
+    assert posts == [
+        ("/api/ps5/app/lifecycle", {"addr": ip(192, 168, 50, 9), "action": "kill", "app_id": 24})
+    ]
+
+
+@pytest.mark.parametrize(
+    "consoles",
+    [
+        [],
+        [{"host": "8.8.8.8"}],
+        [{"host": "127.0.0.1"}],
+        [{"host": "a"}, {"host": "b"}],
+        [{"host": "fe80::1"}],
+        [{"host": 3232235778}],
+        [{"host": "0.0.0.0"}],
+        [{"host": "169.254.1.1"}],
+        [{"host": "192.0.2.1"}],
+        [{"host": ip(192, 168, 1, 255)}],
+        [{"host": " " + ip(192, 168, 1, 2)}],
+    ],
+)
+async def test_engine_console_must_be_one_lan_address(engine, consoles):
+    core, state, posts = engine
+    state["/api/consoles"] = {"consoles": consoles}
+    result = await core.call("codex", "console_close", {})
+    assert result["error"]["code"] in ("backend_disabled", "backend_invalid") and posts == []
+
+
+async def test_odd_engine_answers_never_break_status(pi, engine):
+    core, state, _ = engine
+    state["/api/ps5/hw/info"] = {"model": "   "}
+    state["/api/ps5/status"] = {"version": ""}
+    state["/api/games/installed"] = [{"title_id": ["PPSA01935"], "title": "x"}, "junk", None]
+    result = await core.call("dot", "console_status", {})
+    assert result["outcome"] == "ok" and "model" not in result["details"]
+    assert "helper_version" not in result["details"]
+    assert result["console"]["running_title"] == {"id": "PPSA01935", "name": "PPSA01935"}
+
+
+async def test_process_read_failure_is_unknown_not_nothing(pi, engine):
+    from switchboard.errors import CapabilityError as E
+
+    core, state, posts = engine
+    state["/api/ps5/process/list"] = E("backend_invalid", "x")
+    result = await core.call("dot", "console_status", {})
+    assert result["details"]["cpu_temp_c"] == 39 and "running_title" not in result["console"]
+    games = await core.call("dot", "console_games", {})
+    assert len(games["games"]) == 3 and games["running"] is None and games["running_unknown"]
+    # Close still works when only the name cache is down.
+    state["/api/ps5/process/list"] = ENGINE_STATE["/api/ps5/process/list"]
+    state["/api/games/installed"] = E("backend_down", "x")
+    result = await core.call("codex", "console_close", {})
+    assert result["closed"] == [{"id": "PPSA01935", "name": "PPSA01935"}] and len(posts) == 1

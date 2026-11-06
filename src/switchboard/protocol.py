@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from .errors import CapabilityError
+from .execution import Execution
 from .upstreams.orb import EVENT_METHODS
 
 MODERN_VERSION = "2026-07-28"
@@ -184,6 +185,8 @@ class Protocol:
             )
         method = message["method"]
         params = {k: v for k, v in params.items() if k != "_meta"}
+        # Correlation hints only (trace, session, client info); never used for authorization.
+        ctx = Execution.from_meta(meta)
         try:
             name = params.get("name")
             if (method == "tools/call" and isinstance(name, str) and name.startswith("orb_")) or (
@@ -192,7 +195,7 @@ class Protocol:
                 if method == "tools/call":
                     self.only(params, ("name", "arguments"))
                 envelope = await self.core.federate(
-                    client, method, params, version=version, meta=meta
+                    client, method, params, version=version, meta=meta, ctx=ctx
                 )
                 if method == "events/list" and "result" in envelope:
                     # Local definitions can be added without changing hub subscription ownership.
@@ -202,7 +205,7 @@ class Protocol:
                         result = {**result, "events": [*local, *result["events"]]}
                         envelope = {"result": result}
                 return {"jsonrpc": "2.0", "id": request_id, **envelope}
-            result = await self.dispatch(method, params, client, modern)
+            result = await self.dispatch(method, params, client, modern, ctx)
         except ProtocolError as exc:
             return error_response(exc.code, str(exc), request_id)
         except CapabilityError as exc:
@@ -213,7 +216,7 @@ class Protocol:
                 result.update(ttlMs=0, cacheScope="private")
         return {"jsonrpc": "2.0", "id": request_id, "result": result}
 
-    async def dispatch(self, method, params, client, modern):
+    async def dispatch(self, method, params, client, modern, ctx=None):
         if method == "initialize" and not modern:
             self.only(params, ("protocolVersion", "capabilities", "clientInfo"))
             info = params.get("clientInfo")
@@ -259,6 +262,7 @@ class Protocol:
                 capability="tools/list",
                 decision="allowed",
                 outcome=f"{len(tools)} tools",
+                ctx=ctx,
             )
             return {"tools": tools}
         if method == "tools/call":
@@ -266,7 +270,7 @@ class Protocol:
             name = params.get("name")
             if not isinstance(name, str):
                 raise ProtocolError(-32602, "Tool name must be a string")
-            value = await self.core.call(client, name, params.get("arguments", {}))
+            value = await self.core.call(client, name, params.get("arguments", {}), ctx)
             return {
                 "content": [{"type": "text", "text": json.dumps(value, allow_nan=False)}],
                 "structuredContent": value,

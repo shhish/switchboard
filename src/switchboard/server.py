@@ -4,12 +4,14 @@ import ipaddress
 import json
 import math
 from collections import defaultdict, deque
+from dataclasses import replace
 from time import monotonic
 
 from aiohttp import web
 
 from .auth import Tokens, loopback_host
 from .errors import CapabilityError
+from .execution import Execution
 from .protocol import Protocol, error_response, http_metadata_error
 
 MAX_REQUEST = 64 * 1024
@@ -127,8 +129,11 @@ def create_app(core):
 
     async def call(request):
         args = await parse(request)
+        ctx = Execution.from_headers(request.headers)
+        if request[CLIENT_KEY] == "owner":
+            ctx = replace(ctx, origin="owner")
         return web.json_response(
-            await core.call(request[CLIENT_KEY], request.match_info["name"], args)
+            await core.call(request[CLIENT_KEY], request.match_info["name"], args, ctx)
         )
 
     async def list_tools(request):
@@ -172,6 +177,11 @@ def create_app(core):
             raise web.HTTPBadRequest(text="Invalid limit") from None
         return web.json_response({"audit": core.audit.tail(limit)})
 
+    async def audit_verify(request):
+        owner(request)
+        result = core.audit.verify()
+        return web.json_response({"status": "ok" if result["ok"] else "error", **result})
+
     async def health(request):
         return web.json_response({"status": "ok", "service": "switchboard"})
 
@@ -182,6 +192,7 @@ def create_app(core):
     app.router.add_post("/v1/approvals/{id}/{decision:approve|deny}", resolve)
     app.router.add_get("/v1/approvals", approvals)
     app.router.add_get("/v1/audit", audit)
+    app.router.add_get("/v1/audit/verify", audit_verify)
 
     async def lifecycle(_):
         await core.start()

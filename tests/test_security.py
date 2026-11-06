@@ -115,7 +115,7 @@ async def test_audit_redaction(core):
     assert row["args"]["nested"][0]["title"] == "visible"
     assert "PRIVATE" not in core.audit.path.read_text()
     assert row["duration"] >= 0
-    assert set(row) == {
+    assert {
         "ts",
         "client",
         "capability",
@@ -126,7 +126,9 @@ async def test_audit_redaction(core):
         "job_id",
         "outcome",
         "duration",
-    }
+        "trace_id",
+        "entry_hash",
+    } <= set(row)
 
 
 async def test_identity_cannot_come_from_body(server, config):

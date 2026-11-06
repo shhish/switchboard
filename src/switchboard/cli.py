@@ -41,8 +41,9 @@ def parser():
     for action in ("approve", "deny"):
         sub.add_parser(action).add_argument("approval_id")
     sub.add_parser("approvals")
-    audit = sub.add_parser("audit").add_subparsers(dest="action", required=True).add_parser("tail")
-    audit.add_argument("--limit", type=int, default=20)
+    audit = sub.add_parser("audit").add_subparsers(dest="action", required=True)
+    audit.add_parser("tail").add_argument("--limit", type=int, default=20)
+    audit.add_parser("verify")
     jobs = sub.add_parser("jobs")
     jobs.add_argument("--limit", type=int, default=20)
     issues = sub.add_parser("issues").add_subparsers(dest="action", required=True)
@@ -61,6 +62,20 @@ def parser():
     return root
 
 
+def correlation_headers():
+    """Wrappers (delegate, routines, scripts) may group calls with SWITCHBOARD_SESSION/TURN."""
+    names = {
+        "SWITCHBOARD_SESSION": "X-Switchboard-Session",
+        "SWITCHBOARD_TURN": "X-Switchboard-Turn",
+        "TRACEPARENT": "traceparent",
+    }
+    return {
+        header: value[:128]
+        for env, header in names.items()
+        if (value := os.environ.get(env)) and value.isprintable()
+    }
+
+
 async def request(config, client, method, path, args=None):
     token = read_token(config.token_dir / f"{client}.token")
     async with aiohttp.ClientSession(
@@ -70,7 +85,7 @@ async def request(config, client, method, path, args=None):
             method,
             f"http://127.0.0.1:{config.port}" + path,
             json=args,
-            headers={"Authorization": "Bearer " + token},
+            headers={"Authorization": "Bearer " + token, **correlation_headers()},
             allow_redirects=False,
         ) as response:
             if response.status >= 300:
@@ -143,6 +158,8 @@ async def execute(args, config):
     if args.command == "approvals":
         return await request(config, client, "GET", "/v1/approvals")
     if args.command == "audit":
+        if args.action == "verify":
+            return await request(config, client, "GET", "/v1/audit/verify")
         return await request(config, client, "GET", f"/v1/audit?limit={args.limit}")
     if args.command == "issues":
         name, body = {
