@@ -51,6 +51,9 @@ class Core:
         self.media_request_lock = asyncio.Lock()
         self.watch_state_lock = asyncio.Lock()
         self.notifier = notifier
+        from .routines.engine import RoutineEngine
+
+        self.routines = RoutineEngine(self)
         if notifier is None and config.backends["orb"].get("enabled", False):
             self.notifier = OrbApprovalNotifier(self.backends)
 
@@ -60,6 +63,10 @@ class Core:
         await self.orb.start()
         await self.alerts.start()
         await self.monitor.start()
+        try:
+            await self.routines.start()
+        except Exception:
+            pass  # Routines wait for HomeRelay; doctor and routines_list report it.
         self.maintenance = asyncio.create_task(self.maintain())
 
     async def maintain(self):
@@ -75,6 +82,7 @@ class Core:
         if task := getattr(self, "maintenance", None):
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+        await self.routines.close()
         await self.monitor.close()
         await self.alerts.close()
         await self.jobs.close()

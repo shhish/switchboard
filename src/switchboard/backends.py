@@ -9,6 +9,7 @@ import aiohttp
 from .auth import read_private
 from .errors import CapabilityError
 from .eventkit import EventKit
+from .execution import ROUTINE_CAUSE
 from .media_compress import MediaCompress
 from .notes import Notes
 from .nws import NWS
@@ -85,6 +86,8 @@ class Backends:
         settings = self.settings(name)
         method = method or ("POST" if payload is not None else "GET")
         headers = {**self.headers(name, control=method != "GET"), **(extra_headers or {})}
+        if name == "home" and (cause := ROUTINE_CAUSE.get()):
+            headers["X-HomeRelay-Cause"] = cause
         if name in ("tautulli", "lazylibrarian"):
             # Supported by older Tautulli too; never log URLs or exception text.
             params = {**(params or {}), "apikey": headers.pop("X-Api-Key")}
