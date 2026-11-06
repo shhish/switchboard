@@ -14,6 +14,7 @@ import logging
 import time
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
+from functools import partial
 
 import aiohttp
 
@@ -91,8 +92,17 @@ class RoutineEngine:
             if weather.get("lat") is not None and weather.get("lon") is not None
             else None
         )
+
+        async def tools(author, tool, args):
+            return await self.core.call(author, tool, args, Execution.new("routine"))
+
         self.evaluator = Evaluator(
-            self.index, location=location, zone=self.zone, history=self.history_summary, clock=clock
+            self.index,
+            location=location,
+            zone=self.zone,
+            history=self.history_summary,
+            tools=tools,
+            clock=clock,
         )
         self.scenes = []
         self.versions = {}
@@ -116,6 +126,8 @@ class RoutineEngine:
     # MARK: - Lifecycle
 
     async def start(self):
+        if hasattr(self.core, "monitor"):
+            self.core.monitor.on_event(self.on_service_event)
         self.load_versions()
         if not self.versions and not self.store.open_runs():
             return  # Nothing to do until a routine is approved.
@@ -410,6 +422,26 @@ class RoutineEngine:
                     cause,
                 )
 
+    # MARK: - Switchboard events
+
+    def on_service_event(self, event, service):
+        """From the monitor (synchronous): fire matching `event:` triggers."""
+        matches = [
+            (routine, i)
+            for routine, version in self.versions.items()
+            for i, t in enumerate(version["definition"]["triggers"])
+            if t["kind"] == "event" and t["name"] == event and t.get("service") in (None, service)
+        ]
+        for routine, i in matches:
+            info = self.trigger_info(routine, i, event=event, service=service)
+            task = asyncio.get_running_loop().create_task(self.fire(routine, info, None))
+            key = f"event:{id(task)}"
+            self.tasks[key] = task
+            task.add_done_callback(partial(self.forget_task, key))
+
+    def forget_task(self, key, _task):
+        self.tasks.pop(key, None)
+
     # MARK: - Time
 
     async def tick_loop(self):
@@ -548,7 +580,7 @@ class RoutineEngine:
         if not manual:
             notes = []
             ok = await self.evaluator.evaluate(
-                definition.get("conditions"), {"trigger": info}, notes
+                definition.get("conditions"), {"trigger": info, "author": version["author"]}, notes
             )
             if ok is not True:
                 return self.skip(
@@ -609,7 +641,7 @@ class RoutineEngine:
             until = version and version["definition"].get("until")
             if not until or not run_ids:
                 continue
-            if await self.evaluator.evaluate(until, None, []) is True:
+            if await self.evaluator.evaluate(until, {"author": version["author"]}, []) is True:
                 for run_id in list(run_ids):
                     self.cancel(run_id, "stopped by until")
 
@@ -724,7 +756,9 @@ class RoutineEngine:
             else:
                 notes = []
                 result = await self.evaluator.evaluate(
-                    step["condition"], {"trigger": run["trigger"]}, notes
+                    step["condition"],
+                    {"trigger": run["trigger"], "author": version["author"]},
+                    notes,
                 )
                 branch = "then" if result is True else ("else" if "else" in step else "none")
                 self.store.start_step(run_id, path, kind)
@@ -768,7 +802,7 @@ class RoutineEngine:
             await asyncio.sleep(max(0, wake_at - self.clock()))
             return None
         if kind == "wait_until":
-            return await self.wait_until(step, run, wake_at)
+            return await self.wait_until(step, run, wake_at, version["author"])
         if kind == "notify":
             title = render(step["title"], context)
             body = render(step["message"], context)
@@ -799,12 +833,12 @@ class RoutineEngine:
             return {"status": result.get("status")}
         raise StepFailed("unknown_step", f"Unknown step {kind}")
 
-    async def wait_until(self, step, run, deadline):
+    async def wait_until(self, step, run, deadline, author):
         since = None
         while True:
             notes = []
             result = await self.evaluator.evaluate(
-                step["condition"], {"trigger": run["trigger"]}, notes
+                step["condition"], {"trigger": run["trigger"], "author": author}, notes
             )
             now = self.clock()
             if result is True:

@@ -197,9 +197,13 @@ class Monitor:
                 and now - state["last_alert_at"] >= self.config.monitor["reminder_hours"] * 3600
             ):
                 kind = "reminder"
+            if kind == "down" and not self.silenced(name, now):
+                self.emit("service.down", name)
             if kind and not self.silenced(name, now) and self.notice(probe, state, kind, now):
                 state.update(alerted=1, last_alert_at=now)
         elif status == "up":
+            if state["down_since"] is not None and (state["alerted"] or state["notified"]):
+                self.emit("service.recovered", name)
             if (state["alerted"] or state["notified"]) and self.config.monitor["recovery_alerts"]:
                 self.notice(probe, state, "recovery", now)
             if state["down_since"] is not None:
@@ -222,6 +226,18 @@ class Monitor:
             ":last_alert_at, :last_change_at, :incident_id)",
             state,
         )
+
+    def on_event(self, listener):
+        """`listener(event, service)` hears confirmed outages and recoveries
+        (not silenced ones); routines use it for `event:` triggers."""
+        self.listeners = [*getattr(self, "listeners", []), listener]
+
+    def emit(self, event, service):
+        for listener in getattr(self, "listeners", []):
+            try:
+                listener(event, service)
+            except Exception:  # noqa: BLE001 - a listener must not break monitoring
+                pass
 
     def notice(self, probe, state, kind, now):
         # Kuma-style: "[Homebridge (Pi)] [🔴 Down]"; short plain body, local time.

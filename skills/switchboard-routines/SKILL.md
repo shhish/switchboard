@@ -49,11 +49,16 @@ until:                               # optional: stops a running run
 - `every: 30m`
 - `sun: {event: sunset, offset: -30m, days: weekends}` (sunrise, sunset, dawn, dusk)
 - `manual`: runnable with `routines_run` (conditions are skipped then).
+- `event: {name: service.down, service: homerelay}`: Switchboard's monitor confirmed an
+  outage (or `service.recovered`). Silenced (planned) outages don't fire.
 
 **Conditions** (`all`, `any`, `not` to combine): `device` with `is`/`above`/`below` (and `for`);
 `reachable`; `time: {after: "22:00", before: "06:00", days}` (wraps midnight);
 `sun: day|night` or `sun: {elevation_below: 5}`;
 `history: {device, window: 10m, on: {above: 0}}` (also `mean`, `min`, `max`, `changes`);
+`weather: {temp_f: {below: 32}, conditions: rain, alert: true}` (also `temp_c`,
+`humidity_percent`, `wind_mph`; NWS, stale data is unknown);
+`calendar: busy|free` (inside a timed event now);
 `trigger: <id>`. A device that's unreachable or never seen is **unknown**, which
 fails `all` and is reported as the skip reason. A selector naming several
 devices needs all of them; add `match: any` to need any.

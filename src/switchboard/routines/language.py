@@ -19,6 +19,11 @@ NAME = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+")
 CLOCK = re.compile(r"([01]?\d|2[0-3]):([0-5]\d)")
 DURATION = re.compile(r"(\d+)\s*(s|m|h|d)")
 MAX_STEPS = 60
+TRIGGER_KINDS = ("device", "held", "reachability", "time", "every", "sun", "manual", "event")
+# Switchboard events a routine can trigger on.
+EVENTS = ("service.down", "service.recovered")
+# Weather fields a condition can compare (from weather_now).
+WEATHER_FIELDS = ("temp_f", "temp_c", "humidity_percent", "wind_mph")
 MAX_DEPTH = 4
 
 # Friendly device types: the service they select and the value they watch,
@@ -202,15 +207,11 @@ def trigger(value, path, problems):
         value,
         path,
         problems,
-        ("id", "device", "held", "reachability", "time", "every", "sun", "manual"),
+        ("id", *TRIGGER_KINDS),
     )
-    kinds = [
-        k for k in ("device", "held", "reachability", "time", "every", "sun", "manual") if k in spec
-    ]
+    kinds = [k for k in TRIGGER_KINDS if k in spec]
     if len(kinds) != 1:
-        problems.append(
-            f"{path}: exactly one of device, held, reachability, time, every, sun, manual"
-        )
+        problems.append(f"{path}: exactly one of {', '.join(TRIGGER_KINDS)}")
         return {"kind": "invalid"}
     kind = kinds[0]
     body = spec[kind]
@@ -219,6 +220,17 @@ def trigger(value, path, problems):
         out["id"] = text(spec["id"], f"{path}.id", problems, 40)
     p = f"{path}.{kind}"
     if kind == "manual":
+        return out
+    if kind == "event":
+        if isinstance(body, str):
+            b = {"name": body}
+        else:
+            b = closed(body, p, problems, ("name", "service"), ("name",))
+        if b.get("name") not in EVENTS:
+            problems.append(f"{p}.name: one of {', '.join(EVENTS)}")
+        out["name"] = b.get("name")
+        if "service" in b:
+            out["service"] = text(b["service"], f"{p}.service", problems, 40)
         return out
     if kind == "device":
         b = closed(body, p, problems, ("device", "to", "from", "above", "below"), ("device",))
@@ -300,7 +312,19 @@ def condition(value, path, problems, depth=0):
                 condition(v, f"{path}[{i}]", problems, depth + 1) for i, v in enumerate(value)
             ],
         }
-    keys = ("all", "any", "not", "device", "reachable", "time", "sun", "history", "trigger")
+    keys = (
+        "all",
+        "any",
+        "not",
+        "device",
+        "reachable",
+        "time",
+        "sun",
+        "history",
+        "trigger",
+        "weather",
+        "calendar",
+    )
     spec = closed(
         value,
         path,
@@ -404,10 +428,41 @@ def condition(value, path, problems, depth=0):
                 if isinstance(test.get(key), str):
                     out["test"][key] = parse_duration(test[key], f"{path}.on.{key}", problems)
         return out
+    if kind == "weather":
+        return weather_condition(body, p, problems, extra)
+    if kind == "calendar":
+        if extra or body not in ("busy", "free"):
+            problems.append(f"{path}: calendar: busy or free")
+        return {"kind": "calendar", "is": body}
     # trigger
     if extra:
         problems.append(f"{path}: trigger takes a trigger id")
     return {"kind": "trigger", "id": text(body, p, problems, 40)}
+
+
+def weather_condition(body, p, problems, extra):
+    """`weather: {temp_f: {below: 32}, conditions: rain, alert: true}`."""
+    if extra:
+        problems.append(f"{p}: weather takes one mapping")
+    b = closed(body, p, problems, (*WEATHER_FIELDS, "conditions", "alert"))
+    out = {"kind": "weather"}
+    for field in WEATHER_FIELDS:
+        if field not in b:
+            continue
+        if not isinstance(b[field], dict):
+            problems.append(f"{p}.{field}: a mapping with above or below")
+            continue
+        test = closed(b[field], f"{p}.{field}", problems, ("above", "below"))
+        out[field] = comparison(test, f"{p}.{field}", problems, ("above", "below"))
+    if "conditions" in b:
+        out["conditions"] = text(b["conditions"], f"{p}.conditions", problems, 40)
+    if "alert" in b:
+        if not isinstance(b["alert"], bool):
+            problems.append(f"{p}.alert: true or false")
+        out["alert"] = b["alert"] is True
+    if len(out) == 1:
+        problems.append(f"{p}: give {', '.join(WEATHER_FIELDS)}, conditions or alert")
+    return out
 
 
 # MARK: - Steps

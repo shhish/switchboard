@@ -683,3 +683,54 @@ async def test_held_counts_time_already_held(home):
     core.routines.reconcile_held()
     held = core.routines.store.held("home.garage_left_open", 0)
     assert held["garage-1"]["since_ms"] == char["since_ms"]
+
+
+async def test_weather_and_calendar_conditions(home, monkeypatch):
+    core, fake = home
+    weather = {"status": "ok", "temp_f": 28.0, "conditions": "Light Snow", "stale": False}
+    busy_until = datetime.now(ZoneInfo("UTC")).timestamp() + 600
+
+    async def tools(author, tool, args):
+        assert author == "claude"
+        if tool == "weather_now":
+            return weather
+        if tool == "weather_alerts":
+            return {"status": "ok", "alerts": [{"event": "Winter Storm Warning"}]}
+        start = datetime.fromtimestamp(busy_until - 1800, ZoneInfo("UTC")).isoformat()
+        end = datetime.fromtimestamp(busy_until, ZoneInfo("UTC")).isoformat()
+        return {"status": "ok", "events": [{"title": "Call", "start": start, "end": end}]}
+
+    core.routines.evaluator.tools = tools
+    cond = parse(
+        "routine: a.b\ntriggers: [manual]\n"
+        "conditions:\n  - weather: {temp_f: {below: 32}, conditions: snow, alert: true}\n"
+        "  - calendar: busy\nsteps: [stop]"
+    )["conditions"]
+    run = {"author": "claude"}
+    assert await core.routines.evaluator.evaluate(cond, run) is True
+    weather["temp_f"] = 40.0
+    assert await core.routines.evaluator.evaluate(cond, run) is False
+    weather["stale"] = True
+    # Stale weather is unknown: never passes.
+    assert await core.routines.evaluator.evaluate(cond, run) is None
+    # Without a routine to run as (a plan), weather is unknown.
+    assert await core.routines.evaluator.evaluate(cond, None) is None
+
+
+async def test_service_events_fire_routines(home):
+    core, fake = home
+    source = """
+routine: ops.homerelay_down
+triggers:
+  - event: {name: service.down, service: homerelay}
+steps:
+  - home.set: {device: Hall/Ceiling, on: true}
+"""
+    await activate(core, source)
+    core.monitor.emit("service.down", "plex")  # another service: ignored
+    await asyncio.sleep(0.1)
+    assert core.routines.store.runs("ops.homerelay_down") == []
+    core.monitor.emit("service.down", "homerelay")
+    await until(lambda: core.routines.store.runs("ops.homerelay_down"))
+    run = core.routines.store.runs("ops.homerelay_down")[0]
+    assert run["trigger"]["service"] == "homerelay"

@@ -50,6 +50,13 @@ def selectors(definition):
             yield f"steps.{path}", step["device"]
 
 
+def all_conditions(definition):
+    for name in ("conditions", "until"):
+        yield from walk_conditions(definition.get(name))
+    for _, step in walk_steps(definition["steps"]):
+        yield from walk_conditions(step.get("condition"))
+
+
 def check(core, definition, index, scenes, author):
     """Returns (scopes, problems, warnings)."""
     problems, warnings = [], []
@@ -65,6 +72,11 @@ def check(core, definition, index, scenes, author):
             problems.append(f"{where}: {exc}")
     if uses_home:
         scopes.add("home:read")
+    for cond in all_conditions(definition):
+        if cond["kind"] == "weather":
+            scopes.add("weather:read")
+        elif cond["kind"] == "calendar":
+            scopes.add("calendar:read")
     for path, step in walk_steps(definition["steps"]):
         kind = step["kind"]
         where = f"steps.{path}"
