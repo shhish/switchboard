@@ -13,7 +13,7 @@ They all go through the same 90 tools, one rulebook and one audit log, running o
 ![MCP](https://img.shields.io/badge/MCP-server-8A2BE2?style=flat-square)
 ![90 tools](https://img.shields.io/badge/tools-90-success?style=flat-square)
 
-[What it does](#-what-it-can-do) · [See it](#-a-day-with-switchboard) · [Guard rails](#-guard-rails-not-vibes) · [Quick start](#-quick-start) · [All 90 tools](docs/CAPABILITIES.md)
+[What it does](#-what-it-can-do) · [See it](#-a-day-with-switchboard) · [Guard rails](#-guard-rails) · [Quick start](#-quick-start) · [All 90 tools](docs/CAPABILITIES.md)
 
 </div>
 
@@ -23,17 +23,17 @@ They all go through the same 90 tools, one rulebook and one audit log, running o
 
 | You say… | …the agent calls | What happens |
 | --- | --- | --- |
-| *"Is anything down?"* | `ops_health` | Every service on the Mac mini and the Pi, checked in one go |
+| *"Is anything down?"* | `ops_health` | Checks every service on the Mac mini and the Pi |
 | *"Turn on the PS5 and start Astro Bot"* | `console_wake` → `console_launch` | The console wakes from rest and the game boots |
-| *"Tell me when Dune: Part Two is ready"* | `alerts_watch_add` | One ping on your phone the moment it lands in Plex |
-| *"What should we watch tonight?"* | `media_find_unwatched` | Unwatched picks from your own library, not a streaming catalogue |
+| *"Tell me when Dune: Part Two is ready"* | `alerts_watch_add` | One notification on your phone when it lands in Plex |
+| *"What should we watch tonight?"* | `media_find_unwatched` | Unwatched picks from your Plex library |
 | *"Movie mode in the living room"* | `home_run_scene` | Your Apple Home scene runs |
 | *"Push the dentist to-do to Friday"* | `tasks_search` → `tasks_update` | The Things 3 to-do moves |
 | *"Anything clash with dinner on Saturday?"* | `calendar_upcoming` | Conflicts from your real calendars |
 | *"Something with chicken, under 30 minutes"* | `recipes_search` | Recipes from your own collection |
-| *"Unlock the front door"* | `home_set_secure` | ✋ Waits for **your** yes, then does exactly that once |
-| *"What did the agents do overnight?"* | `audit_digest` | Calls, errors, loops and every write, summarised |
-| *"Why did Sonarr restart at 3am?"* | `audit_trace` | Walks back from the restart to the call and the agent that caused it |
+| *"Unlock the front door"* | `home_set_secure` | ✋ Waits for your approval, then runs once |
+| *"What did the agents do overnight?"* | `audit_digest` | A summary of calls, errors, loops and writes |
+| *"Why did Sonarr restart at 3am?"* | `audit_trace` | The chain from the restart back to the agent that caused it |
 
 ## 🧩 How it fits together
 
@@ -55,7 +55,7 @@ flowchart LR
   SB --> OPS["🖥️ Mac mini · Raspberry Pi"]
 ```
 
-Each agent gets its own token and its own permissions. Your house knowledge (which library is which, what "the bedroom lights" means, that the garage door needs a human) lives here once, instead of in five prompt files.
+Each agent gets its own token and its own permissions. House knowledge (which library is which, what "the bedroom lights" means, that the garage door needs a human) is kept here once, and every agent uses it.
 
 ## ✨ What it can do
 
@@ -98,14 +98,14 @@ The [Orb](https://github.com/shhish/orb), a round ESP32 screen on the desk, talk
   <img src="https://raw.githubusercontent.com/shhish/orb/main/docs/readme/agents.png" alt="Orb showing a Claude permission request, an Allow / Deny card, notifications from Codex and Dot, and a tilt game" width="100%">
 </p>
 
-## 🛡️ Guard rails, not vibes
+## 🔐 Guard rails
 
-- 🔑 **One token per agent.** A read-only reviewer can't restart anything. The phone assistant can dim lights but can't unlock doors.
-- ✋ **Approvals are exact.** A yes covers one agent, one tool and one set of arguments, once, then expires.
-- 📄 **The policy is a file you own,** not a paragraph in a prompt. Anything unknown is refused.
-- 🚫 **No `exec`.** No shell, no raw HTTP passthrough, no Docker socket, no reboot, and nothing to do with money, ever.
-- 🤐 **Secrets stay in owner-only files.** Agents never see them and they're never logged.
-- 🍎 **One signed macOS helper** holds the Calendar, Reminders, Things and network permissions, instead of every terminal you've ever opened.
+- **One token per agent.** A read-only reviewer can't restart anything. The phone assistant can dim lights but can't unlock doors.
+- **Approvals are exact.** A yes covers one agent, one tool and one set of arguments, once, then expires.
+- **The policy is a file you own.** Anything it doesn't mention is refused.
+- **No `exec`.** No shell, no raw HTTP passthrough, no Docker socket, no reboot, and nothing to do with money, ever.
+- **Secrets stay in owner-only files.** Agents never see them and they're never logged.
+- **One signed macOS helper** holds the Calendar, Reminders, Things and network permissions, so terminals and agents don't need them.
 
 More in the [security model](docs/SECURITY.md).
 
@@ -122,7 +122,7 @@ chmod 600 ~/.config/switchboard/*.yaml
 .venv/bin/sb --client codex call ops_health --json '{}'
 ```
 
-Then add `sb mcp-stdio --client <agent>` as an MCP server in each agent. Deploying also links the [skills](skills/) and syncs one [rules block](docs/agent-rules.md) into Claude Code, Codex and Antigravity, so a new agent learns the house in one step. [Setup](docs/SETUP.md) covers the macOS helper, the Pi agent, monitoring and rollback.
+Then add `sb mcp-stdio --client <agent>` as an MCP server in each agent. Deploying also links the [skills](skills/) and syncs one [rules block](docs/agent-rules.md) into Claude Code, Codex and Antigravity, so a new agent gets the tools and house rules in one step. [Setup](docs/SETUP.md) covers the macOS helper, the Pi agent, monitoring and rollback.
 
 ## 📖 The full tour
 
@@ -223,4 +223,4 @@ Tests use fake backends and temporary files, never live services. [AGENTS.md](AG
 
 It started as one person's home setup: a Mac mini and a Raspberry Pi shared by Claude Code, Codex, Antigravity, ChatGPT and an ESP32 gadget, each taught the house separately and slightly wrong. Agents come and go every few months. The house, its rules and its names shouldn't have to be relearned each time.
 
-<div align="center"><sub>MIT licensed · built for one house, shared in case it fits yours</sub></div>
+MIT licensed, see [LICENSE](LICENSE).
