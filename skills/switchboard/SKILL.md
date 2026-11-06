@@ -40,6 +40,9 @@ also forbids tailscale, ssh and docker restarts. Recovery without a linked probe
 polls the agent's service status. Never bypass the forced-command key.
 Use `ops_host_snapshot {"host": "remotehost"}` for Pi resources, temperature, throttling,
 failed units and reboot-required status; omit host or use `mac` for the Mac.
+Use `dns_stats` (ops:read) for AdGuard Home's numbers on the Pi, and `dns_pause`
+{"minutes": 1-120, "reason"} / `dns_resume` (dns:control) when a site is wrongly blocked;
+the pause ends by itself.
 Use `ops_host_checks {"host": "remotehost"}` for DNS, Tailscale, Kuma and pending updates
 (`ops:diagnose`, read only). Configure at most eight `remote_hosts` with literal
 private IPv4 addresses and absolute key/known-hosts paths; both files must be

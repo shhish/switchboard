@@ -354,7 +354,7 @@ async def test_cortex_auth_discovery_and_denials(server, config):
     )
     response = await session.get(url + "/v1/tools", headers=bearer(config, "cortex"))
     catalog = await response.json()
-    cortex_tools = {"ops_health", "ops_switchboard_status", "ops_alerts_status"} | {
+    cortex_tools = {"ops_health", "ops_switchboard_status", "ops_alerts_status", "dns_stats"} | {
         name for name in core.registry.capabilities if name.startswith("weather_")
     }
     assert {tool["name"] for tool in catalog["tools"]} == cortex_tools

@@ -437,6 +437,7 @@ async def test_policy_example_cortex_ops_and_weather_only(core, config):
         await asyncio.to_thread(Path("config/policy.example.yaml").read_text)
     )
     assert [t["name"] for t in core.tools("cortex")] == [
+        "dns_stats",
         "ops_alerts_status",
         "ops_health",
         "ops_switchboard_status",

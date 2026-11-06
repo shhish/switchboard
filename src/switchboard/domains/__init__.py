@@ -9,6 +9,7 @@ from . import (
     calendar,
     console,
     context,
+    dns,
     feedback,
     home,
     jobs,
@@ -36,5 +37,6 @@ def build_registry():
     recipes.register(registry)
     notes.register(registry)
     console.register(registry)
+    dns.register(registry)
     audit.register(registry)
     return registry

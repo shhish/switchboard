@@ -5,14 +5,16 @@ import Testing
 
 @Test func remoteRequestsFollowTheAgentGrammar() {
   for good in ["version", "snapshot", "checks", "refresh-updates", "status", "status homebridge",
-    "restart adguard", "logs kuma 50", "logs adguard 400", "ps5 status", "ps5 wake", "ps5 standby"]
+    "restart adguard", "logs kuma 50", "logs adguard 400", "ps5 status", "ps5 wake", "ps5 standby",
+    "dns-stats", "dns-resume", "dns-pause 1", "dns-pause 120"]
   {
     #expect(RemoteSSH.validRequest(good), "\(good)")
   }
   for bad in ["", " version", "version ", "version x", "status a b", "restart", "logs kuma",
     "logs kuma 0", "logs kuma 401", "logs kuma 5x", "id; ls", "Status", "reboot",
     "restart homebridge && id", String(repeating: "a", count: 41), "ps5", "ps5 reboot",
-    "ps5 wake now", "ps5 Wake"]
+    "ps5 wake now", "ps5 Wake", "dns-pause", "dns-pause 0", "dns-pause 121", "dns-pause 5x",
+    "dns-pause -5", "dns-stats now", "dns-resume now"]
   {
     #expect(!RemoteSSH.validRequest(bad), "\(bad)")
   }

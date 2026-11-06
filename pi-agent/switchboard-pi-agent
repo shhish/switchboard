@@ -15,11 +15,13 @@ Commands:
   restart <service>        restart an allowlisted service, then report its state
   refresh-updates          apt-get update (package lists only; installs nothing)
   ps5 status|wake|standby  PlayStation 5 power state; wake/standby need owner pairing
+  dns-stats                AdGuard Home totals, daily series and top lists (read-only)
   version                  agent version
 
 Install: see pi-agent/README.md in the Switchboard repo.
 """
 
+import base64
 import json
 import os
 import re
@@ -27,8 +29,10 @@ import sqlite3
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 
-VERSION = "3"
+VERSION = "4"
 SERVICES = {
     # name: (kind, target, restartable)
     "homebridge": ("systemd", "homebridge.service", True),
@@ -521,7 +525,182 @@ def ps5(args):
     return {"action": action, "changed": True, "reached": state["power"] == target, "console": state}
 
 
+ADGUARD_URL = "http://127.0.0.1:3000"
+ADGUARD_AUTH = "/opt/switchboard-pi-agent/adguard.json"  # {"user", "password"}; 0600, ours
+ADGUARD_ROUTES = ("/control/status", "/control/stats", "/control/clients")
+TOP_LIMIT = 8
+
+
+def private_json(path, limit=4096):
+    """A JSON object from an owned 0600 regular file (no symlinks), or None."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if (
+            (info.st_mode & 0o170000) != 0o100000
+            or info.st_uid != os.getuid()
+            or info.st_mode & 0o077
+            or info.st_size > limit
+        ):
+            return None
+        data = json.loads(os.read(fd, limit + 1))
+    except (OSError, ValueError, RecursionError):
+        return None
+    finally:
+        os.close(fd)
+    return data if isinstance(data, dict) else None
+
+
+def adguard_get(route, auth):
+    """GET one fixed AdGuard Home API route on loopback with the stats account."""
+    if route not in ADGUARD_ROUTES:
+        raise ValueError("unsupported route")
+    token = base64.b64encode(f"{auth['user']}:{auth['password']}".encode()).decode()
+    headers = {"Authorization": "Basic " + token}
+    request = urllib.request.Request(ADGUARD_URL + route, headers=headers)
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(request, timeout=8) as reply:
+            data = json.loads(reply.read(4 * 1024 * 1024))
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            raise Refused("dns_auth_failed", "AdGuard rejected the stats account") from None
+        raise Refused("dns_unavailable", "AdGuard API error") from None
+    except (OSError, ValueError, RecursionError):
+        raise Refused("dns_unavailable", "AdGuard API unavailable") from None
+    if not isinstance(data, dict):
+        raise Refused("dns_unavailable", "AdGuard API returned an unexpected shape")
+    return data
+
+
+def count(value):
+    return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
+
+
+def top(rows, names=None):
+    """AdGuard top lists are [{key: count}, ...]; keep the first TOP_LIMIT as {name, count}."""
+    out = []
+    for row in rows if isinstance(rows, list) else []:
+        if isinstance(row, dict) and len(row) == 1:
+            key, value = next(iter(row.items()))
+            if isinstance(key, str):
+                name = str((names or {}).get(key) or key)[:253]
+                out.append({"name": name, "count": count(value)})
+        if len(out) == TOP_LIMIT:
+            break
+    return out
+
+
+def client_names(auth):
+    try:
+        data = adguard_get("/control/clients", auth)
+    except Refused:
+        return {}
+    names = {}
+    for client in data.get("auto_clients") or []:
+        if isinstance(client, dict) and isinstance(client.get("ip"), str) and client.get("name"):
+            names[client["ip"]] = str(client["name"])
+    for client in data.get("clients") or []:  # owner-named clients win over discovered names
+        if isinstance(client, dict) and client.get("name"):
+            for ident in client.get("ids") or []:
+                if isinstance(ident, str):
+                    names[ident] = str(client["name"])
+    return names
+
+
+def dns_stats(args):
+    """`dns-stats`: AdGuard Home's own dashboard numbers, read with a dedicated account."""
+    if args:
+        raise ValueError("usage: dns-stats")
+    auth = dns_auth()
+    status = adguard_get("/control/status", auth)
+    stats = adguard_get("/control/stats", auth)
+    units = stats.get("time_units") if stats.get("time_units") in ("hours", "days") else "days"
+    queries_series = [count(x) for x in (stats.get("dns_queries") or [])][:744]
+    blocked_series = [count(x) for x in (stats.get("blocked_filtering") or [])][:744]
+    queries = count(stats.get("num_dns_queries"))
+    blocked = count(stats.get("num_blocked_filtering"))
+    avg = stats.get("avg_processing_time")
+    days = len(queries_series) if units == "days" else round(len(queries_series) / 24, 2)
+    return {
+        "protection_enabled": status.get("protection_enabled") is True,
+        # Milliseconds left on a timed pause (AdGuard's protection_disabled_duration), else 0.
+        "paused_ms": count(status.get("protection_disabled_duration")),
+        "version": str(status.get("version") or "")[:40],
+        "time_units": units,
+        "period_days": days,
+        "queries": queries,
+        "blocked": blocked,
+        "blocked_percent": round(blocked / queries * 100, 1) if queries else 0.0,
+        "avg_ms": round(avg * 1000, 1) if isinstance(avg, (int, float)) and avg >= 0 else 0.0,
+        "series": {"queries": queries_series, "blocked": blocked_series},
+        "top_blocked": top(stats.get("top_blocked_domains")),
+        "top_queried": top(stats.get("top_queried_domains")),
+        "top_clients": top(stats.get("top_clients"), client_names(auth)),
+    }
+
+
+def adguard_protection(auth, enabled, minutes=0):
+    """POST AdGuard's one protection route: on, or off for a bounded number of minutes."""
+    body = {"enabled": enabled}
+    if not enabled:
+        body["duration"] = minutes * 60_000  # AdGuard turns protection back on by itself
+    token = base64.b64encode(f"{auth['user']}:{auth['password']}".encode()).decode()
+    request = urllib.request.Request(
+        ADGUARD_URL + "/control/protection",
+        data=json.dumps(body).encode(),
+        headers={"Authorization": "Basic " + token, "Content-Type": "application/json"},
+        method="POST",
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(request, timeout=8) as reply:
+            reply.read(65536)
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            raise Refused("dns_auth_failed", "AdGuard rejected the stats account") from None
+        raise Refused("dns_unavailable", "AdGuard API error") from None
+    except OSError:
+        raise Refused("dns_unavailable", "AdGuard API unavailable") from None
+
+
+def dns_auth():
+    auth = private_json(ADGUARD_AUTH)
+    if not auth or not all(isinstance(auth.get(k), str) and auth[k] for k in ("user", "password")):
+        raise Refused("dns_not_configured", "AdGuard stats account is not set up")
+    return auth
+
+
+def dns_pause(args):
+    """`dns-pause <minutes>`: stop blocking for 1-120 minutes; AdGuard resumes on its own."""
+    if len(args) != 1 or not args[0].isdigit() or not 1 <= int(args[0]) <= 120:
+        raise ValueError("usage: dns-pause <1-120>")
+    auth = dns_auth()
+    adguard_protection(auth, False, int(args[0]))
+    status = adguard_get("/control/status", auth)
+    return {
+        "protection_enabled": status.get("protection_enabled") is True,
+        "paused_minutes": int(args[0]),
+    }
+
+
+def dns_resume(args):
+    """`dns-resume`: turn blocking back on now."""
+    if args:
+        raise ValueError("usage: dns-resume")
+    auth = dns_auth()
+    adguard_protection(auth, True)
+    status = adguard_get("/control/status", auth)
+    return {"protection_enabled": status.get("protection_enabled") is True, "paused_minutes": 0}
+
+
 COMMANDS = {
+    "dns-stats": dns_stats,
+    "dns-pause": dns_pause,
+    "dns-resume": dns_resume,
     "ps5": ps5,
     "snapshot": lambda args: snapshot(),
     "status": status,

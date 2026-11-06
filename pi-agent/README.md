@@ -29,6 +29,11 @@ so there's no shell, forwarding or PTY, and no other command.
   - Restarts are limited to homebridge, adguard, nginx and kuma.
   - `refresh-updates` runs `apt-get update` only.
   - Never add reboot, package installs or arbitrary commands. Switchboard's hard rules exclude reboot.
+- **AdGuard Home:** `dns-stats` reads `/control/status`, `/control/stats` and
+  `/control/clients` on loopback; `dns-pause <1-120>` and `dns-resume` POST only
+  `/control/protection`. The login lives in `/opt/switchboard-pi-agent/adguard.json`
+  (0600, the agent's user). The owner's `scripts/owner-setup-adguard.sh` installs the
+  agent and sets that file up, reusing the Homebridge AdGuard plugin's login if present.
 - **PS5:** `ps5 status` uses Sony's discovery protocol (UDP 9302, stdlib only, no
   credentials). `ps5 wake|standby` run playactor 0.4.1 from `/opt/switchboard-ps5`
   (manifest in `pi-agent/ps5/`) with the pairing in `/opt/switchboard-ps5/credentials.json`

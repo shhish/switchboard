@@ -5,15 +5,15 @@
 **One set of hands in your house for every AI agent you use.**
 
 Ask Claude to wake the PS5. Ask Codex why Sonarr restarted at 3am. Ask the little voice orb on the counter to dim the bedroom lights.<br/>
-They all go through the same 90 tools, one rulebook and one audit log, running on your own Mac.
+They all go through the same 93 tools, one rulebook and one audit log, running on your own Mac.
 
 [![MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.13+-3776AB?style=flat-square&logo=python&logoColor=white)
 ![macOS](https://img.shields.io/badge/macOS-host-000000?style=flat-square&logo=apple&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-server-8A2BE2?style=flat-square)
-![90 tools](https://img.shields.io/badge/tools-90-success?style=flat-square)
+![93 tools](https://img.shields.io/badge/tools-93-success?style=flat-square)
 
-[What it does](#what-it-can-do) · [See it](#a-day-with-switchboard) · [Guard rails](#guard-rails) · [Quick start](#quick-start) · [All 90 tools](docs/CAPABILITIES.md)
+[What it does](#what-it-can-do) · [See it](#a-day-with-switchboard) · [Guard rails](#guard-rails) · [Quick start](#quick-start) · [All 93 tools](docs/CAPABILITIES.md)
 
 </div>
 
@@ -28,6 +28,7 @@ They all go through the same 90 tools, one rulebook and one audit log, running o
 | *"Tell me when Dune: Part Two is ready"* | `alerts_watch_add` | One notification on your phone when it lands in Plex |
 | *"What should we watch tonight?"* | `media_find_unwatched` | Unwatched picks from your Plex library |
 | *"Movie mode in the living room"* | `home_run_scene` | Your Apple Home scene runs |
+| *"Pause the ad blocker for 15 minutes"* | `dns_pause` | AdGuard stops blocking, then turns itself back on |
 | *"Push the dentist to-do to Friday"* | `tasks_search` → `tasks_update` | The Things 3 to-do moves |
 | *"Anything clash with dinner on Saturday?"* | `calendar_upcoming` | Conflicts from your real calendars |
 | *"Something with chicken, under 30 minutes"* | `recipes_search` | Recipes from your own collection |
@@ -45,14 +46,14 @@ flowchart LR
   GPT["ChatGPT · Dot"] --> SB
   ORB["Orb device"] --> SB
 
-  SB{{"Switchboard<br/>policy · 90 tools · audit log"}}
+  SB{{"Switchboard<br/>policy · 93 tools · audit log"}}
 
   SB --> MEDIA["Plex · Seerr · Tautulli"]
   SB --> HOME["Apple Home"]
   SB --> PS5["PlayStation 5"]
   SB --> LIFE["Things 3 · Reminders · Calendar"]
   SB --> MIND["Notes · Recipes · Books"]
-  SB --> OPS["Mac mini · Raspberry Pi"]
+  SB --> OPS["Mac mini · Raspberry Pi · AdGuard"]
 ```
 
 Each agent gets its own token and its own permissions. House knowledge (which library is which, what "the bedroom lights" means, that the garage door needs a human) is kept here once, and every agent uses it.
@@ -66,6 +67,7 @@ Every integration is optional. Turn on the ones you run. The [full tour](#the-fu
 | 🖥️ **Keep the servers alive**<br/><sub>`ops_*` · 12 tools</sub> | Health checks every minute, alerts to your phone and email, logs and restarts, plus a Raspberry Pi as a second host. |
 | 🎬 **Watch things**<br/><sub>`media_*` · 17 tools</sub> | Request movies and shows through Seerr, "what should I watch?", continue watching, who watched what, downloads. |
 | 🎮 **Play**<br/><sub>`console_*` · 6 tools</sub> | PS5 on, off, temperature and storage; list your games, launch or close one. |
+| 🛡️ **Home network**<br/><sub>`dns_*` · 3 tools</sub> | AdGuard Home on the Pi: what it answered and blocked, for which devices; pause blocking for a few minutes. |
 | 💡 **Run the house**<br/><sub>`home_*` · 6 tools</sub> | Lights, accessories and scenes in Apple Home. Locks and garage doors need your approval. |
 | ✅ **Get things done**<br/><sub>`tasks_*` `reminders_*` `calendar_*` · 19 tools</sub> | Things 3, Apple Reminders and Calendar: read, add, edit, complete. |
 | 📚 **Remember things**<br/><sub>`notes_*` `recipes_*` `books_*` `context_*` · 13 tools</sub> | Search your Obsidian notes and recipes, request books, and learn your names for things. |
@@ -152,6 +154,14 @@ Then add `sb mcp-stdio --client <agent>` as an MCP server in each agent. Deployi
 - Is the PS5 on, resting or off? How hot is it, how full is the SSD, what's running?
 - Wake it and put it to rest with Sony's own Remote Play protocol, from the Pi on the same network.
 - List installed games, then launch or close one through PS5Upload. Only real store titles can be launched; its shell and file routes are never exposed.
+</details>
+
+<details>
+<summary><b>Home network</b> · <code>dns_*</code></summary>
+
+- What AdGuard Home on the Pi answered and blocked: totals, a per-day series, answer time, the most-blocked domains and the busiest devices.
+- Pause blocking for 1 to 120 minutes when a site is wrongly blocked; AdGuard turns it back on by itself. Resume early anytime.
+- The Pi agent signs in to AdGuard's local API with a login kept only on the Pi; Switchboard never sees it.
 </details>
 
 <details>
