@@ -31,6 +31,22 @@ STAGES = (
 )
 COUNT = {"type": "integer", "minimum": 0}
 TIME = {"type": ["number", "null"], "minimum": 0}
+SAVINGS_PROPERTIES = {
+    "freed_all_time_bytes": {"type": ["integer", "null"]},
+    "jobs_all_time": {"type": ["integer", "null"], "minimum": 0},
+    "since": TIME,
+    **{
+        field: {"type": ["integer", "null"], "minimum": 0}
+        for field in (
+            "freed_last_7_days_bytes",
+            "jobs_last_7_days",
+            "freed_last_30_days_bytes",
+            "jobs_last_30_days",
+            "queued_estimate_bytes",
+            "reclaimable_estimate_bytes",
+        )
+    },
+}
 LANE = {"type": "string", "enum": list(LANES)}
 STATUS_SCHEMA = obj(
     {
@@ -46,6 +62,7 @@ STATUS_SCHEMA = obj(
         },
         "pending_installs": COUNT,
         "repair_holds": COUNT,
+        "savings": obj(SAVINGS_PROPERTIES, tuple(SAVINGS_PROPERTIES)),
         "attention_items": {
             "type": "array",
             "maxItems": 10,
@@ -66,11 +83,56 @@ STATUS_SCHEMA = obj(
         "active_work",
         "pending_installs",
         "repair_holds",
+        "savings",
         "attention_items",
         "attention_total",
         "truncated",
     ),
 )
+
+
+def optional_object(data, key):
+    if key not in data:
+        return {}
+    value = data[key]
+    if not isinstance(value, dict):
+        raise ValueError
+    return value
+
+
+def optional_integer(data, key, *, signed=False):
+    if key not in data:
+        return None
+    value = data[key]
+    if type(value) is not int or (not signed and value < 0):
+        raise ValueError
+    return value
+
+
+def read_savings(data):
+    all_time = optional_object(data, "savingsAllTime")
+    reclaimable = optional_object(data, "reclaimable")
+    last_7_days = optional_object(reclaimable, "last_7_days")
+    since = all_time.get("since")
+    if since is not None and (
+        type(since) not in (int, float) or not math.isfinite(since) or since < 0
+    ):
+        raise ValueError
+    measured = optional_integer(reclaimable, "measured_bytes")
+    estimated = optional_integer(reclaimable, "estimated_only_bytes")
+    return {
+        "freed_all_time_bytes": optional_integer(all_time, "bytes", signed=True),
+        "jobs_all_time": optional_integer(all_time, "jobs"),
+        "since": since,
+        "freed_last_7_days_bytes": optional_integer(last_7_days, "bytes"),
+        "jobs_last_7_days": optional_integer(last_7_days, "jobs"),
+        "freed_last_30_days_bytes": optional_integer(data, "savingsLast30DaysBytes"),
+        "jobs_last_30_days": optional_integer(data, "completedLast30Days"),
+        "queued_estimate_bytes": optional_integer(data, "queuedSavingsEstimateBytes"),
+        "reclaimable_estimate_bytes": measured + estimated
+        if measured is not None and estimated is not None
+        else None,
+    }
 
 
 def read_status(path):
@@ -157,6 +219,7 @@ def read_status(path):
             "active_work": active,
             "pending_installs": installs,
             "repair_holds": holds,
+            "savings": read_savings(data),
             "attention_items": attention,
             "attention_total": count,
             "truncated": count > len(attention),

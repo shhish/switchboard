@@ -595,6 +595,17 @@ async def test_maintenance_compact_private_and_stale(watch):
         {"lane": "compression", "last_progress_at": None},
     ]
     assert result["pending_installs"] == 1
+    assert result["savings"] == {
+        "freed_all_time_bytes": None,
+        "jobs_all_time": None,
+        "since": None,
+        "freed_last_7_days_bytes": None,
+        "jobs_last_7_days": None,
+        "freed_last_30_days_bytes": None,
+        "jobs_last_30_days": None,
+        "queued_estimate_bytes": None,
+        "reclaimable_estimate_bytes": None,
+    }
     assert result["attention_items"] == [{"title": "Arrival", "stage": "repair"}]
     assert "PRIVATE" not in json.dumps(result)
     assert not calls
@@ -613,6 +624,119 @@ async def test_maintenance_compact_private_and_stale(watch):
         and len(result["attention_items"]) == 10
         and result["truncated"]
     )
+
+
+@pytest.mark.parametrize("all_time_bytes", [22448121700562, 0, -100])
+@pytest.mark.parametrize("since", [1772844376.0, 0, None])
+async def test_maintenance_savings_exact_and_private(watch, all_time_bytes, since):
+    core, _, calls, path = watch
+    path.write_text(
+        json.dumps(
+            snapshot(
+                savingsAllTime={"bytes": all_time_bytes, "jobs": 12603, "since": since},
+                savingsLast30DaysBytes=3000,
+                completedLast30Days=30,
+                queuedSavingsEstimateBytes=4000,
+                reclaimable={
+                    "last_7_days": {"bytes": 700, "jobs": 7, "jobs_per_day": 1.0},
+                    "last_30_days": {"bytes": 9999, "jobs": 99, "jobs_per_day": 3.3},
+                    "measured_bytes": 5000,
+                    "estimated_only_bytes": 6000,
+                    "extra": {"path": "/PRIVATE/media", "token": "PRIVATE"},
+                },
+            )
+        )
+    )
+    result = await core.call("dot", "media_maintenance_status", {})
+    assert result["status"] == "ok"
+    # The autouse conformance fixture validates the advertised output schema too.
+    assert result["savings"] == {
+        "freed_all_time_bytes": all_time_bytes,
+        "jobs_all_time": 12603,
+        "since": since,
+        "freed_last_7_days_bytes": 700,
+        "jobs_last_7_days": 7,
+        "freed_last_30_days_bytes": 3000,
+        "jobs_last_30_days": 30,
+        "queued_estimate_bytes": 4000,
+        "reclaimable_estimate_bytes": 11000,
+    }
+    assert "PRIVATE" not in json.dumps(result)
+    assert not calls
+
+
+@pytest.mark.parametrize(
+    ("changes", "known"),
+    [
+        ({"savingsAllTime": {}, "reclaimable": {}}, {}),
+        ({"savingsAllTime": {"jobs": 0}}, {"jobs_all_time": 0}),
+        ({"reclaimable": {"last_7_days": {"bytes": 0}}}, {"freed_last_7_days_bytes": 0}),
+        ({"reclaimable": {"measured_bytes": 10}}, {}),
+        ({"reclaimable": {"estimated_only_bytes": 20}}, {}),
+        (
+            {"reclaimable": {"measured_bytes": 0, "estimated_only_bytes": 0}},
+            {"reclaimable_estimate_bytes": 0},
+        ),
+        ({"reclaimable": {"last_30_days": "PRIVATE", "unknown": False}}, {}),
+    ],
+)
+async def test_maintenance_partial_savings(watch, changes, known):
+    core, _, _, path = watch
+    path.write_text(json.dumps(snapshot(**changes)))
+    result = await core.call("dot", "media_maintenance_status", {})
+    assert result["status"] == "ok"
+    assert {key: value for key, value in result["savings"].items() if value is not None} == known
+
+
+SAVINGS_INTEGER_PATHS = [
+    ("savingsAllTime", "bytes"),
+    ("savingsAllTime", "jobs"),
+    ("savingsLast30DaysBytes",),
+    ("completedLast30Days",),
+    ("queuedSavingsEstimateBytes",),
+    ("reclaimable", "last_7_days", "bytes"),
+    ("reclaimable", "last_7_days", "jobs"),
+    ("reclaimable", "measured_bytes"),
+    ("reclaimable", "estimated_only_bytes"),
+]
+
+
+@pytest.mark.parametrize("field_path", [*SAVINGS_INTEGER_PATHS, ("savingsAllTime", "since")])
+@pytest.mark.parametrize("value", [True, "PRIVATE", float("nan"), float("inf"), -float("inf")])
+async def test_maintenance_invalid_savings_numbers(watch, field_path, value):
+    await assert_invalid_savings(watch, field_path, value)
+
+
+@pytest.mark.parametrize("field_path", SAVINGS_INTEGER_PATHS)
+@pytest.mark.parametrize("value", [None, 1.5])
+async def test_maintenance_savings_require_integers(watch, field_path, value):
+    await assert_invalid_savings(watch, field_path, value)
+
+
+@pytest.mark.parametrize("field_path", [*SAVINGS_INTEGER_PATHS[1:], ("savingsAllTime", "since")])
+async def test_maintenance_savings_require_nonnegative(watch, field_path):
+    await assert_invalid_savings(watch, field_path, -1)
+
+
+@pytest.mark.parametrize(
+    "field_path", [("savingsAllTime",), ("reclaimable",), ("reclaimable", "last_7_days")]
+)
+@pytest.mark.parametrize("value", [None, False, "PRIVATE", [], 1])
+async def test_maintenance_invalid_savings_objects(watch, field_path, value):
+    await assert_invalid_savings(watch, field_path, value)
+
+
+async def assert_invalid_savings(watch, field_path, value):
+    core, _, _, path = watch
+    data = snapshot()
+    parent = data
+    for key in field_path[:-1]:
+        parent = parent.setdefault(key, {})
+    parent[field_path[-1]] = value
+    path.write_text(json.dumps(data))
+    result = await core.call("dot", "media_maintenance_status", {})
+    assert result["error"]["code"] == "backend_invalid"
+    assert "PRIVATE" not in json.dumps(result)
 
 
 async def test_maintenance_reads_snapshot_over_one_mib(watch):
