@@ -4,7 +4,7 @@
 
 **One set of hands in your house for every AI agent you use.**
 
-Ask Claude to wake the PS5. Ask Codex why Sonarr restarted at 3am. Ask the little voice orb on the counter to dim the bedroom lights.<br/>
+Ask Claude to wake the PS5. Ask Codex why Sonarr restarted at 3am. Ask ChatGPT to dim the bedroom lights.<br/>
 They all go through the same 93 tools, one rulebook and one audit log, running on your own Mac.
 
 [![MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
@@ -50,7 +50,7 @@ More things you can ask:
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/readme/how-it-fits-dark.svg">
-    <img src="docs/readme/how-it-fits-light.svg" alt="Claude Code, Codex, Antigravity, ChatGPT and Orb call Switchboard on your Mac, which applies policy and approvals, runs 90 typed tools, keeps an audit log and shared names, and reaches Plex, Apple Home, PlayStation 5, Things 3, notes and recipes, and the Mac mini and Raspberry Pi." width="100%">
+    <img src="docs/readme/how-it-fits-light.svg" alt="Claude Code, Codex, Antigravity, ChatGPT and your own scripts call Switchboard on your Mac, which applies policy and approvals, runs 90 typed tools, keeps an audit log and shared names, and reaches Plex, Apple Home, PlayStation 5, Things 3, notes and recipes, and the Mac mini and Raspberry Pi." width="100%">
   </picture>
 </p>
 
@@ -78,7 +78,6 @@ Every integration is optional. Turn on the ones you run. The [full tour](#the-fu
 ![Codex](https://img.shields.io/badge/Codex-10A37F?style=flat-square)
 ![Antigravity](https://img.shields.io/badge/Antigravity-8E75B2?style=flat-square&logo=googlegemini&logoColor=white)
 ![ChatGPT](https://img.shields.io/badge/ChatGPT_Dot-74AA9C?style=flat-square)
-![Orb](https://img.shields.io/badge/Orb-ESP32-E7352C?style=flat-square&logo=espressif&logoColor=white)
 <br/>
 ![Plex](https://img.shields.io/badge/Plex-EBAF00?style=flat-square&logo=plex&logoColor=white)
 ![Seerr](https://img.shields.io/badge/Seerr-6366F1?style=flat-square)
@@ -89,14 +88,6 @@ Every integration is optional. Turn on the ones you run. The [full tour](#the-fu
 ![Obsidian](https://img.shields.io/badge/Obsidian-7C3AED?style=flat-square&logo=obsidian&logoColor=white)
 ![Raspberry Pi](https://img.shields.io/badge/Raspberry_Pi-A22846?style=flat-square&logo=raspberrypi&logoColor=white)
 ![ntfy](https://img.shields.io/badge/ntfy-317F6F?style=flat-square&logo=ntfy&logoColor=white)
-
-### Made for gadgets too
-
-The [Orb](https://github.com/shhish/orb), a round ESP32 screen on the desk, talks to Switchboard. When an agent wants to ask you something, the question shows up as a card you can tap.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/shhish/orb/main/docs/readme/agents.png" alt="Orb showing a Claude permission request, an Allow / Deny card, notifications from Codex and Dot, and a tilt game" width="100%">
-</p>
 
 ## Guard rails
 
