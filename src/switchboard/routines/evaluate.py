@@ -292,8 +292,10 @@ def tri_any(values):
 class Evaluator:
     """Evaluates conditions against the index, the clock, the sun and history."""
 
-    def __init__(self, index, *, location, zone, history=None, clock=time.time):
+    def __init__(self, index, *, location, zone, history=None, tools=None, clock=time.time):
         self.index = index
+        # async (author, tool, args) -> result: reads like weather_now as the routine's author.
+        self.tools = tools
         self.location = location  # (lat, lon) or None
         self.zone = zone
         self.history = history  # async (characteristic_id, window_s) -> summary dict
@@ -330,6 +332,12 @@ class Evaluator:
             return await self.history_condition(cond, notes)
         if kind == "trigger":
             return bool(run and run.get("trigger", {}).get("id") == cond["id"])
+        if kind in ("weather", "calendar"):
+            author = (run or {}).get("author")
+            if self.tools is None or author is None:
+                notes.append(f"unknown: {kind} needs a routine to run as")
+                return None
+            return await (self.weather if kind == "weather" else self.calendar)(cond, author, notes)
         notes.append(f"unknown condition {kind}")
         return None
 
@@ -406,6 +414,53 @@ class Evaluator:
         if "elevation_below" in cond:
             result = result and degrees < cond["elevation_below"]
         return result
+
+    async def weather(self, cond, author, notes):
+        now = await self.tools(author, "weather_now", {})
+        if now.get("status") != "ok" or now.get("stale"):
+            notes.append("unknown: no current weather")
+            return None
+        results = []
+        for field in ("temp_f", "temp_c", "humidity_percent", "wind_mph"):
+            if field in cond:
+                results.append(check_value(None, now.get(field), cond[field]))
+        if "conditions" in cond:
+            text = now.get("conditions")
+            results.append(
+                None
+                if not isinstance(text, str)
+                else cond["conditions"].casefold() in text.casefold()
+            )
+        if "alert" in cond:
+            alerts = await self.tools(author, "weather_alerts", {})
+            if alerts.get("status") != "ok":
+                results.append(None)
+            else:
+                results.append(bool(alerts.get("alerts")) == cond["alert"])
+        if any(r is None for r in results):
+            notes.append("unknown: a weather value is missing")
+        return tri_all(results)
+
+    async def calendar(self, cond, author, notes):
+        """Busy: inside a timed (not all-day) event on the owner's calendars now."""
+        data = await self.tools(author, "calendar_upcoming", {"days": 1})
+        if data.get("status") != "ok":
+            notes.append("unknown: calendar unavailable")
+            return None
+        now = datetime.fromtimestamp(self.clock(), self.zone)
+        busy = False
+        for event in data.get("events") or []:
+            if event.get("allDay") or event.get("all_day"):
+                continue
+            try:
+                start = datetime.fromisoformat(str(event["start"]).replace("Z", "+00:00"))
+                end = datetime.fromisoformat(str(event["end"]).replace("Z", "+00:00"))
+            except (KeyError, ValueError):
+                continue
+            if start <= now < end:
+                busy = True
+                break
+        return busy if cond["is"] == "busy" else not busy
 
     async def history_condition(self, cond, notes):
         if self.history is None:

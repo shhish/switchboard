@@ -169,7 +169,7 @@ Local Git reads stay under configured roots; merges and release tags pin the SHA
 
 - Lights, accessories and scenes through a HomeKit relay such as [HomeRelay](https://github.com/shhish/HomeRelay).
 - Locks, garage doors and other sensitive accessories sit on a separate allowlist, and every change needs an exact, single-use approval.
-- **Routines:** agents draft them in a small checked YAML language and you approve each version by its hash. Triggers: a device change or crossing, "held open for 15 minutes", offline, a time, an interval, sunrise or sunset with an offset, or a manual run. Conditions: device values, time windows, day or night, and recent history ("motion in the last 10 minutes"). Steps: set devices, run scenes, notify, wait, wait until, if/else, repeat, and any tool the routine's approved scopes allow.
+- **Routines:** agents draft them in a small checked YAML language and you approve each version by its hash. Triggers: a device change or crossing, "held open for 15 minutes", offline, a time, an interval, sunrise or sunset with an offset, or a manual run. Conditions: device values, time windows, day or night, recent history ("motion in the last 10 minutes"), the weather and whether you're in a meeting. Switchboard's own outage alerts can start a routine too. Steps: set devices, run scenes, notify, wait, wait until, if/else, repeat, and any tool the routine's approved scopes allow.
 - A routine follows HomeRelay's event stream from where it left off, so a restart misses nothing; its runs and waits survive restarts too. It never re-triggers itself on its own writes, and five failures in a row turn it off.
 </details>
 
