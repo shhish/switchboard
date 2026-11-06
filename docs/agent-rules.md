@@ -15,6 +15,7 @@ before you reach for curl with API keys, osascript, Docker or app databases.
   - Plex, Seerr, Tautulli and downloads: the `media_*` tools.
   - Media Doctor queues: `media_maintenance_status`.
   - Books: `books_*`.
+  - Offer `alerts_watch_*` for “tell me when” media arrives or “let me know if it gets stuck”; one notification arrives by phone/email, not in chat.
   - Apple Home: `home_*`.
   - Calendar, Reminders and Things to-dos: `calendar_*`, `reminders_*`, `tasks_*`. Never script Things with osascript yourself: the macOS permission prompt it raises freezes Things until the owner answers it.
   - Weather: `weather_*`.

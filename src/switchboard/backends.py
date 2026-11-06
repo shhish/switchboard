@@ -10,6 +10,7 @@ from .auth import read_private
 from .errors import CapabilityError
 from .eventkit import EventKit
 from .media_compress import MediaCompress
+from .notes import Notes
 from .nws import NWS
 from .things import Things
 
@@ -23,6 +24,7 @@ class Backends:
         self.eventkit = EventKit(config)
         self.media_compress = MediaCompress(config)
         self.things = Things(config)
+        self.notes = Notes(config)
         self.weather = NWS(config)
 
     async def start(self):
@@ -139,6 +141,8 @@ class Backends:
             return await self.eventkit.probe()
         if name == "things":
             return await self.things.probe()
+        if name == "notes":
+            return await self.notes.probe()
         settings = self.config.backends[name]
         if not settings.get("enabled", True):
             return {"status": "disabled", "reason": "disabled in config"}
@@ -155,6 +159,7 @@ class Backends:
                 return {"status": "down", "reason": str(exc)}
         paths = {
             "media": "/health",
+            "recipes": "/api/health",
             # Authenticated endpoints, so a stale key after a migration shows as down.
             "overseerr": "/api/v1/auth/me",
             "home": "/health",

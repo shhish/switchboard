@@ -44,11 +44,12 @@ def local_time(timestamp):
 
 
 class Monitor:
-    def __init__(self, config, storage, probes, delivery):
+    def __init__(self, config, storage, probes, delivery, watches=None):
         self.config = config
         self.db = storage.db
         self.probes = probes
         self.delivery = delivery
+        self.watches = watches
         self.task = None
         self.lock = asyncio.Lock()
 
@@ -78,6 +79,11 @@ class Monitor:
             result = await self.probes.run()
             self.process(result["services"], time.time())
             await self.heartbeat()
+            if self.watches:
+                try:
+                    await self.watches.evaluate()
+                except Exception:
+                    pass  # Watch storage/evaluation failures never end a monitor cycle.
 
     async def heartbeat(self):
         path = self.config.monitor.get("heartbeat_url_file")

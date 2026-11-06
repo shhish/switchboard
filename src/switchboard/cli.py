@@ -29,7 +29,7 @@ def parser():
     manifest = sub.add_parser("manifest")
     manifest.add_argument("--markdown", action="store_true")
     sub.add_parser("doctor")
-    for name in ("eventkit", "things"):
+    for name in ("eventkit", "things", "notes"):
         native = sub.add_parser(name).add_subparsers(dest="action", required=True)
         native.add_parser("status")
         native.add_parser("request-access")
@@ -80,8 +80,9 @@ async def request(config, client, method, path, args=None):
 
 async def execute(args, config):
     client = args.client
-    if args.command in ("eventkit", "things", "net"):
+    if args.command in ("eventkit", "things", "net", "notes"):
         from .eventkit import EventKit
+        from .notes import Notes
         from .things import Things
 
         # Authenticate the local owner credential too; --client is not identity proof.
@@ -90,13 +91,15 @@ async def execute(args, config):
         token = read_token(config.token_dir / f"{client}.token")
         if client != "owner" or Tokens(config.token_dir).authenticate("Bearer " + token) != "owner":
             raise CapabilityError("owner_required", "Local owner credential required")
-        helper = Things(config) if args.command == "things" else EventKit(config)
+        helper = {"things": Things, "notes": Notes}.get(args.command, EventKit)(config)
         if args.command == "net":
             result = await helper.net_request_access()
             return {**result, "status": "ok" if "http_status" in result else "degraded"}
         if args.action == "status":
             return await helper.probe()
         result = await helper.request_access()
+        if args.command == "notes":
+            return {"status": "ok"}
         if args.command == "things":
             return {
                 **result,

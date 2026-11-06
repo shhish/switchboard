@@ -254,6 +254,11 @@ backends:
     # Optional when FrameServer adds authentication:
     # token_file: ~/.config/switchboard/secrets/frameserver-read.token
     # GET /api/state only; calendar/reminders fields, never markets or weather.
+  # Notes shares the native socket; file access stays in the signed helper.
+  notes:
+    enabled: false
+    root: null  # Absolute vault directory under the owner home; no symlinks.
+    exclude: []  # Relative folder prefixes, e.g. personal/.
   # Things shares the eventkit socket; may be enabled independently.
   things:
     enabled: false

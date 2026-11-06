@@ -494,6 +494,7 @@ async def test_example_policy_scopes_and_denials(core):
     (core.config.config_dir / "policy.yaml").write_text(example)
     policy = yaml.safe_load(example)
     for scope, allowed in [
+        ("notes:read", {"owner", "dot", "orb", "openclaw", "claude", "codex", "agy"}),
         ("ops:diagnose", {"owner", "claude", "codex", "agy", "openclaw"}),
         ("ops:restart", {"owner", "claude", "codex", "agy"}),
     ]:

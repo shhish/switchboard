@@ -2,6 +2,7 @@
 
 from ..registry import Registry
 from . import (
+    alerts,
     approvals,
     books,
     calendar,
@@ -10,7 +11,9 @@ from . import (
     home,
     jobs,
     media,
+    notes,
     ops,
+    recipes,
     reminders,
     services,
     tasks,
@@ -27,4 +30,7 @@ def build_registry():
     books.register(registry)
     context.register(registry)
     weather.register(registry)
+    alerts.register(registry)
+    recipes.register(registry)
+    notes.register(registry)
     return registry

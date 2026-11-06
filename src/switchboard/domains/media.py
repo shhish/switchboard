@@ -102,8 +102,7 @@ def airing(value):
     }
 
 
-async def show_detail(core, tmdb_id, include_specials):
-    today = datetime.now(ZoneInfo("America/New_York")).date()
+async def show_sources(core, tmdb_id):
     data = await core.backends.get("overseerr", f"/api/v1/tv/{tmdb_id}")
     if not isinstance(data, dict) or not isinstance(data.get("seasons"), list):
         show_invalid()
@@ -118,8 +117,9 @@ async def show_detail(core, tmdb_id, include_specials):
         or not isinstance(info, dict)
     ):
         show_invalid()
-    first_air = air_date(data.get("firstAirDate"))
-    last, upcoming = airing(data.get("lastEpisodeToAir")), airing(data.get("nextEpisodeToAir"))
+    air_date(data.get("firstAirDate"))
+    airing(data.get("lastEpisodeToAir"))
+    airing(data.get("nextEpisodeToAir"))
     plex_seasons = {}
     key = info.get("ratingKey")
     if key not in (None, ""):
@@ -130,6 +130,87 @@ async def show_detail(core, tmdb_id, include_specials):
             if season in plex_seasons:
                 show_invalid()
             plex_seasons[season] = row
+    return data, plex_seasons
+
+
+async def plex_episodes(core, plex):
+    present, watched = set(), set()
+    if plex is not None:
+        key = identifier(plex.get("ratingKey"))
+        _, values = rows(await core.backends.get("plex", f"/library/metadata/{key}/children"))
+        for episode in values:
+            number = show_count(episode.get("index"))
+            if number in present:
+                show_invalid()
+            present.add(number)
+            if show_count(episode.get("viewCount", 0)) > 0:
+                watched.add(number)
+    return present, watched
+
+
+async def aired_episodes(core, tmdb_id, season, today):
+    details = await core.backends.get("overseerr", f"/api/v1/tv/{tmdb_id}/season/{season}")
+    episodes = details.get("episodes") if isinstance(details, dict) else None
+    if not isinstance(episodes, list):
+        show_invalid()
+    aired, seen = set(), set()
+    for episode in episodes:
+        if not isinstance(episode, dict):
+            show_invalid()
+        number = show_count(episode.get("episodeNumber"))
+        if number in seen:
+            show_invalid()
+        seen.add(number)
+        when = air_date(episode.get("airDate"))
+        if when is not None and when <= today:
+            aired.add(number)
+    return aired
+
+
+async def show_watch_snapshot(core, tmdb_id, *, baseline=None, target=None):
+    """Resolve Plex episode identities using the same sources as show detail."""
+    data, plex = await show_sources(core, tmdb_id)
+    title = sanitize_text(data["name"], 200)
+    if target is not None:
+        present, _ = await plex_episodes(core, plex.get(target[0]))
+        return title, target, target[1] in present
+    if baseline is None:
+        for season in sorted(plex, reverse=True):
+            if season == 0:
+                continue
+            present, _ = await plex_episodes(core, plex[season])
+            if present:
+                return title, (season, max(present)), False
+        return title, (0, 0), False
+    today = datetime.now(ZoneInfo("America/New_York")).date()
+    seasons = {}
+    for row in data["seasons"]:
+        if not isinstance(row, dict):
+            show_invalid()
+        season = show_count(row.get("seasonNumber"))
+        if season in seasons:
+            show_invalid()
+        seasons[season] = air_date(row.get("airDate"))
+    for season in sorted(seasons):
+        start = seasons[season]
+        if season == 0 or season < baseline[0] or (start and start > today):
+            continue
+        aired = await aired_episodes(core, tmdb_id, season, today)
+        candidates = [n for n in aired if (season, n) > tuple(baseline)]
+        if candidates:
+            target = (season, min(candidates))
+            present, _ = await plex_episodes(core, plex.get(season))
+            return title, target, target[1] in present
+    return title, None, False
+
+
+async def show_detail(core, tmdb_id, include_specials):
+    today = datetime.now(ZoneInfo("America/New_York")).date()
+    data, plex_seasons = await show_sources(core, tmdb_id)
+    title, status = data["name"], data["status"]
+    first_air = air_date(data.get("firstAirDate"))
+    last, upcoming = airing(data.get("lastEpisodeToAir")), airing(data.get("nextEpisodeToAir"))
+    key = (data.get("mediaInfo") or {}).get("ratingKey")
     seasons = {}
     starts = {}
     for row in data["seasons"]:
@@ -176,35 +257,8 @@ async def show_detail(core, tmdb_id, include_specials):
     )
     truncated = len(needed) > 6
     for season in needed[:6]:
-        details = await core.backends.get("overseerr", f"/api/v1/tv/{tmdb_id}/season/{season}")
-        episodes = details.get("episodes") if isinstance(details, dict) else None
-        if not isinstance(episodes, list):
-            show_invalid()
-        aired_numbers, seen = set(), set()
-        for episode in episodes:
-            if not isinstance(episode, dict):
-                show_invalid()
-            number = show_count(episode.get("episodeNumber"))
-            if number in seen:
-                show_invalid()
-            seen.add(number)
-            when = air_date(episode.get("airDate"))
-            if when is not None and when <= today:
-                aired_numbers.add(number)
-        present_numbers, watched_numbers = set(), set()
-        plex = plex_seasons.get(season)
-        if plex is not None:
-            season_key = identifier(plex.get("ratingKey"))
-            _, values = rows(
-                await core.backends.get("plex", f"/library/metadata/{season_key}/children")
-            )
-            for episode in values:
-                number = show_count(episode.get("index"))
-                if number in present_numbers:
-                    show_invalid()
-                present_numbers.add(number)
-                if show_count(episode.get("viewCount", 0)) > 0:
-                    watched_numbers.add(number)
+        aired_numbers = await aired_episodes(core, tmdb_id, season, today)
+        present_numbers, watched_numbers = await plex_episodes(core, plex_seasons.get(season))
         missing = sorted(aired_numbers - present_numbers)
         row = seasons[season]
         row.update(
@@ -249,6 +303,23 @@ async def show_detail(core, tmdb_id, include_specials):
     }
 
 
+async def library_rows(core, kind):
+    key = "movies" if kind == "movie" else "shows"
+    data = await core.backends.get("media", f"/{key}/list")
+    values = data.get(key) if isinstance(data, dict) else data
+    if not isinstance(values, list) or any(not isinstance(row, dict) for row in values):
+        raise CapabilityError("backend_invalid", "Invalid library response")
+    return values
+
+
+async def active_downloads(core):
+    data = await core.backends.get("media", "/downloads/active")
+    values = data.get("downloads") if isinstance(data, dict) else None
+    if not isinstance(values, list) or any(not isinstance(row, dict) for row in values):
+        raise CapabilityError("backend_invalid", "Invalid downloads response")
+    return data
+
+
 def compress_preflight(core, client, args):
     core.backends.media_compress.settings()
     if "path" in args:
@@ -258,9 +329,7 @@ def compress_preflight(core, client, args):
 async def movie_directory(core, tmdb_id):
     """Read-only: the movie's library folder from media-api, or None if not in the library.
     Authorizing the folder covers the file inside it, so admit never runs unauthorized."""
-    data = await core.backends.get("media", "/movies/list")
-    rows = data.get("movies", data) if isinstance(data, dict) else data
-    for row in rows if isinstance(rows, list) else []:
+    for row in await library_rows(core, "movie"):
         if isinstance(row, dict) and row.get("tmdb_id") == tmdb_id and row.get("has_file"):
             path = row.get("path")
             return path if isinstance(path, str) and path.startswith("/") else None
@@ -611,7 +680,7 @@ def register(registry):
     )
     async def downloads(core, client, args):
         active, history = await asyncio.gather(
-            core.backends.get("media", "/downloads/active"),
+            active_downloads(core),
             core.backends.get("media", "/downloads/history", params={"limit": "10"}),
         )
         rows = active.get("downloads", [])
@@ -645,21 +714,17 @@ def register(registry):
             warnings={"type": "array", "items": {"type": "string"}},
         ),
     )
-    async def search(core, client, args):
+    async def search(core, client, args, *, library_limit=10):
         query = args["query"].strip().casefold()
         if not query:
             raise CapabilityError("invalid_arguments", "query must contain non-whitespace text")
         library, results, warnings = [], [], []
-        for kind, path, key in (
-            ("movie", "/movies/list", "movies"),
-            ("show", "/shows/list", "shows"),
-        ):
+        for kind in ("movie", "show"):
             if args.get("kind") and args["kind"] != kind:
                 continue
             # media-api has no title filter; filter here on the server, before sending to agents.
             try:
-                data = await core.backends.get("media", path)
-                for row in data.get(key, []):
+                for row in await library_rows(core, kind):
                     if query in row.get("title", "").casefold():
                         match = pick(row, ("id", "title", "year", "tmdb_id", "tvdb_id"))
                         match.update(
@@ -722,10 +787,11 @@ def register(registry):
             raise CapabilityError("backend_down", "Media search unavailable; run sb doctor")
         return {
             "status": "ok",
-            "library": library[:10],
+            "library": library[:library_limit],
             "overseerr": results[:10],
             "warnings": warnings,
-            "truncated": len(library) > 10 or len(results) > 10,
+            "truncated": (library_limit is not None and len(library) > library_limit)
+            or len(results) > 10,
         }
 
     @registry.declare(
@@ -776,8 +842,17 @@ def register(registry):
                 core.backends.headers(backend)
             tmdb_id = args.get("tmdb_id")
             if tmdb_id is None:
-                found = await search(core, client, {"query": args["title"], "kind": "show"})
+                found = await search(
+                    core, client, {"query": args["title"], "kind": "show"}, library_limit=None
+                )
                 candidates = found["library"]
+                exact = [
+                    row
+                    for row in candidates
+                    if row.get("title", "").strip().casefold() == args["title"].strip().casefold()
+                ]
+                if len(exact) == 1:
+                    candidates = exact
                 if not candidates:
                     if found["warnings"]:
                         raise CapabilityError(
@@ -791,8 +866,8 @@ def register(registry):
                 if len(candidates) != 1 or not candidates[0].get("tmdb_id"):
                     return {
                         "status": "ambiguous",
-                        "candidates": candidates,
-                        "truncated": found["truncated"] and len(candidates) == 10,
+                        "candidates": candidates[:10],
+                        "truncated": len(candidates) > 10,
                     }
                 tmdb_id = candidates[0]["tmdb_id"]
                 if type(tmdb_id) is not int or tmdb_id < 1:

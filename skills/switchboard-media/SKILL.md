@@ -82,6 +82,21 @@ honor its freshness and truncation. It cannot change queues or approve installs.
 `blocklisted` means the owner blocked that title in Seerr; tell them, never work
 around it. `deleted` titles can be requested again.
 
+
+For “tell me when” a movie or episode arrives, offer `alerts_watch_add
+{kind: "media_available", tmdb_id, media: "movie"|"show", season?, episode?}`.
+Resolve the title first. For a specific show episode provide both season and
+episode; omit both to wait for the next aired episode after the latest episode
+currently in Plex. For “let me know if it gets stuck”, use
+`{kind: "download_stalled", title_contains}` with a distinctive download title
+fragment. A watch sends one notification by phone/email, not in the chat. It
+checks about every 10 minutes, defaults to 14 days (1–60 allowed), and accepts an
+optional note up to 200 characters. Download alerts cover 30 minutes without
+progress, source stalled/warning/failed status, or no match for 24 hours.
+`alerts_watch_list` and `alerts_watch_remove {watch_id}` manage your own watches;
+owner sees all clients. At most 20 active watches per client; fired watches remain
+listed for seven days. Explicit watches bypass probe maintenance silences.
+
 Local tool names use underscores (for example, `ops_health`). Keep using domain
 `status` for workflow details; `outcome` normalizes success, acceptance, ambiguity,
 approval and failure. Check `as_of`/`source`, list `truncated`/`limit`, and error

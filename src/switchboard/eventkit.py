@@ -13,6 +13,8 @@ MAX_RESPONSE = 2 * 1024 * 1024
 METHODS = {
     "status",
     "net.probe",
+    "notes.search",
+    "notes.get",
     "remote.ssh",
     "calendars.list",
     "events.list",
@@ -100,6 +102,16 @@ class EventKit:
                         ),
                         "unsupported": ("Native checklist/Evening unsupported; nothing created"),
                     }.get(code, "Things operation failed; inspect reads before retrying writes")
+                if self.backend == "notes":
+                    message = {
+                        "unauthorized": (
+                            "Notes access unavailable; owner must run sb notes request-access"
+                        ),
+                        "not_found": "Note not found",
+                        "resource_denied": "Note path is excluded or inaccessible",
+                        "invalid_arguments": "Invalid Notes request",
+                        "timeout": "Notes operation timed out",
+                    }.get(code, "Notes helper operation failed")
                 raise CapabilityError(self.backend + "_" + code, message)
         except CapabilityError:
             raise

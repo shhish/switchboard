@@ -374,3 +374,27 @@ async def test_show_detail_latest_ignores_announced_unaired_season(shows):
     }
     result = await core.call("dot", "media_show_detail", {"tmdb_id": 901})
     assert "Season 18" in result["summary"] and "Season 19" not in result["summary"]
+
+
+async def test_show_detail_unique_exact_title_wins(shows, fake_backends):
+    core, source, _ = shows
+    source["/api/v1/tv/901"]["name"] = "Shark Tank"
+    fake_backends[0]["/shows/list"]["shows"] = [
+        {"title": "Shark Tank India", "tmdb_id": 902},
+        {"title": "Shark Tank", "tmdb_id": 901},
+    ]
+    result = await core.call("dot", "media_show_detail", {"title": "  sHaRk TaNk  "})
+    assert result["show"]["tmdb_id"] == 901
+    # Duplicate exact titles remain ambiguous.
+    fake_backends[0]["/shows/list"]["shows"].append({"title": "SHARK TANK", "tmdb_id": 903})
+    result = await core.call("dot", "media_show_detail", {"title": "Shark Tank"})
+    assert result["outcome"] == "ambiguous"
+
+
+async def test_show_detail_exact_match_beyond_public_search_cap(shows, fake_backends):
+    core, _, _ = shows
+    fake_backends[0]["/shows/list"]["shows"] = [
+        {"title": f"Dune Prophecy {n}", "tmdb_id": n + 1} for n in range(11)
+    ] + [{"title": "Dune Prophecy", "tmdb_id": 901}]
+    result = await core.call("dot", "media_show_detail", {"title": "Dune Prophecy"})
+    assert result["show"]["tmdb_id"] == 901

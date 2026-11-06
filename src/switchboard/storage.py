@@ -46,6 +46,14 @@ class Storage:
             );
             CREATE INDEX IF NOT EXISTS alert_outbox_due ON alert_outbox(next_attempt_at)
                 WHERE delivered_at IS NULL AND failed_at IS NULL;
+            CREATE TABLE IF NOT EXISTS alert_watches (
+                id TEXT PRIMARY KEY, client TEXT NOT NULL, kind TEXT NOT NULL,
+                args TEXT NOT NULL, state TEXT NOT NULL,
+                created_at REAL NOT NULL, expires_at REAL NOT NULL,
+                last_checked_at REAL, fired_at REAL
+            );
+            CREATE INDEX IF NOT EXISTS alert_watches_due ON alert_watches(last_checked_at)
+                WHERE fired_at IS NULL;
             CREATE TABLE IF NOT EXISTS context_aliases (
                 alias TEXT NOT NULL, domain TEXT NOT NULL, kind TEXT NOT NULL,
                 target_id TEXT NOT NULL, target_name TEXT NOT NULL,

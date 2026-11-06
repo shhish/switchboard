@@ -93,7 +93,8 @@ def register(registry):
         "reminders_add",
         "Add reminder",
         "Use when adding a reminder. Requires an allowlisted list ID and confirmed reminder "
-        "details. Returns created reminder metadata.",
+        "details. Due accepts YYYY-MM-DD for all-day or an ISO datetime. "
+        "Returns created reminder metadata; all-day due dates stay YYYY-MM-DD.",
         obj(
             {
                 "list_id": string(1000),

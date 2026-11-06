@@ -56,6 +56,7 @@ public final class CompletionGate<Value: Sendable>: Sendable {
 
 public enum ExecutionDeadline {
   public static func seconds(for request: Request) -> Double {
+    if request.method == .notesSearch || request.method == .notesGet { return 20 }
     if request.method == .remoteSSH {
       return RemoteSSH.deadline(for: request.text("request") ?? "") + 5
     }
