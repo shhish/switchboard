@@ -72,7 +72,7 @@ RFC1918 probes use the signed Switchboard EventKit helper when enabled; loopback
 stays direct. A missing helper or privacy denial returns `unknown` / `local network
 permission needed`, never a device-down alert. Only the local owner may run
 `sb net request-access` while able to answer the prompt. Keep the existing app
-name, bundle ID and signing identity. See README "Monitoring & alerts" for private
+name, bundle ID and signing identity. See docs/SETUP.md "Monitoring and results" for private
 0600 secret-file provisioning; never display topic URLs or SMTP credentials.
 
 Use `sb list` for your permitted tools and `sb manifest` for declared contracts.
@@ -152,7 +152,7 @@ calendar/list against the effective write allowlist, with denials subtracted.
 There is no event delete tool.
 Creation is not idempotent: after a timeout inspect reads before retrying.
 
-Missing/denied native access requires the owner setup in README. Only the local
+Missing/denied native access requires the owner setup in docs/SETUP.md. Only the local
 owner runs `sb eventkit request-access` while a person can click both TCC prompts;
 never try to prompt through a tool or ask Python to obtain calendar permissions.
 `sb eventkit status` and doctor report authorization without prompting.

@@ -59,7 +59,7 @@ Use `ops_switchboard_status` / `sb doctor` on failure. Setup belongs to the owne
 `sb things status` reports running/Automation status without prompting;
 `sb things request-access` is a local owner-only CLI operation while a person can
 click Allow. It is never an MCP/HTTP capability. Keep the existing signed
-`Switchboard EventKit.app` identity and helper socket; see README for setup.
+`Switchboard EventKit.app` identity and helper socket; see docs/SETUP.md for setup.
 
 Local tool names use underscores (for example, `ops_health`). Keep using domain
 `status` for workflow details; `outcome` normalizes success, acceptance, ambiguity,

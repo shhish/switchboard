@@ -2,267 +2,165 @@
 
 **Agent harnesses come and go. Your home's tools, rules and context shouldn't have to.**
 
+Switchboard is one local service that gives every AI agent you use the same hands in your house. Claude Code, Codex, a phone assistant and a little voice gadget on the counter can all check your servers, run your Plex library, dim the lights, move a Things to-do or wake the PS5. They all do it through the same 90 typed tools, under one policy file, with one audit log.
+
+```text
+"Is anything down?"                          → ops_health
+"Turn on the PS5 and start Astro Bot"        → console_wake, console_games, console_launch
+"Tell me when Dune: Part Two finishes"        → alerts_watch_add
+"Push my dentist to-do to Friday"            → tasks_search, tasks_update
+"What did the agents do overnight?"          → audit_digest
+"Why did Sonarr restart at 3am?"             → audit_trace
+"Something with chicken, under 30 minutes"   → recipes_search
+```
+
+MCP, a JSON CLI or HTTP on loopback. Python, plus a small signed macOS helper. MIT.
+
 ## The problem
 
-If you run a home server and use AI agents, you probably use more than one:
-
-- Claude Code or Codex in a terminal;
-- a chat assistant on your phone;
-- a voice gadget on the counter;
-- whichever new harness launched this month.
-
-Each one wants its own way to reach your stuff, and each one has to be taught again:
+If you run a home server and use AI agents, you almost certainly use more than one, and next month there'll be another. Each one wants its own way to reach your stuff, and each one has to be taught the house again:
 
 - which Plex library is which, and which API key goes where;
-- that requests go through Seerr and never straight to Sonarr;
-- that the garage door needs a confirmation;
-- that one service is slow because its data sits on a USB disk, and isn't actually down.
+- that requests go through Seerr, never straight to Sonarr;
+- that the garage door needs a human's yes;
+- that Nextcloud is slow because its files live on a USB disk, not because it's down.
 
-That knowledge ends up scattered across prompt files, MCP configs, shell history and one-off scripts. It drifts apart, it leaks credentials into places they shouldn't be, and it's gone the day you switch tools. Meanwhile every agent improvises with `curl`, `docker logs` and `ssh`, does the same chores by hand over and over, and has as much access as your shell does.
+That knowledge ends up spread across prompt files, MCP configs, shell history and one-off scripts. It drifts, it leaks credentials into places it shouldn't, and it's gone the day you switch tools. Meanwhile every agent improvises with `curl`, `docker logs` and `ssh`, redoes the same chores by hand, and has exactly as much power as your shell.
 
-The harness is the part that changes fastest. What should stay put is everything else:
+The harness is the part that changes fastest. Everything else should stay put: **what can be done, who may do it, what things are called, and what happened last time.** Switchboard is that layer.
 
-- **the capabilities:** what can actually be done;
-- **the rules:** who may do what, and what needs a human's yes;
-- **the context:** names, preferences and conventions;
-- **the operational memory:** what's running, what broke, and what was tried.
+```mermaid
+flowchart LR
+  A["<b>Any agent</b><br/>Claude Code · Codex<br/>Antigravity · ChatGPT<br/>ESP32 voice device"] -- "MCP · CLI · HTTP<br/>one token each" --> SB
+  subgraph SB[Switchboard on 127.0.0.1]
+    P[Policy + approvals] --- R[90 typed tools] --- L[Audit log + context]
+  end
+  SB --> M[Plex · Tautulli · Seerr<br/>LazyLibrarian · recipes]
+  SB --> H[macOS helper<br/>Calendar · Reminders · Things 3<br/>notes vault · LAN access]
+  SB --> K[HomeKit relay<br/>lights · scenes · locks]
+  SB --> Pi[Raspberry Pi agent<br/>services · updates · PS5 power]
+  SB --> PS[PS5Upload<br/>games · launch · close]
+  SB --> W[NWS weather · phone + email alerts]
+```
 
-## The idea
+## What it can do
 
-Switchboard is that stable layer. It's one local service on your server, and every agent plugs into the same typed capabilities through whichever door it supports: MCP, a JSON CLI, or HTTP on loopback.
+Every integration is optional. Turn on the ones you run.
 
-- **Write a capability once and every agent gets it.** Today's agent, tomorrow's and your phone assistant all call the same `media_search`, `home_set` or `ops_service_logs`, with the same inputs, outputs and error shapes.
-- **Keep policy in one place, not in prompts.** Each agent gets its own token and scopes. Sensitive actions need an exact, single-use approval, which only the owner (or a client explicitly trusted to collect the owner's confirmation) can grant. Every call is audited, and secrets stay in owner-only files the agents never see.
-- **Keep context in one place too.** Shared owner context resolves your names for things: "living room lights", "the bedroom TV", your Things projects. Skills explain the workflows in plain text, and one rules file is synced into every agent's global instructions on deploy, so a new harness learns the house in seconds.
-- **Let it maintain itself.** It monitors your services and alerts you by phone and email. Slow-but-alive services can get longer timeouts and higher failure thresholds so they don't page you. A dead-man heartbeat to a second machine catches the case where the whole server dies. Agents report broken or missing tools to a shared issue queue, and they're expected to improve Switchboard itself: it's built to keep evolving, not to be set up once.
-- **Swap harnesses freely.** When a new agent tool appears, register one MCP server or point it at the CLI, give it its own token and scopes, and it inherits everything.
+### Keep the servers alive · `ops_*` · 12 tools
 
-It started as one person's home setup, a Mac mini and a Raspberry Pi shared by Claude Code, Codex, Antigravity, ChatGPT and a small ESP32 voice device. If you're juggling several agents on one box, you probably have the same problem.
+- **Health and monitoring.** Health probes run every minute, and alerts go to your phone (ntfy) and email. Each probe can have its own timeout and failure threshold, so a slow USB-disk service doesn't page you at 2am. Silences end on their own when the service recovers.
+- **A dead-man heartbeat** goes to a second machine, so you still hear about it when the whole server dies.
+- **Logs, status, CPU, memory, swap and disk** for launchd jobs, Docker containers and apps, with secrets stripped from log lines.
+- **Restarts of allowlisted services,** which silence their own alerts and enforce a cooldown.
+- **A Raspberry Pi as a second host,** reached over SSH, where the key can only run a fixed command set: status, logs, DNS / Tailscale / uptime checks, allowlisted restarts and a package-list refresh. There's no shell and no reboot.
 
-## What's in the box
+### Watch things · `media_*` · 17 tools
 
-- **Core:** a Python service on `127.0.0.1:18800` with a typed registry. Per-client scopes, resource allowlists, approvals, jobs, durable state and a hash-chained audit log (queryable by agents: what ran, why, and what it caused) apply the same way to MCP (stateless 2026-07-28, plus legacy initialization), HTTP and the CLI. A stdio bridge serves harnesses that only speak stdio.
-- **Integrations (each optional):**
-  - service health probes, monitoring and alerts with self-ending silences;
-  - service status, logs and restarts, plus host snapshots;
-  - Plex, Tautulli and Seerr reads and requests;
-  - LazyLibrarian books;
-  - Apple Home, through a HomeKit relay app;
-  - Calendar and Reminders (EventKit) and Things 3;
-  - NWS weather;
-  - read-only search over a Markdown notes vault (Obsidian-style), and a recipe library;
-  - PlayStation 5 power, game library, launch and close;
-  - "tell me when" watches that notify once by push or email;
-  - shared owner context, an issue queue and federation to an MCP device hub.
-- **Native macOS helper (optional):** a small signed app that holds the macOS privacy grants that a launchd Python service can't get: Calendar, Reminders, Things automation and Local Network. It answers a fixed set of requests over a Unix socket.
-- **Remote host agent (optional):** one fixed command set reached over an SSH forced command for a second machine, such as a Raspberry Pi. It covers status, logs, diagnostics, allowlisted restarts and package-list refreshes, with no shell.
-- **Skills and agent rules:** plain-text workflow guides, linked into each agent's skills folder on deploy.
+- Search and request movies and shows through Seerr, so requests keep your quality profiles and routing.
+- "What should I watch?": unwatched picks, continue watching, what's playing now, who watched what (Tautulli), what just arrived.
+- `media_show_detail` knows the difference between a season that has started airing and one that's only been announced.
+- Downloads, library and storage health, and watched-state fixes (owner-confirmed).
+- Per-title compression requests, handed to a separate maintenance worker that owns the encoder.
 
-Each integration needs its own backend; this is not a bundle of those services.
+### Play · `console_*` · 6 tools
 
-See the [capability catalog](docs/CAPABILITIES.md), [example config](config/config.example.yaml),
-[example policy](config/policy.example.yaml), [contributor guide](AGENTS.md),
-[roadmap](docs/ROADMAP.md) and [workflow skills](skills/).
+- Is the PS5 on, in rest mode or off? How hot is it, how full is the SSD, and what's running?
+- Wake it and put it in rest mode, through Sony's own Remote Play protocol from the Pi on the same LAN.
+- List installed games, then launch or close one through the PS5Upload engine. Only real store titles (CUSA/PPSA) can be launched, and its shell, files and payload routes are never exposed.
+
+### Run the house · `home_*` · 6 tools
+
+- Lights, accessories and scenes through a HomeKit relay app, such as [HomeRelay](https://github.com/shhish/HomeRelay).
+- Locks, garage doors and other sensitive accessories are a separate allowlist. Every change to them needs an exact, single-use approval.
+
+### Get things done · `tasks_*` `reminders_*` `calendar_*` · 19 tools
+
+- **Things 3:** Today, Inbox, Upcoming, Anytime and search; add, edit (title, notes, when, deadline, project or area, tags) and complete.
+- **Reminders:** due and overdue lists, add (timed or all-day), edit and complete.
+- **Calendar:** upcoming events, conflicts, create and edit (one occurrence of a recurring event at a time). Events with other attendees are left to the Calendar app.
+- Writes only go to the lists and projects your policy allows.
+
+### Remember things · `notes_*` `recipes_*` `books_*` `context_*` · 13 tools
+
+- **Notes:** read-only search and reading over an Obsidian-style Markdown vault, even one in iCloud Drive whose files are still cloud placeholders. Folders you exclude (a journal, say) stay invisible.
+- **Recipes:** search by ingredient, cuisine, tag or total time, then read servings, ingredients and steps.
+- **Books:** search and request ebooks and audiobooks through LazyLibrarian.
+- **Context:** your names for things ("the bedroom TV", "living room lights"), stored once and used by every agent.
+
+### Keep an eye on the agents · `audit_*` `alerts_*` `jobs_*` `switchboard_*` · 12 tools
+
+- **A hash-chained activity log** of every call, with causal links. `audit_trace` answers "why did that service restart?" by walking back from the restart to the call, approval or routine that caused it. `audit_digest` summarises a night's activity, errors, loops and writes.
+- **"Tell me when":** one-off watches that notify you once when a download lands or gets stuck.
+- **Jobs** for long-running work, and approvals that bind the exact client, tool and arguments.
+- **An issue queue:** agents report broken or missing tools there, and they're expected to fix Switchboard itself.
+
+### Also
+
+- **Weather** from the US National Weather Service: now, hourly, 7-day and active alerts.
+- **Federation** to an MCP device hub. The [Orb](https://github.com/shhish/orb) ESP32 voice device shows agent cards and asks questions through it.
+
+The full, generated list with inputs and outputs is in the [capability catalog](docs/CAPABILITIES.md).
+
+## What a call looks like
+
+```console
+$ sb --client codex call console_status --json '{}'
+{
+  "outcome": "ok",
+  "source": "ps5",
+  "as_of": "2026-11-06T07:32:06Z",
+  "console": { "found": true, "power": "awake", "firmware": "13.60", "running_title": null },
+  "details": { "model": "CFI-1215A", "cpu_temp_c": 38, "ssd_temp_c": 36,
+               "storage_free_bytes": 93938515968, "uptime_s": 7051 }
+}
+```
+
+Every result carries `outcome`, `source` and `as_of`, and lists say when they're truncated. Results with `needs_approval`, `unavailable` (with `retryable`), `blocked` or `not_found` mean the same thing in every tool, so an agent learns them once.
+
+## Guard rails, not vibes
+
+- **One token per agent, with its own scopes.** A read-only reviewer can't restart anything. The phone assistant can dim lights but can't unlock doors without your yes.
+- **Approvals are exact.** A grant covers one client, one tool and one set of arguments, expires, and is used up even when the call fails.
+- **The policy is a file you own,** not a paragraph in a prompt. Unknown or missing policy fails closed.
+- **There's no `exec`.** No generic shell, no raw HTTP passthrough, no Docker socket, no reboot, no device pairing, and nothing to do with money, ever.
+- **Secrets stay in owner-only files.** Agents never see them, and they're never logged.
+- **macOS privacy grants live in one signed helper app** (Calendar, Reminders, Things automation, Local Network, iCloud files) instead of in every terminal you've ever opened.
+
+The details are in the [security model](docs/SECURITY.md).
+
+## One rulebook for every agent
+
+Deploying links plain-text [skills](skills/) into each agent's skills folder. It also syncs one [rules block](docs/agent-rules.md) into the global instructions of Claude Code, Codex and Antigravity. A new harness gets the tools, the house rules and the workflows in one step. When something's missing, the agent files an issue, and the next agent to touch Switchboard fixes it.
 
 ## Quick start
 
-Requires Python 3.13+; the native helper additionally needs macOS and the Swift
-build tools. Runtime Python dependencies are aiohttp and PyYAML.
-
 ```sh
-python3 -m venv .venv
-.venv/bin/pip install -e '.[dev]'
-mkdir -p ~/.config/switchboard
-chmod 700 ~/.config/switchboard
-cp config/config.example.yaml ~/.config/switchboard/config.yaml
-cp config/policy.example.yaml ~/.config/switchboard/policy.yaml
-chmod 600 ~/.config/switchboard/config.yaml ~/.config/switchboard/policy.yaml
-```
-
-Edit those private files first: remove sample probes you do not run, disable
-unused backends and reduce client scopes and allowlists to what you need.
-Weather is disabled without a location; enabling it requires `name`, a five-digit
-`zip`, numeric `lat` and `lon`. Tools use the configured location. Maintenance
-snapshots and compression are disabled without explicit deployment paths.
-Secret config values are file paths, never inline credentials.
-
-Provision only the client identities you intend to use:
-
-```sh
-.venv/bin/sb token create owner
+python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
+mkdir -m 700 -p ~/.config/switchboard
+cp config/config.example.yaml ~/.config/switchboard/config.yaml   # trim to what you run
+cp config/policy.example.yaml ~/.config/switchboard/policy.yaml   # trim scopes per agent
+chmod 600 ~/.config/switchboard/*.yaml
 .venv/bin/sb token create codex
-.venv/bin/sb serve
-```
-
-Token creation prints a path, never the credential. Tokens are owned regular
-0600 files in a 0700 directory. Removing a token revokes it on the next request;
-`sb token list` lists identities and `sb token revoke codex` revokes one.
-
-In another terminal:
-
-```sh
-.venv/bin/sb --client codex list
+.venv/bin/sb serve &
 .venv/bin/sb --client codex call ops_health --json '{}'
-.venv/bin/sb doctor
-.venv/bin/sb manifest
 ```
 
-CLI calls default to the owner credential. Agents must select their own identity
-with `--client`; the flag selects a token, not a claimed server-side identity.
-The stdio adapter requires an explicit client:
+Then register `sb mcp-stdio --client <agent>` as an MCP server in each agent. [Setup](docs/SETUP.md) covers config, macOS deployment with rollback, the native helper, the Pi agent and monitoring.
+
+## Why it exists
+
+It started as one person's home setup: a Mac mini and a Raspberry Pi shared by Claude Code, Codex, Antigravity, ChatGPT and an ESP32 voice device, each of which had been taught the house separately and slightly wrong. If you're juggling several agents on one box, you probably have the same problem.
+
+## Development
 
 ```sh
-~/.local/share/switchboard/current/.venv/bin/sb mcp-stdio --client codex
-```
-
-Register that deployed absolute executable path and arguments in your agent's
-MCP configuration. See [Dot integration](docs/DOT.md) for the tunnel workflow.
-No public listener is needed. Skills are guidance and grant no permissions.
-
-Configuration defaults to `~/.config/switchboard/`; override with
-`SWITCHBOARD_CONFIG_DIR`. State defaults to `~/Library/Application Support/switchboard`
-and logs to `~/Library/Logs/switchboard`, overridable with `SWITCHBOARD_STATE_DIR`
-and `SWITCHBOARD_LOG_DIR`. Runtime directories must be 0700. No policy file means
-no authorized calls, including for owner.
-
-## Deployment on macOS
-
-Use a reviewed committed revision for deployment. `scripts/deploy.sh` requires a
-clean checkout, runs checks, builds an immutable release, switches `current`
-atomically, restarts the configured launchd job and checks health. It restores
-the previous release on a failed health check. The newest five releases are kept.
-It also links skills into supported agent directories and runs
-`scripts/sync-agent-rules.py`, which updates marked blocks in agent instruction
-files under `Path.home()`. Review those targets before first deployment.
-
-Both deployment and native-build scripts source the optional private
-`~/.config/switchboard/deploy.env`. It must be an owned regular non-symlink file
-with mode **0600**, otherwise the scripts refuse it. It is shell code; only the
-owner should edit it. For example:
-
-```sh
-SWITCHBOARD_LABEL=com.example.switchboard
-SWITCHBOARD_EVENTKIT_LABEL=com.example.switchboard.eventkit
-SWITCHBOARD_BUNDLE_ID=com.example.switchboard.eventkit
-SWITCHBOARD_SIGN_IDENTITY='Developer ID Application: <identity>'
-SWITCHBOARD_PYTHON=/absolute/path/to/python3
-```
-
-The service label defaults to `com.example.switchboard`. The deployment Python
-default is pinned in `scripts/deploy.sh`; override it for your installed runtime.
-`SWITCHBOARD_DEPLOY_ROOT` optionally replaces `~/.local/share/switchboard`.
-The helper label is for owner installation of the helper template; deploy does
-not install or restart the helper. Existing deployments should keep their private
-labels, bundle ID and signing identity to preserve launchd and macOS privacy grants.
-
-Copy [the service template](launchd/switchboard.plist.example) to a private file
-under `~/Library/LaunchAgents/<label>.plist`. Replace `__HOME__`, `__RELEASE__`
-(the stable `current` path) and `__LABEL__` with absolute values. The template
-passes the configured label into the service environment for self-restart
-protection. launchd does not expand `~`. Create the private config and log
-directories with the required modes, then install the reviewed job with
-`launchctl bootstrap gui/$(id -u) <absolute-plist-path>` and kickstart its label.
-
-```sh
-scripts/deploy.sh
-scripts/deploy.sh --status
-scripts/deploy.sh --rollback
-```
-
-Only the deployment script should change the running Python release. MCP
-registrations, launchd and skill symlinks must point at `current`, not a checkout.
-
-## Optional native helper and remote host agent
-
-Build the helper with `scripts/build-eventkit.sh`. Set a stable signing identity
-and bundle ID in private deployment settings before installing it. The script
-sets the built app's bundle ID before signing; the source plist stays generic.
-Ad-hoc signing is available for development but re-signing can invalidate grants.
-The app is built under `native/build/Switchboard EventKit.app`.
-
-Use [the helper template](launchd/switchboard-eventkit.plist.example) with its own
-`__LABEL__` and an absolute `__RELEASE__` path containing the built app. Enable
-`backends.eventkit` only after installing the helper. Calendar/Reminders access,
-Things Automation and Local Network permission are independent macOS grants.
-Only the local owner, present to answer prompts, may run:
-
-```sh
-sb eventkit status
-sb eventkit request-access
-sb things status
-sb things request-access
-sb net request-access
-```
-
-The helper uses an owned 0600 Unix socket in a 0700 directory and checks same-UID
-peers. Things can be enabled independently and uses the same socket. Its fixed
-compiled AppleScript receives descriptor arguments; user text is not source code.
-Task writes require policy destinations; checklist and Evening creation are
-currently unsupported. See the [task workflow](skills/switchboard-tasks/SKILL.md).
-
-RFC1918 probes route through the helper when enabled; loopback probes stay in
-Python. Privacy denial produces `unknown` rather than a false device-down alert.
-For remote hosts, follow [the Pi agent setup](pi-agent/README.md): fixed requests,
-restricted SSH keys, pinned host keys and no shell, forwarding, pairing or reboot.
-
-## Monitoring and results
-
-`ops_health` probes the configured non-finance service list concurrently and
-caches results for 15 seconds. HTTP below 500 is `up`, 500+ is `degraded`, and
-connection/TLS/timeouts are `down`. Continuous monitoring is opt-in and persists
-incident state, reminders, recovery notifications and delivery retries. Configure
-ntfy and/or STARTTLS email with private secret files and explicit delivery-host
-allowlists. An optional private heartbeat URL file sends a native RFC1918 ping.
-Doctor checks setup without sending notifications.
-
-Before planned maintenance, use `ops_alerts_silence` with the configured probe;
-service-restart tools automatically silence linked probes and enforce a durable
-cooldown. `ops_alerts_status` reports incidents, silences and delivery backlog.
-
-Results include `status`, `outcome`, `source` and `as_of`; lists report truncation.
-Acceptance means a request/job was accepted, not that downstream work finished.
-Poll returned job IDs. Weather reports observation time and stale cache age;
-external prose is untrusted data. See each skill for workflow-specific limits.
-
-## Security model
-
-- Authentication derives identity from the bearer token. Every call, even to a
-  tool hidden from discovery, validates a closed schema and current policy.
-  Unknown or missing policy fails closed. Scopes and resource rules both apply.
-- Approval grants bind the exact client, capability and canonical arguments,
-  expire, and are atomically consumed before execution, including failures.
-  Notification answers alone grant nothing. Only owner CLI resolution or an
-  explicitly trusted client's confirmation path resolves a grant.
-- Every capability call is audited in SQLite and redacted JSONL. Credentials,
-  request headers, backend bodies and arbitrary exception text must not be logged.
-- The server rejects non-loopback peers/Host and Origin headers. Local backend
-  URLs use HTTP literal loopback addresses. Probes accept loopback and RFC1918;
-  remote hosts additionally accept RFC 6598 shared space. No broader private-IP
-  classification is used. Backend redirects and environment proxies are disabled;
-  NWS has a separate fixed HTTPS origin and bounded same-origin redirects.
-- No generic shell/exec, raw HTTP passthrough, finance/trading, credential exposure,
-  Docker socket, device pairing, OTA or reboot capabilities are permitted.
-- The owner controls policy, tokens and deployed binaries. A process with that
-  user's filesystem access can bypass this boundary. Routine clients should get
-  only their own credential and the public adapters.
-
-## Development and publication
-
-```sh
-PYTHONPATH=src .venv/bin/sb manifest --markdown > docs/CAPABILITIES.md
 PYTHONPATH=src .venv/bin/python -m pytest -q
-.venv/bin/ruff check src tests
-.venv/bin/ruff format src tests
+.venv/bin/ruff check . && .venv/bin/ruff format --check .
+PYTHONPATH=src .venv/bin/sb manifest --markdown > docs/CAPABILITIES.md
 (cd native/SwitchboardEventKit && swift test --cache-path ../build/cache --disable-sandbox)
 ```
 
-Tests use fake backends and temporary files, never live mutations or services.
-See [AGENTS.md](AGENTS.md) for registry, policy and schema requirements.
-
-Nothing personal belongs in the public repository: no home addresses, owner
-names, credentials, personal filesystem paths or deployment identifiers. Use
-private configuration and `AGENTS.local.md` for deployment notes. Snapshot
-publication honors `.oss-export-exclude`; private history is not the public tree.
-Run the publication privacy checker on the export before publishing.
+Tests use fake backends and temporary files, never live services. [AGENTS.md](AGENTS.md) has the rules for adding a capability. The [roadmap](docs/ROADMAP.md) has what's next. Nothing personal belongs in this repo: deployment values live in private config and `AGENTS.local.md`.
 
 Licensed under [MIT](LICENSE).
