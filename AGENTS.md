@@ -104,6 +104,8 @@ Run:
 ## Operations
 
 - Run `sb doctor` for health and `scripts/deploy.sh --status` for releases.
+- Merging publishes nothing to the open-source mirror: a pushed `v*` tag does. Release
+  merged user-visible work in the same task (privacy check, README features, annotated tag).
 - Logs live in `~/Library/Logs/switchboard/` (0700).
 - MCP registrations and skill symlinks must reference the deployed release under
   `~/.local/share/switchboard/current`, never a development checkout.
