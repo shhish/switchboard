@@ -5,6 +5,22 @@ import Synchronization
 /// All vault I/O stays in the signed helper. Directory descriptors and O_NOFOLLOW
 /// keep traversal inside the opened root, even if a path is replaced during a call.
 public enum Notes {
+  /// O_NONBLOCK only guards open() against FIFOs. Once the descriptor is known to be a
+  /// regular file, reads must block: iCloud "dataless" placeholders return EAGAIN to
+  /// non-blocking reads instead of downloading the file's contents.
+  /// Background processes don't download iCloud "dataless" placeholders by default;
+  /// reads then fail instead of fetching. Opt this process in once, before vault I/O.
+  static let materializeDatalessFiles: Void = {
+    _ = setiopolicy_np(
+      IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_PROCESS,
+      IOPOL_MATERIALIZE_DATALESS_FILES_ON)
+  }()
+
+  static func blockingReads(_ fd: Int32) {
+    let flags = fcntl(fd, F_GETFL)
+    if flags >= 0 { _ = fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) }
+  }
+
   static let maxBytes = 1024 * 1024
   private static let workers = Mutex(0)
 
@@ -149,7 +165,8 @@ public enum Notes {
   }
 
   public static func execute(_ request: Request) async throws -> [String: JSONValue] {
-    try await run { check in
+    _ = materializeDatalessFiles
+    return try await run { check in
       try execute(request, home: FileManager.default.homeDirectoryForCurrentUser, check: check)
     }
   }
@@ -256,6 +273,7 @@ public enum Notes {
           guard fstat(file, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG,
             info.st_size <= maxBytes
           else { continue }
+          Notes.blockingReads(file)
           let data: Data
           do { data = try read(file, max: maxBytes + 1, check: check) } catch is CancellationError {
             throw CancellationError()
@@ -331,6 +349,7 @@ public enum Notes {
     guard fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else {
       throw BridgeError("resource_denied")
     }
+    Notes.blockingReads(fd)
     // Stream UTF-8, retaining only the response prefix and a bounded heading.
     // Continue until the first heading is known, even if it follows the prefix.
     let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
