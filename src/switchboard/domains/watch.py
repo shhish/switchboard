@@ -549,7 +549,7 @@ def register(registry):
         "media_maintenance_status",
         "Media Doctor status",
         "Use when checking Media Doctor queues or repairs. Requires a configured private "
-        "maintenance snapshot. Returns published work lanes and attention titles; stale "
+        "maintenance snapshot. Returns work lanes, attention titles and space freed; stale "
         "snapshots are marked.",
         scope="media:read",
         service="maintenance",

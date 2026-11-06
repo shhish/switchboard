@@ -77,7 +77,8 @@ file operations. Do not touch media-ctrl/homelab-ops files, queues or services.
 For watch recommendations, history, On Deck, playback and explicit watched-state
 corrections, use the `switchboard-watch` skill and its `media.*` watch tools.
 `media_maintenance_status` reads only Media Doctor's owner-published snapshot;
-honor its freshness and truncation. It cannot change queues or approve installs.
+it includes space freed, job counts and queued/reclaimable savings estimates; missing values are null.
+Honor its freshness and truncation. It cannot change queues or approve installs.
 
 `blocklisted` means the owner blocked that title in Seerr; tell them, never work
 around it. `deleted` titles can be requested again.

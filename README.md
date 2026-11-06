@@ -135,6 +135,7 @@ Then add `sb mcp-stdio --client <agent>` as an MCP server in each agent. Deployi
 - Knows the difference between a season that has started airing and one that's only announced.
 - Downloads, library and storage health, and watched-state fixes.
 - Per-title compression requests, handed to a separate worker that owns the encoder.
+- Media Doctor queues, repairs, space freed and estimated savings still waiting in the queue.
 </details>
 
 <details>
