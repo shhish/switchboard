@@ -144,3 +144,37 @@ def register(registry):
             "reminder": resource(data.get("reminder"), REMINDER_FIELDS),
             **metadata(data),
         }
+
+    @registry.declare(
+        "reminders_update",
+        "Update reminder",
+        "Use when editing a discovered reminder after confirming the exact change with the human. "
+        "Requires its current list to allow writes. Returns updated reminder metadata; "
+        "due accepts a date or datetime, or null to clear.",
+        obj(
+            {
+                "reminder_id": string(1000),
+                "title": string(200),
+                "due": {"type": ["string", "null"], "minLength": 1, "maxLength": 100},
+                "notes": {"type": "string", "maxLength": 2000},
+                "priority": {"type": "integer", "minimum": 0, "maximum": 9},
+            },
+            ("reminder_id",),
+        ),
+        scope="reminders:write",
+        tier="write",
+        service="eventkit",
+        output_schema=output(reminder=REMINDER, **TIME),
+    )
+    async def update(core, client, args):
+        if len(args) == 1:
+            raise CapabilityError("invalid_arguments", "At least one change is required")
+        allowed = core.policy.allowed_ids("reminders", "lists")
+        if not allowed:
+            raise CapabilityError("resource_denied", "No reminder lists are allowlisted")
+        data = await core.backends.eventkit.call("reminders.update", {**args, "list_ids": allowed})
+        return {
+            "status": "ok",
+            "reminder": resource(data.get("reminder"), REMINDER_FIELDS),
+            **metadata(data),
+        }

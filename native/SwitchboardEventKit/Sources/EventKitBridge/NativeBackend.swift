@@ -219,6 +219,26 @@ public actor NativeBackend: EventKitBackend {
       result = [
         "reminders": .array(rows.prefix(limit).map(\.json)), "truncated": .bool(rows.count > limit),
       ]
+    case .updateEvent:
+      try require(.event)
+      guard let event = store.event(withIdentifier: request.text("event_id")!) else {
+        throw BridgeError("not_found")
+      }
+      // No await between checking the current calendar/participants and saving.
+      try ItemEdits.event(event, request: request)
+      try store.save(event, span: ItemEdits.eventSpan, commit: true)
+      result = ["event": eventJSON(event)]
+    case .updateReminder:
+      try require(.reminder)
+      guard
+        let reminder = store.calendarItem(withIdentifier: request.text("reminder_id")!)
+          as? EKReminder
+      else {
+        throw BridgeError("not_found")
+      }
+      try ItemEdits.reminder(reminder, request: request)
+      try store.save(reminder, commit: true)
+      result = ["reminder": Self.reminderRow(reminder).json]
     case .add:
       try require(.reminder)
       let calendar = try writableCalendar(.reminder, id: request.text("list_id")!)
@@ -259,7 +279,7 @@ public actor NativeBackend: EventKitBackend {
       }
       result = ["reminder": Self.reminderRow(reminder).json]
     case .thingsStatus, .thingsAccess, .thingsLists, .thingsSearch,
-      .thingsProjects, .thingsAreas, .thingsAdd, .thingsComplete:
+      .thingsProjects, .thingsAreas, .thingsAdd, .thingsComplete, .thingsUpdate:
       throw BridgeError("invalid_arguments")
     }
     result["timezone"] = .string(TimeZone.current.identifier)

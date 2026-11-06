@@ -48,7 +48,7 @@ def rows(data, key, limit, schema=TODO):
     return [resource(row, schema) for row in values]
 
 
-def validate_add(args):
+def validate_add(args, *, update=False):
     if "project_id" in args and "area_id" in args:
         raise CapabilityError("invalid_arguments", "Choose a project or an area, not both")
     for key in ("when", "deadline"):
@@ -64,6 +64,8 @@ def validate_add(args):
         except ValueError:
             raise CapabilityError("invalid_arguments", "Things dates must be YYYY-MM-DD") from None
     for key in ("title", "notes", "project_id", "area_id"):
+        if update and key == "notes" and args.get(key) == "":
+            continue
         if key in args and not args[key].strip():
             raise CapabilityError("invalid_arguments", "Things text must not be blank")
     for key in ("tags", "checklist"):
@@ -226,4 +228,44 @@ def register(registry):
         data = await core.backends.things.call(
             "things.complete", {**args, **core.policy.task_rules()}
         )
+        return {"status": "ok", "todo": resource(data.get("todo")), **metadata(data)}
+
+    @registry.declare(
+        "tasks_update",
+        "Update Things to-do",
+        "Use when editing one discovered open Things to-do after confirming the exact change "
+        "with the human. Requires allowed current and new destinations. Returns updated to-do; "
+        "projects and completed/canceled to-dos cannot be edited. Tags must already exist.",
+        obj(
+            {
+                "todo_id": string(1000),
+                "title": string(200),
+                "notes": {"type": "string", "maxLength": 2000},
+                "when": {
+                    **string(10),
+                    "pattern": r"^(today|tomorrow|anytime|someday|\d{4}-\d{2}-\d{2})$",
+                },
+                "deadline": {"type": ["string", "null"], "minLength": 10, "maxLength": 10},
+                "project_id": string(1000),
+                "area_id": string(1000),
+                "tags": {"type": "array", "items": string(200), "maxItems": 10},
+            },
+            ("todo_id",),
+        ),
+        scope="tasks:write",
+        tier="write",
+        service="things",
+        output_schema=output(todo=TODO, **TIME),
+    )
+    async def update(core, client, args):
+        if len(args) == 1:
+            raise CapabilityError("invalid_arguments", "At least one change is required")
+        validate_add(args, update=True)
+        rules = core.policy.task_rules()
+        # The helper resolves both current and new project parent areas before mutation.
+        if "area_id" in args:
+            core.policy.require_task(rules, area_id=args["area_id"])
+        elif args.get("project_id") in rules["deny_projects"]:
+            raise CapabilityError("resource_denied", "Things project denied by policy")
+        data = await core.backends.things.call("things.update", {**args, **rules})
         return {"status": "ok", "todo": resource(data.get("todo")), **metadata(data)}

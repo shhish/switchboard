@@ -48,9 +48,42 @@ SESSION = obj(
         "product": TEXT,
         "progress_percent": NUMBER,
         "transcode": {"type": ["boolean", "null"]},
+        "rating_key": KEY,
+        "parent_rating_key": KEY,
+        "grandparent_rating_key": KEY,
+        "kind": {"type": "string", "enum": ["movie", "episode", "track", "other"]},
+        "show": TEXT,
+        "season": {"type": ["integer", "null"]},
+        "episode": {"type": ["integer", "null"]},
+        "bandwidth_kbps": {"type": ["integer", "null"], "minimum": 0},
+        "location": {"type": ["string", "null"], "enum": ["lan", "wan", None]},
+        "local": {"type": ["boolean", "null"]},
     },
-    ("title", "user", "product", "progress_percent", "transcode"),
+    (
+        "title",
+        "user",
+        "product",
+        "progress_percent",
+        "transcode",
+        "kind",
+        "show",
+        "season",
+        "episode",
+        "bandwidth_kbps",
+        "location",
+        "local",
+    ),
 )
+
+
+def session_boolean(value):
+    if type(value) is bool:
+        return value
+    if type(value) is int and value in (0, 1):
+        return bool(value)
+    if value in ("0", "1"):
+        return value == "1"
+    return None
 
 
 def invalid(service="plex"):
@@ -401,44 +434,58 @@ def register(registry):
     @registry.declare(
         "media_now_playing",
         "Now playing",
-        "Use when checking current Plex playback. Requires configured Tautulli read access. "
-        "Returns bounded titles, users, products and progress.",
+        "Use when checking current Plex playback. Requires configured Plex read access. "
+        "Returns bounded titles, users, products, episode identity, progress and bandwidth.",
         scope="media:read",
-        service="tautulli",
+        service="plex",
         output_schema=output(sessions=array(SESSION), truncated={"type": "boolean"}),
     )
     async def now_playing(core, client, args):
-        values = tautulli_rows(await tautulli(core, "get_activity"), "sessions")
+        _, values = rows(await core.backends.get("plex", "/status/sessions"))
         result = []
         for row in values[:20]:
-            title = text(row.get("full_title")) or text(row.get("title"))
+            title = text(row.get("title"))
             if not title:
-                invalid("tautulli")
+                invalid()
+            nested = [row.get(k, {}) for k in ("User", "Player", "Session", "TranscodeSession")]
+            if any(not isinstance(value, dict) for value in nested):
+                invalid()
+            user, player, session, transcode = nested
+            kind = row.get("type")
+            kind = kind if kind in ("movie", "episode", "track") else "other"
+            show = text(row.get("grandparentTitle")) if kind == "episode" else None
             decisions = [
-                row.get(k)
-                for k in (
-                    "transcode_decision",
-                    "video_decision",
-                    "audio_decision",
-                    "subtitle_decision",
-                )
+                transcode.get(k) for k in ("videoDecision", "audioDecision", "subtitleDecision")
             ]
             known = any(
-                d in ("transcode", "copy", "direct play", "directplay", "direct stream")
+                d in ("transcode", "copy", "directplay", "directstream")
                 for d in decisions
                 if isinstance(d, str)
             )
-            result.append(
-                {
-                    "title": title,
-                    "user": text(row.get("user")) or text(row.get("friendly_name")),
-                    "product": text(row.get("product")),
-                    "progress_percent": min(100, n)
-                    if (n := number(row.get("progress_percent"))) is not None
-                    else percent(row.get("view_offset"), row.get("duration")),
-                    "transcode": "transcode" in decisions if known else None,
-                }
-            )
+            public = {
+                "title": f"{show} - {title}"[:300] if show else title,
+                "user": text(user.get("title")),
+                "product": text(player.get("product")),
+                "progress_percent": percent(row.get("viewOffset"), row.get("duration")),
+                "transcode": "transcode" in decisions if known else None,
+                "kind": kind,
+                "show": show,
+                "season": integer(row.get("parentIndex")) if kind == "episode" else None,
+                "episode": integer(row.get("index")) if kind == "episode" else None,
+                "bandwidth_kbps": integer(session.get("bandwidth")),
+                "location": session.get("location")
+                if session.get("location") in ("lan", "wan")
+                else None,
+                "local": session_boolean(player.get("local")),
+            }
+            for source, target in (
+                ("ratingKey", "rating_key"),
+                ("parentRatingKey", "parent_rating_key"),
+                ("grandparentRatingKey", "grandparent_rating_key"),
+            ):
+                if row.get(source) not in (None, ""):
+                    public[target] = identifier(row[source])
+            result.append(public)
         return {"status": "ok", "sessions": result, "truncated": len(values) > 20}
 
     @registry.declare(

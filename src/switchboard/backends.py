@@ -213,8 +213,14 @@ class Backends:
             return {"status": "down", "reason": str(exc)}
 
     async def status(self):
-        # The retiring aggregator config remains loadable but is never contacted.
-        names = sorted(name for name in self.config.backends if name != "health")
+        # The retiring aggregator is never contacted. Orb federation owns health
+        # when client identities are mapped; its unused legacy backend is omitted.
+        names = sorted(
+            name
+            for name in self.config.backends
+            if name != "health"
+            and not (name == "orb" and self.config.upstreams["orb"]["client_tokens"])
+        )
         results = await asyncio.gather(*(self.probe(name) for name in names))
         return dict(zip(names, results, strict=True))
 

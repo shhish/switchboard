@@ -71,6 +71,39 @@ async def things_helper(config, socket_helper):  # noqa: F811
         return {"todo": {**current, "status": "completed" if "todo_id" in args else "open"}, **META}
 
     state["things.add"] = state["things.complete"] = mutate
+
+    def update(args):
+        try:
+            policy = Policy(config.config_dir / "policy.yaml")
+            policy.require_task(args, current["project_id"], current["area_id"])
+            if (
+                current.get("class", "selected to do") not in {"to do", "selected to do"}
+                or current["status"] != "open"
+            ):
+                raise CapabilityError("resource_denied", "Closed or project")
+            project, area = current["project_id"], current["area_id"]
+            if "project_id" in args:
+                project = args["project_id"]
+                # Fake Things project metadata; helpers resolve the parent themselves.
+                parents = {"p1": "a1", "p2": "a2", "p0": None}
+                if project not in parents:
+                    return {"ok": False, "error": {"code": "not_found"}}
+                area = parents[project]
+            elif "area_id" in args:
+                project, area = None, args["area_id"]
+            policy.require_task(args, project, area)
+        except CapabilityError:
+            return {"ok": False, "error": {"code": "resource_denied", "message": "PRIVATE"}}
+        if set(args.get("tags", [])) - {"Errand", "Work"}:
+            return {"ok": False, "error": {"code": "invalid_arguments"}}
+        writes.append(args)
+        current.update(project_id=project, area_id=area)
+        for key, value in args.items():
+            if key in {"title", "notes", "deadline", "tags", "when"}:
+                current[{"title": "name", "when": "activation_date"}.get(key, key)] = value
+        return {"todo": current, **META}
+
+    state["things.update"] = update
     yield state, calls, path, writes, current
 
 
@@ -368,4 +401,178 @@ def test_applescript_accepts_selected_todos():
     ).read_text()
     assert "class of t is to do" not in source
     assert "class of t is not to do" not in source
-    assert source.count("{to do, selected to do}") == 2
+    assert source.count("{to do, selected to do}") == 3
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {},
+        {"title": " "},
+        {"title": "x" * 201},
+        {"notes": None},
+        {"notes": "x" * 2001},
+        {"deadline": ""},
+        {"deadline": "2026-02-30"},
+        {"deadline": True},
+        {"when": "evening"},
+        {"when": "tonight"},
+        {"when": "2026-02-30"},
+        {"when": None},
+        {"when": "2026-1-01"},
+        {"project_id": "p2", "area_id": "a2"},
+        {"project_id": " "},
+        {"area_id": None},
+        {"tags": ["a,b"]},
+        {"tags": ["a\nb"]},
+        {"tags": ["a\rb"]},
+        {"tags": [" "]},
+        {"tags": [True]},
+        {"tags": ["x"] * 11},
+        {"tags": ["x" * 201]},
+        {"checklist": []},
+        {"allow_all": True},
+        {"todo_id": "", "title": "Changed"},
+    ],
+)
+async def test_update_schema_rejects_invalid_changes(core, things_helper, extra):
+    result = await core.call("dot", "tasks_update", {"todo_id": "t1", **extra})
+    assert result["error"]["code"] == "invalid_arguments"
+    assert things_helper[1] == things_helper[3] == []
+
+
+@pytest.mark.parametrize(
+    "extra,field,value",
+    [
+        (
+            {"title": '雪 " & do shell script "never" --'},
+            "name",
+            '雪 " & do shell script "never" --',
+        ),
+        ({"notes": ""}, "notes", ""),
+        ({"deadline": None}, "deadline", None),
+        ({"deadline": "2026-12-01"}, "deadline", "2026-12-01"),
+        ({"tags": []}, "tags", []),
+        ({"tags": ["Work"]}, "tags", ["Work"]),
+        ({"project_id": "p2"}, "project_id", "p2"),
+        ({"area_id": "a2"}, "project_id", None),
+        *[
+            ({"when": value}, "activation_date", value)
+            for value in ["today", "tomorrow", "anytime", "someday", "2026-12-01"]
+        ],
+    ],
+)
+async def test_update_preserves_omissions_and_explicit_clears(
+    core, config, things_helper, extra, field, value
+):
+    allow(config)
+    _, calls, _, writes, current = things_helper
+    before = dict(current)
+    result = await core.call("dot", "tasks_update", {"todo_id": "t1", **extra})
+    assert result["status"] == "ok"
+    assert result["todo"][field] == value
+    assert result["todo"]["status"] == "open"
+    for key in {"name", "notes", "deadline", "tags", "activation_date"} - {field}:
+        assert result["todo"][key] == before[key]
+    assert calls[-1]["method"] == "things.update"
+    assert writes[-1] == {"todo_id": "t1", **extra, **RULES}
+    assert "NEVER_RETURN" not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    "rules,extra,allowed",
+    [
+        ({"deny_projects": ["p1"]}, {"project_id": "p2"}, False),
+        ({"deny_areas": ["a1"]}, {"area_id": "a2"}, False),
+        ({"deny_projects": ["p2"]}, {"project_id": "p2"}, False),
+        ({"deny_areas": ["a2"]}, {"project_id": "p2"}, False),
+        ({"deny_areas": ["a2"]}, {"area_id": "a2"}, False),
+        ({"allow_all": False, "projects": ["p1"]}, {"project_id": "p2"}, False),
+        ({"allow_all": False, "projects": ["p2"]}, {"project_id": "p2"}, False),
+        ({"allow_all": False, "projects": ["p1", "p2"]}, {"project_id": "p2"}, True),
+        ({"allow_all": False, "areas": ["a1", "a2"]}, {"project_id": "p2"}, True),
+        ({"allow_all": False, "projects": ["p1"], "areas": ["a2"]}, {"area_id": "a2"}, True),
+    ],
+)
+async def test_update_checks_current_and_new_destinations(
+    core, config, things_helper, rules, extra, allowed
+):
+    allow(config, **rules)
+    _, _, _, writes, current = things_helper
+    before = dict(current)
+    result = await core.call("dot", "tasks_update", {"todo_id": "t1", "title": "Changed", **extra})
+    assert (result["status"] == "ok") is allowed
+    assert len(writes) == int(allowed)
+    if not allowed:
+        assert result["error"]["code"] in {"resource_denied", "things_resource_denied"}
+        assert current == before
+
+
+@pytest.mark.parametrize(
+    "state", [{"status": "completed"}, {"status": "canceled"}, {"class": "project"}]
+)
+async def test_update_refuses_closed_tasks_and_projects(core, config, things_helper, state):
+    allow(config)
+    things_helper[4].update(state)
+    result = await core.call("dot", "tasks_update", {"todo_id": "t1", "notes": "Changed"})
+    assert result["error"]["code"] == "things_resource_denied"
+    assert not things_helper[3]
+
+
+async def test_update_scope_policy_reload_unknown_tags_and_no_retry(core, config, things_helper):
+    state, calls, _, writes, _ = things_helper
+    args = {"todo_id": "t1", "title": "Changed"}
+    assert (await core.call("dot", "tasks_update", args))["error"]["code"] == "resource_denied"
+    allow(config)
+    assert (await core.call("agy", "tasks_update", args))["error"]["code"] == "scope_denied"
+    assert calls == []
+    assert (await core.call("dot", "tasks_update", {**args, "tags": ["New"]}))["error"][
+        "code"
+    ] == "things_invalid_arguments"
+    assert not writes
+    assert (await core.call("dot", "tasks_update", args))["status"] == "ok"
+    allow(config, deny_areas=["a1"])
+    assert (await core.call("dot", "tasks_update", args))["error"][
+        "code"
+    ] == "things_resource_denied"
+    allow(config)
+    state["things.update"] = {"ok": False, "error": {"code": "backend_error", "message": "PRIVATE"}}
+    before = len(calls)
+    result = await core.call("dot", "tasks_update", args)
+    assert result["error"]["code"] == "things_backend_error"
+    assert len(calls) == before + 1
+    assert "PRIVATE" not in json.dumps(result)
+
+
+def test_fixed_update_script_checks_before_mutation_and_shares_dates():
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "native/SwitchboardEventKit/Sources/EventKitBridge/Resources/Things.applescript"
+    ).read_text()
+    update = source.split("on updateTodo(", 1)[1].split("end updateTodo", 1)[0]
+    first_mutation = update.index("set project of t")
+    assert update.index("{to do, selected to do}") < first_mutation
+    assert update.index("if status of t is not open") < first_mutation
+    assert update.count("my checkDestination(") == 3
+    assert update.rindex("my checkDestination(") < first_mutation
+    assert update.index("exists tag named") < first_mutation
+    assert "my applyDates(t," in update
+    assert source.count("schedule t for scheduledDay") == 1
+    assert source.count("my applyDates(t,") == 2
+
+
+def test_fixed_applescript_compiles_only(tmp_path):
+    import subprocess
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "native/SwitchboardEventKit/Sources/EventKitBridge/Resources/Things.applescript"
+    )
+    subprocess.run(
+        ["/usr/bin/osacompile", "-o", str(tmp_path / "things.scpt"), str(source)],
+        check=True,
+        capture_output=True,
+    )

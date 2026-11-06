@@ -32,7 +32,10 @@ public enum ThingsDescriptors {
     -> NSAppleEventDescriptor
   {
     guard
-      ["listTodos", "searchTodos", "listProjects", "listAreas", "addTodo", "completeTodo"].contains(
+      [
+        "listTodos", "searchTodos", "listProjects", "listAreas", "addTodo", "completeTodo",
+        "updateTodo",
+      ].contains(
         handler)
     else {
       throw BridgeError("invalid_arguments")
@@ -201,6 +204,20 @@ public final class ThingsBackend {
     case .thingsComplete:
       handler = "completeTodo"
       parameters = [request.args["todo_id"]!] + policy
+    case .thingsUpdate:
+      handler = "updateTodo"
+      // Presence flags distinguish omission from clearing notes, deadline or tags.
+      let keys = ["title", "notes", "when", "deadline", "project_id", "area_id", "tags"]
+      parameters =
+        [request.args["todo_id"]!]
+        + keys.flatMap { key -> [JSONValue] in
+          let value = request.args[key]
+          return [
+            .bool(value != nil),
+            value == nil || value == .null
+              ? (key == "tags" ? .array([]) : .string("")) : value!,
+          ]
+        } + policy
     default: throw BridgeError("invalid_arguments")
     }
     return try runner!.run(handler, parameters: parameters)

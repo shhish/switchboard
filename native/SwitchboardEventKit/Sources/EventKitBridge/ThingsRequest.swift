@@ -23,9 +23,17 @@ extension Request {
     case .thingsComplete:
       fields = policy.union(["todo_id"])
       required = policy.union(["todo_id"])
+    case .thingsUpdate:
+      fields = policy.union([
+        "todo_id", "title", "notes", "when", "deadline", "project_id", "area_id", "tags",
+      ])
+      required = policy.union(["todo_id"])
     default: throw BridgeError("invalid_arguments")
     }
     guard Set(args.keys).isSubset(of: fields), required.isSubset(of: Set(args.keys)) else {
+      throw BridgeError("invalid_arguments")
+    }
+    if method == .thingsUpdate && Set(args.keys).subtracting(required).isEmpty {
       throw BridgeError("invalid_arguments")
     }
     for (key, value) in args {
@@ -49,6 +57,11 @@ extension Request {
           })
         else { throw BridgeError("invalid_arguments") }
       default:
+        if method == .thingsUpdate
+          && (key == "deadline" && value == .null || key == "notes" && value == .string(""))
+        {
+          continue
+        }
         let maxLength = key == "title" || key == "query" ? 200 : key == "notes" ? 2000 : 1000
         guard case .string(let text) = value, text.count <= maxLength,
           !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -68,10 +81,13 @@ extension Request {
     {
       try Self.validateDay(when)
     }
+    if method == .thingsUpdate && ["tonight", "evening"].contains(text("when") ?? "") {
+      throw BridgeError("invalid_arguments")
+    }
     if let deadline = text("deadline") { try Self.validateDay(deadline) }
   }
 
-  private static func validateDay(_ value: String) throws {
+  static func validateDay(_ value: String) throws {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
     formatter.timeZone = .current

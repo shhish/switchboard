@@ -32,6 +32,19 @@ intent prevents another POST after a crash, timeout or failed response. The owne
 must inspect Overseerr and the local audit/receipt before any reset. No automatic
 reset capability exists. Never bypass the receipt or send a raw API retry.
 
+For “do I have the latest season/episode?” use `media_show_detail {tmdb_id}`
+or `{title}` with exactly one identifier; title resolves through library search.
+Resolve `ambiguous` candidates before continuing. Search availability flags and
+Seerr's show status cannot prove season or episode completeness. Compare aired,
+Plex and watched counts, `missing_aired`, `latest_season_complete`, and next airing.
+Air dates use America/New_York. Specials are excluded unless `include_specials:
+true`. At most six seasons receive episode inspection, latest first; `truncated`
+means omitted season detail or more than 60 missing episodes. Skipped seasons
+are omitted from `seasons`; absence there cannot establish completeness.
+Older count-complete seasons use planned counts; the latest season is always
+inspected. A future season with no aired episodes is complete only relative to
+what has aired. A missing backend is unavailable, never proof of absence.
+
 Use `media_library_status` for counts and degraded services, and `media_downloads`
 for active work and recent history. A missing source is an uncertainty, not proof
 that a title is absent. Search results are bounded to ten per source. Show TMDB

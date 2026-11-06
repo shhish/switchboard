@@ -131,6 +131,34 @@ on listAreas()
   end timeout
 end listAreas
 
+on applyDates(t, whenValue, deadlineValue, changeDeadline)
+  with timeout of 10 seconds
+    tell application "/Applications/Things3.app"
+      if changeDeadline then
+        if deadlineValue is "" then
+          delete due date of t  -- Things clears a deadline with delete, not missing value
+        else
+          set due date of t to my dayValue(deadlineValue)
+        end if
+      end if
+      if whenValue is "someday" then
+        move t to list "Someday"
+      else if whenValue is "anytime" then
+        move t to list "Anytime"
+      else if whenValue is not "" then
+        if whenValue is "today" or whenValue is "tomorrow" then
+          set scheduledDay to current date
+          set time of scheduledDay to 0
+          if whenValue is "tomorrow" then set scheduledDay to scheduledDay + days
+        else
+          set scheduledDay to my dayValue(whenValue)
+        end if
+        schedule t for scheduledDay
+      end if
+    end tell
+  end timeout
+end applyDates
+
 on addTodo(taskTitle, taskNotes, whenValue, deadlineValue, projectID, areaID, tagNames, checklistItems, allowAll, projects, areas, denyProjects, denyAreas)
   with timeout of 10 seconds
     -- The installed dictionary has no checklist/Evening property. Refuse before make.
@@ -151,39 +179,14 @@ on addTodo(taskTitle, taskNotes, whenValue, deadlineValue, projectID, areaID, ta
         if not (exists tag named (contents of tagName)) then error "Unknown tag" number -27003
       end repeat
       set newProperties to {name:taskTitle, notes:taskNotes}
-      if deadlineValue is not "" then set newProperties to newProperties & {due date:my dayValue(deadlineValue)}
       set t to make new to do with properties newProperties at beginning of list "Inbox"
       if projectID is not "" then
         set project of t to targetProject
       else if areaID is not "" then
         set area of t to area id areaID
       end if
-      if (count tagNames) > 0 then
-        set oldDelimiters to AppleScript's text item delimiters
-        try
-          set AppleScript's text item delimiters to ", "
-          set joinedTags to tagNames as text
-          set AppleScript's text item delimiters to oldDelimiters
-        on error
-          set AppleScript's text item delimiters to oldDelimiters
-          error "Tags failed" number -27003
-        end try
-        set tag names of t to joinedTags
-      end if
-      if whenValue is "someday" then
-        move t to list "Someday"
-      else if whenValue is "anytime" then
-        move t to list "Anytime"
-      else if whenValue is not "" then
-        if whenValue is "today" or whenValue is "tomorrow" then
-          set scheduledDay to current date
-          set time of scheduledDay to 0
-          if whenValue is "tomorrow" then set scheduledDay to scheduledDay + days
-        else
-          set scheduledDay to my dayValue(whenValue)
-        end if
-        schedule t for scheduledDay
-      end if
+      if (count tagNames) > 0 then my applyTags(t, tagNames)
+      my applyDates(t, whenValue, deadlineValue, deadlineValue is not "")
     end tell
     return {|todo|:my todoRecord(t)}
   end timeout
@@ -204,3 +207,65 @@ on completeTodo(todoID, allowAll, projects, areas, denyProjects, denyAreas)
     return {|todo|:my todoRecord(t)}
   end timeout
 end completeTodo
+
+-- All optional values have separate presence flags: empty notes/tags and a
+-- cleared deadline must not be confused with omitted fields.
+on updateTodo(todoID, hasTitle, taskTitle, hasNotes, taskNotes, hasWhen, whenValue, hasDeadline, deadlineValue, hasProject, projectID, hasArea, areaID, hasTags, tagNames, allowAll, projects, areas, denyProjects, denyAreas)
+  with timeout of 10 seconds
+    tell application "/Applications/Things3.app"
+      if not (exists to do id todoID) then error "Missing" number -27002
+      set t to to do id todoID
+      if {to do, selected to do} does not contain class of t then error "Denied" number -27001
+      -- Closed to-dos refuse every edit, including title and notes.
+      if status of t is not open then error "Denied" number -27001
+      set dest to my destination(t)
+      my checkDestination(item 1 of dest, item 3 of dest, allowAll, projects, areas, denyProjects, denyAreas)
+      -- Resolve the new parent's area before any change, even to title/notes.
+      if hasProject then
+        if not (exists project id projectID) then error "Missing" number -27002
+        set targetProject to project id projectID
+        set parentArea to ""
+        set a to area of targetProject
+        if a is not missing value then set parentArea to id of a
+        my checkDestination(projectID, parentArea, allowAll, projects, areas, denyProjects, denyAreas)
+      else if hasArea then
+        if not (exists area id areaID) then error "Missing" number -27002
+        my checkDestination("", areaID, allowAll, projects, areas, denyProjects, denyAreas)
+      end if
+      if hasTags then
+        repeat with tagName in tagNames
+          if not (exists tag named (contents of tagName)) then error "Unknown tag" number -27003
+        end repeat
+      end if
+      -- All policy and tag checks precede the first mutation.
+      if hasProject then
+        set project of t to targetProject
+      else if hasArea then
+        set project of t to missing value
+        set area of t to area id areaID
+      end if
+      if hasTitle then set name of t to taskTitle
+      if hasNotes then set notes of t to taskNotes
+      if hasTags then my applyTags(t, tagNames)
+      my applyDates(t, whenValue, deadlineValue, hasDeadline)
+    end tell
+    return {|todo|:my todoRecord(t)}
+  end timeout
+end updateTodo
+
+on applyTags(t, tagNames)
+  with timeout of 10 seconds
+    tell application "/Applications/Things3.app"
+        set oldDelimiters to AppleScript's text item delimiters
+        try
+          set AppleScript's text item delimiters to ", "
+          set joinedTags to tagNames as text
+          set AppleScript's text item delimiters to oldDelimiters
+        on error
+          set AppleScript's text item delimiters to oldDelimiters
+          error "Tags failed" number -27003
+        end try
+        set tag names of t to joinedTags
+    end tell
+  end timeout
+end applyTags

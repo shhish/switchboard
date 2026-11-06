@@ -2,12 +2,15 @@
 
 import asyncio
 import time
+from datetime import date, datetime
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 from ..errors import CapabilityError
 from ..media_compress import NOTE, REQUEST_ID, STATUSES, validate_receipt, validate_status
 from ..schema import obj, string
 from .common import array, output, pick, sanitize_text, selected
+from .watch import identifier, integer, rows
 
 COUNTS = selected(
     (
@@ -41,6 +44,209 @@ SEERR_MATCH = obj(
     },
     ("tmdb_id", "kind", "title", "year", "availability"),
 )
+
+
+COUNT = {"type": "integer", "minimum": 0}
+AIRING = obj(
+    {"season": COUNT, "episode": COUNT, "date": string(10)},
+    ("season", "episode", "date"),
+)
+SHOW_SEASON = obj(
+    {
+        "season": COUNT,
+        "episodes_planned": COUNT,
+        "aired": COUNT,
+        "in_library": COUNT,
+        "watched": COUNT,
+        "complete": {"type": "boolean"},
+        "missing_aired": {"type": "array", "items": COUNT, "maxItems": 60},
+    },
+    ("season", "episodes_planned", "aired", "in_library", "watched", "complete", "missing_aired"),
+)
+
+
+def show_invalid():
+    raise CapabilityError("backend_invalid", "Invalid show detail response")
+
+
+def show_count(value):
+    value = integer(value)
+    if value is None:
+        show_invalid()
+    return value
+
+
+def air_date(value):
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str):
+        show_invalid()
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        show_invalid()
+
+
+def airing(value):
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        show_invalid()
+    when = air_date(value.get("airDate"))
+    if when is None:
+        return None
+    return {
+        "season": show_count(value.get("seasonNumber")),
+        "episode": show_count(value.get("episodeNumber")),
+        "date": when.isoformat(),
+    }
+
+
+async def show_detail(core, tmdb_id, include_specials):
+    today = datetime.now(ZoneInfo("America/New_York")).date()
+    data = await core.backends.get("overseerr", f"/api/v1/tv/{tmdb_id}")
+    if not isinstance(data, dict) or not isinstance(data.get("seasons"), list):
+        show_invalid()
+    title, status = data.get("name"), data.get("status")
+    info = data.get("mediaInfo")
+    info = {} if info is None else info
+    if (
+        data.get("id", tmdb_id) != tmdb_id
+        or not isinstance(title, str)
+        or not title
+        or not isinstance(status, str)
+        or not isinstance(info, dict)
+    ):
+        show_invalid()
+    first_air = air_date(data.get("firstAirDate"))
+    last, upcoming = airing(data.get("lastEpisodeToAir")), airing(data.get("nextEpisodeToAir"))
+    plex_seasons = {}
+    key = info.get("ratingKey")
+    if key not in (None, ""):
+        key = identifier(key)
+        _, values = rows(await core.backends.get("plex", f"/library/metadata/{key}/children"))
+        for row in values:
+            season = show_count(row.get("index"))
+            if season in plex_seasons:
+                show_invalid()
+            plex_seasons[season] = row
+    seasons = {}
+    starts = {}
+    for row in data["seasons"]:
+        if not isinstance(row, dict):
+            show_invalid()
+        season = show_count(row.get("seasonNumber"))
+        if season == 0 and not include_specials:
+            continue
+        if season in seasons:
+            show_invalid()
+        planned = show_count(row.get("episodeCount"))
+        start = air_date(row.get("airDate"))
+        plex = plex_seasons.get(season, {})
+        present = show_count(plex.get("leafCount", 0))
+        # Count-complete older seasons need no episode scan. Unknown counts are
+        # internal only; omit seasons skipped by the inspection cap below.
+        if start and start > today:
+            aired = 0
+        elif last and last["season"] == season and last["date"] <= today.isoformat():
+            aired = min(planned, last["episode"])
+        else:
+            aired = planned if present >= planned else None
+        starts[season] = start
+        seasons[season] = {
+            "season": season,
+            "episodes_planned": planned,
+            "aired": aired,
+            "in_library": present,
+            "watched": show_count(plex.get("viewedLeafCount", 0)),
+            "complete": present >= aired if aired is not None else None,
+            "missing_aired": [],
+        }
+    # "Latest" is the newest season that has started airing; an announced season with
+    # no aired episodes would otherwise count as complete on a technicality.
+    started = [n for n in seasons if starts.get(n) is None or starts[n] <= today]
+    latest = max(started or seasons, default=None)
+    needed = sorted(
+        (
+            n
+            for n, row in seasons.items()
+            if row["in_library"] < row["episodes_planned"] or n == latest
+        ),
+        reverse=True,
+    )
+    truncated = len(needed) > 6
+    for season in needed[:6]:
+        details = await core.backends.get("overseerr", f"/api/v1/tv/{tmdb_id}/season/{season}")
+        episodes = details.get("episodes") if isinstance(details, dict) else None
+        if not isinstance(episodes, list):
+            show_invalid()
+        aired_numbers, seen = set(), set()
+        for episode in episodes:
+            if not isinstance(episode, dict):
+                show_invalid()
+            number = show_count(episode.get("episodeNumber"))
+            if number in seen:
+                show_invalid()
+            seen.add(number)
+            when = air_date(episode.get("airDate"))
+            if when is not None and when <= today:
+                aired_numbers.add(number)
+        present_numbers, watched_numbers = set(), set()
+        plex = plex_seasons.get(season)
+        if plex is not None:
+            season_key = identifier(plex.get("ratingKey"))
+            _, values = rows(
+                await core.backends.get("plex", f"/library/metadata/{season_key}/children")
+            )
+            for episode in values:
+                number = show_count(episode.get("index"))
+                if number in present_numbers:
+                    show_invalid()
+                present_numbers.add(number)
+                if show_count(episode.get("viewCount", 0)) > 0:
+                    watched_numbers.add(number)
+        missing = sorted(aired_numbers - present_numbers)
+        row = seasons[season]
+        row.update(
+            aired=len(aired_numbers),
+            watched=len(watched_numbers),
+            complete=row["in_library"] >= len(aired_numbers),
+            missing_aired=missing[:60],
+        )
+        truncated |= len(missing) > 60
+    latest_row = seasons.get(latest)
+    if latest_row is None:
+        summary = "No regular seasons are listed."
+    else:
+        n, aired, present, viewed = (
+            latest_row[k] for k in ("season", "aired", "in_library", "watched")
+        )
+        if aired == 0:
+            summary = f"Season {n}: no episodes have aired yet"
+        elif latest_row["complete"] and not latest_row["missing_aired"]:
+            summary = f"Season {n}: all {aired} aired episodes are in Plex ({viewed} watched)"
+        else:
+            summary = f"Season {n}: {present} episodes in Plex, {aired} aired ({viewed} watched)"
+        if upcoming:
+            when = date.fromisoformat(upcoming["date"])
+            summary += f"; next episode {when.strftime('%b')} {when.day}"
+        summary += "."
+    return {
+        "status": "ok",
+        "show": {
+            "title": sanitize_text(title, 200),
+            "year": first_air.year if first_air else None,
+            "tmdb_id": tmdb_id,
+            "status": sanitize_text(status, 100),
+            "in_library": key is not None and key != "",
+        },
+        "seasons": [seasons[n] for n in sorted(seasons) if n not in needed[6:]],
+        "last_aired": last,
+        "next_airing": upcoming,
+        "latest_season_complete": bool(latest_row and latest_row["complete"]),
+        "summary": summary,
+        "truncated": truncated,
+    }
 
 
 def compress_preflight(core, client, args):
@@ -521,3 +727,87 @@ def register(registry):
             "warnings": warnings,
             "truncated": len(library) > 10 or len(results) > 10,
         }
+
+    @registry.declare(
+        "media_show_detail",
+        "Show season and episode availability",
+        "Use when checking latest seasons or aired episodes in Plex. Requires Seerr and "
+        "Plex read access and exactly one TMDB ID or library title. Returns aired, present "
+        "and watched counts; inspects up to six seasons, omitting skipped season detail "
+        "and marking truncated.",
+        {
+            **obj(
+                {
+                    "tmdb_id": {"type": "integer", "minimum": 1},
+                    "title": string(200),
+                    "include_specials": {"type": "boolean"},
+                }
+            ),
+            "oneOf": [{"required": ["tmdb_id"]}, {"required": ["title"]}],
+        },
+        scope="media:read",
+        service="media+overseerr+plex",
+        timeout_s=90,
+        output_schema=output(
+            show=obj(
+                {
+                    "title": string(200),
+                    "year": {"type": ["integer", "null"]},
+                    "tmdb_id": COUNT,
+                    "status": string(100),
+                    "in_library": {"type": "boolean"},
+                },
+                ("title", "year", "tmdb_id", "status", "in_library"),
+            ),
+            seasons=array(SHOW_SEASON),
+            last_aired={"oneOf": [AIRING, {"type": "null"}]},
+            next_airing={"oneOf": [AIRING, {"type": "null"}]},
+            latest_season_complete={"type": "boolean"},
+            summary=string(300),
+            candidates=array(LIBRARY_MATCH),
+            truncated={"type": "boolean"},
+        ),
+    )
+    async def detail(core, client, args):
+        if "title" in args and not args["title"].strip():
+            raise CapabilityError("invalid_arguments", "title must contain non-whitespace text")
+        try:
+            for backend in ("overseerr", "plex"):
+                core.backends.headers(backend)
+            tmdb_id = args.get("tmdb_id")
+            if tmdb_id is None:
+                found = await search(core, client, {"query": args["title"], "kind": "show"})
+                candidates = found["library"]
+                if not candidates:
+                    if found["warnings"]:
+                        raise CapabilityError(
+                            "backend_down", "Library title resolution unavailable"
+                        )
+                    raise CapabilityError(
+                        "not_found", "No library show matches this title; use a TMDB ID"
+                    )
+                if len(candidates) == 1 and not candidates[0].get("tmdb_id") and found["warnings"]:
+                    raise CapabilityError("backend_down", "Library TMDB resolution unavailable")
+                if len(candidates) != 1 or not candidates[0].get("tmdb_id"):
+                    return {
+                        "status": "ambiguous",
+                        "candidates": candidates,
+                        "truncated": found["truncated"] and len(candidates) == 10,
+                    }
+                tmdb_id = candidates[0]["tmdb_id"]
+                if type(tmdb_id) is not int or tmdb_id < 1:
+                    show_invalid()
+            return await show_detail(core, tmdb_id, args.get("include_specials", False))
+        except CapabilityError as exc:
+            if exc.code in (
+                "backend_disabled",
+                "backend_credentials",
+                "backend_down",
+                "backend_error",
+            ):
+                raise CapabilityError(
+                    "backend_down",
+                    "Show details unavailable from a required backend",
+                    hint="Check Seerr, Plex and library search with sb doctor; retry once later",
+                ) from None
+            raise

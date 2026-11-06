@@ -140,21 +140,22 @@ async def watch(config, fake_backends):
             ],
             "recordsFiltered": 1,
         },
-        "activity": {
-            "sessions": [
-                {
-                    "title": "Arrival",
-                    "user": "Owner",
-                    "product": "Plex for Roku",
-                    "player": "PRIVATE device",
-                    "machine_identifier": "PRIVATE",
-                    "ip_address": "PRIVATE",
-                    "progress_percent": "42.5",
-                    "video_decision": "directplay",
-                    "audio_decision": "transcode",
-                }
+        "sessions": container(
+            [
+                movie(
+                    User={"title": "Viewer", "id": "PRIVATE"},
+                    Player={
+                        "product": "Plex for Roku",
+                        "local": True,
+                        "address": "PRIVATE",
+                        "machineIdentifier": "PRIVATE",
+                    },
+                    Session={"bandwidth": 12000, "location": "lan", "id": "PRIVATE"},
+                    TranscodeSession={"videoDecision": "copy", "audioDecision": "transcode"},
+                    viewOffset=2550000,
+                )
             ]
-        },
+        ),
         "mutate": True,
     }
 
@@ -182,7 +183,9 @@ async def watch(config, fake_backends):
                     {
                         "response": {
                             "result": "success",
-                            "data": state["history" if command == "get_history" else "activity"],
+                            "data": state["history"]
+                            if command == "get_history"
+                            else {"sessions": []},
                         }
                     },
                 )
@@ -200,6 +203,7 @@ async def watch(config, fake_backends):
             return web.Response(text=state.get("receipt", ""), content_type="text/html")
         assert request.method == "GET"
         fixed = {
+            "/status/sessions": state["sessions"],
             "/library/onDeck": state["on_deck"],
             "/library/recentlyAdded": state["recent"],
             "/library/sections": state["sections"],
@@ -274,25 +278,96 @@ async def test_history_users_window_and_kind(watch):
     assert calls[-1][2]["media_type"] == "episode"
 
 
-async def test_now_playing_product_only_and_transcode(watch):
-    core, state, _, _ = watch
+async def test_now_playing_identity_network_progress_and_privacy(watch):
+    core, state, calls, _ = watch
+    core.config.backends["tautulli"]["enabled"] = False
     result = await core.call("dot", "media_now_playing", {})
     session = result["sessions"][0]
     assert session == {
         "title": "Arrival",
-        "user": "Owner",
+        "user": "Viewer",
         "product": "Plex for Roku",
         "progress_percent": 42.5,
         "transcode": True,
+        "rating_key": "42",
+        "kind": "movie",
+        "show": None,
+        "season": None,
+        "episode": None,
+        "bandwidth_kbps": 12000,
+        "location": "lan",
+        "local": True,
     }
+    assert calls == [("GET", "/status/sessions", {})]
+    assert result["source"] == "plex"
     assert "PRIVATE" not in json.dumps(result)
-    state["activity"]["sessions"][0].update(
-        audio_decision="directplay", progress_percent="garbage", view_offset="1", duration="4"
+    row = state["sessions"]["MediaContainer"]["Metadata"][0]
+    row.update(
+        type="episode",
+        title="Pilot",
+        grandparentTitle="A Show",
+        parentIndex="18",
+        index="6",
+        parentRatingKey="100",
+        grandparentRatingKey=99,
+        viewOffset="1",
+        duration="4",
+        Session={"bandwidth": "3000", "location": "wan"},
+        Player={"product": "Plex Web", "local": "0"},
+        TranscodeSession={"videoDecision": "copy", "audioDecision": "copy"},
     )
     session = (await core.call("dot", "media_now_playing", {}))["sessions"][0]
     assert session["transcode"] is False and session["progress_percent"] == 25
-    state["activity"]["sessions"] = []
+    assert session["title"] == "A Show - Pilot"
+    assert (session["show"], session["season"], session["episode"]) == ("A Show", 18, 6)
+    assert type(session["season"]) is int and type(session["episode"]) is int
+    assert (
+        session["rating_key"],
+        session["parent_rating_key"],
+        session["grandparent_rating_key"],
+    ) == ("42", "100", "99")
+    assert session["bandwidth_kbps"] == 3000 and type(session["bandwidth_kbps"]) is int
+    assert session["location"] == "wan" and session["local"] is False
+    state["sessions"] = {"MediaContainer": {"size": 0}}
     assert (await core.call("dot", "media_now_playing", {}))["sessions"] == []
+
+
+@pytest.mark.parametrize("kind,expected", [("track", "track"), ("clip", "other")])
+async def test_now_playing_missing_optional_fields_and_bounds(watch, kind, expected):
+    core, state, _, _ = watch
+    state["sessions"] = container([{"title": "A Title", "type": kind}] * 21)
+    result = await core.call("dot", "media_now_playing", {})
+    assert len(result["sessions"]) == 20 and result["truncated"]
+    session = result["sessions"][0]
+    assert session["kind"] == expected
+    assert "rating_key" not in session and "parent_rating_key" not in session
+    for field in (
+        "show",
+        "season",
+        "episode",
+        "progress_percent",
+        "bandwidth_kbps",
+        "location",
+        "local",
+        "transcode",
+    ):
+        assert session[field] is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [],
+        {"MediaContainer": {"size": 1}},
+        container([{"title": "A", "Player": []}]),
+        container([{"title": "A", "ratingKey": "../42"}]),
+    ],
+)
+async def test_now_playing_malformed_response(watch, payload):
+    core, state, _, _ = watch
+    state["sessions"] = payload
+    result = await core.call("dot", "media_now_playing", {})
+    assert result["error"]["code"] == "backend_invalid"
 
 
 async def test_unwatched_pool_filters_paging_and_limits(watch):
@@ -498,13 +573,13 @@ async def test_watch_backend_error_sanitized(watch, name, args):
         {"response": []},
         {"response": {"result": "error", "message": "PRIVATE"}},
         {"response": {"result": "success", "data": []}},
-        {"response": {"result": "success", "data": {"sessions": [None]}}},
+        {"response": {"result": "success", "data": {"data": [None]}}},
     ],
 )
 async def test_tautulli_invalid_envelopes_sanitized(watch, envelope):
     core, state, _, _ = watch
     state["envelope"] = envelope
-    result = await core.call("dot", "media_now_playing", {})
+    result = await core.call("dot", "media_watch_history", {})
     assert result["status"] == "error"
     assert result["error"]["code"] in ("backend_invalid", "backend_error")
     assert "PRIVATE" not in json.dumps(result)

@@ -133,3 +133,40 @@ def register(registry):
             "event": resource(data.get("event"), EVENT_FIELDS),
             **metadata(data),
         }
+
+    @registry.declare(
+        "calendar_update_event",
+        "Update calendar event",
+        "Use when editing a discovered event after confirming the exact change with the human. "
+        "Requires its current calendar to allow writes. Changes only the identified occurrence "
+        "of recurring events (.thisEvent). Attendees or another organizer require Calendar. "
+        "Returns updated event metadata.",
+        obj(
+            {
+                "event_id": string(1000),
+                "start": string(100),
+                "end": string(100),
+                "title": string(200),
+                "location": {"type": "string", "maxLength": 1000},
+                "notes": {"type": "string", "maxLength": 2000},
+                "all_day": {"type": "boolean"},
+            },
+            ("event_id",),
+        ),
+        scope="calendar:write",
+        tier="write",
+        service="eventkit",
+        output_schema=output(event=EVENT, **TIME),
+    )
+    async def update_event(core, client, args):
+        if len(args) == 1:
+            raise CapabilityError("invalid_arguments", "At least one change is required")
+        allowed = core.policy.allowed_ids("calendar", "calendars")
+        if not allowed:
+            raise CapabilityError("resource_denied", "No calendars are allowlisted")
+        data = await core.backends.eventkit.call("events.update", {**args, "calendar_ids": allowed})
+        return {
+            "status": "ok",
+            "event": resource(data.get("event"), EVENT_FIELDS),
+            **metadata(data),
+        }
