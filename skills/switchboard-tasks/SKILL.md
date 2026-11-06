@@ -34,14 +34,26 @@ admits destinations except `deny_projects` / `deny_areas`; deny wins, including
 an area's projects. With `allow_all: false`, an explicitly listed project OR
 area is required; tasks without either destination (Inbox) remain allowed.
 The helper checks the current parent area before creating, and the current
-project and area immediately before completing. Read visibility is unrestricted
-by these write allowlists. Missing task policy refuses all writes.
+project and area immediately before completing or editing. Edits also check the
+new destination, including a new project's parent area, before changing anything.
+Read visibility is unrestricted by these write allowlists. Missing task policy
+refuses all writes.
 
 Use `tasks_complete` for one discovered to-do ID only when completion is intended.
-Never mass-complete. This tool refuses project IDs. There is no delete, editing
-of existing tasks, project creation, or new-tag creation. `tasks_add` is not
+Never mass-complete. This tool refuses project IDs.
+
+Use `tasks_update` for one discovered open to-do. Confirm the exact change with
+the human before editing. Supply `todo_id` and at least one change: title, notes,
+`when`, deadline, project ID OR area ID, or existing tag names. Omitted fields stay
+unchanged. Empty notes clear notes, `deadline: null` clears the deadline, and
+`tags: []` clears tags. Tags replace the current set; they never create new tags.
+The same supported `when` values apply as for add. Completed and canceled to-dos
+refuse all edits, including title and notes. Projects cannot be edited.
+There is no delete, project creation, or new-tag creation. `tasks_add` is not
 idempotent: a timeout can follow a successful creation or partial setup. Inspect
-Inbox/search before retrying; never automatically retry a write.
+Inbox/search before retrying; never automatically retry a write. Edits can also
+partially succeed before a failure; inspect the returned/current record before
+retrying.
 
 Use `ops_switchboard_status` / `sb doctor` on failure. Setup belongs to the owner:
 `sb things status` reports running/Automation status without prompting;

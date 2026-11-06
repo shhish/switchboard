@@ -52,6 +52,7 @@ public enum Operation: String, Codable, Sendable {
   case thingsAreas = "things.areas"
   case thingsAdd = "things.add"
   case thingsComplete = "things.complete"
+  case thingsUpdate = "things.update"
   case netProbe = "net.probe"
   case netAccess = "net.request_access"
   case remoteSSH = "remote.ssh"
@@ -60,10 +61,12 @@ public enum Operation: String, Codable, Sendable {
   case calendars = "calendars.list"
   case events = "events.list"
   case create = "events.create"
+  case updateEvent = "events.update"
   case lists = "reminder_lists.list"
   case reminders = "reminders.list"
   case add = "reminders.add"
   case complete = "reminders.complete"
+  case updateReminder = "reminders.update"
 }
 
 public struct Request: Sendable {
@@ -127,6 +130,18 @@ public struct Request: Sendable {
     throw BridgeError("invalid_arguments")
   }
 
+  public static func parseDue(_ value: String) throws -> Date {
+    if value.count != 10 { return try parseDate(value) }
+    try validateDay(value)
+    return try parseDate(value + "T00:00:00")
+  }
+
+  static func validateInterval(start: Date, end: Date) throws {
+    guard end > start, end.timeIntervalSince(start) <= 366 * 86400 else {
+      throw BridgeError("invalid_arguments")
+    }
+  }
+
   private func validate() throws {
     if method == .remoteSSH {
       try RemoteSSH.validate(self)
@@ -157,6 +172,11 @@ public struct Request: Sendable {
         "calendar_id", "title", "start", "end", "all_day", "location", "notes", "alarms_minutes",
       ]
       required = ["calendar_id", "title", "start", "end"]
+    case .updateEvent:
+      fields = [
+        "event_id", "calendar_ids", "start", "end", "title", "location", "notes", "all_day",
+      ]
+      required = ["event_id", "calendar_ids"]
     case .reminders:
       fields = ["list_ids", "due_before", "include_completed", "limit"]
       required = []
@@ -166,12 +186,21 @@ public struct Request: Sendable {
     case .complete:
       fields = ["reminder_id", "list_ids"]
       required = ["reminder_id"]
-    case .netProbe, .netAccess, .remoteSSH, .thingsStatus, .thingsAccess, .thingsLists, .thingsSearch,
-      .thingsProjects, .thingsAreas, .thingsAdd, .thingsComplete:
+    case .updateReminder:
+      fields = ["reminder_id", "list_ids", "title", "due", "notes", "priority"]
+      required = ["reminder_id", "list_ids"]
+    case .netProbe, .netAccess, .remoteSSH, .thingsStatus, .thingsAccess, .thingsLists,
+      .thingsSearch,
+      .thingsProjects, .thingsAreas, .thingsAdd, .thingsComplete, .thingsUpdate:
       throw BridgeError("invalid_arguments")
     }
     guard Set(args.keys).isSubset(of: fields), required.isSubset(of: Set(args.keys)) else {
       throw BridgeError("invalid_arguments")
+    }
+    if method == .updateEvent || method == .updateReminder {
+      guard !Set(args.keys).subtracting(required).isEmpty else {
+        throw BridgeError("invalid_arguments")
+      }
     }
     for (key, value) in args {
       switch key {
@@ -194,17 +223,28 @@ public struct Request: Sendable {
           })
         else { throw BridgeError("invalid_arguments") }
       default:
+        if method == .updateReminder && key == "due" && value == .null { continue }
         guard case .string(let text) = value,
-          !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-          text.count <= (key == "title" ? 200 : key == "notes" ? 2000 : 1000)
+          (method == .updateEvent || method == .updateReminder)
+            && (key == "notes" || key == "location") && text.isEmpty
+            || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+          text.count
+            <= (key == "title"
+              ? 200
+              : key == "notes"
+                ? 2000 : ["start", "end", "due", "due_before"].contains(key) ? 100 : 1000)
         else { throw BridgeError("invalid_arguments") }
       }
     }
-    for key in ["start", "end", "due", "due_before"] where args[key] != nil { _ = try date(key) }
-    if let start = try date("start"), let end = try date("end") {
-      guard end > start, end.timeIntervalSince(start) <= 366 * 86400 else {
-        throw BridgeError("invalid_arguments")
+    for key in ["start", "end", "due", "due_before"] where args[key] != nil {
+      if method == .updateReminder && key == "due" {
+        if let due = text(key) { _ = try Self.parseDue(due) }
+      } else {
+        _ = try date(key)
       }
+    }
+    if let start = try date("start"), let end = try date("end") {
+      try Self.validateInterval(start: start, end: end)
     }
   }
 }
@@ -218,10 +258,12 @@ public enum Router {
     _ data: Data, backend: any EventKitBackend, deadline: Double? = nil
   ) async -> Data {
     let response: [String: JSONValue]
+    var operation: Operation?
     do {
       guard data.count <= 65536 else { throw BridgeError("invalid_arguments") }
       let request: Request
       do { request = try Request(data: data) } catch { throw BridgeError("invalid_arguments") }
+      operation = request.method
       let result = try await ExecutionDeadline.run(
         seconds: deadline ?? ExecutionDeadline.seconds(for: request)
       ) { try await backend.execute(request) }
@@ -237,10 +279,14 @@ public enum Router {
         "backend_error": "Native operation failed; inspect before retrying a write",
         "unsupported": "Things AppleScript cannot create native checklist or Evening items",
       ]
+      var message = messages[code] ?? messages["backend_error"]!
+      if operation == .updateEvent && code == "resource_denied" {
+        message += "; change events with attendees or another organizer in Calendar"
+      }
       response = [
         "ok": .bool(false),
         "error": .object([
-          "code": .string(code), "message": .string(messages[code] ?? messages["backend_error"]!),
+          "code": .string(code), "message": .string(message),
         ]),
       ]
     }

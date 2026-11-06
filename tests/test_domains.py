@@ -200,3 +200,24 @@ async def test_search_multi_word_query_is_percent_encoded(core):
     result = await core.call("owner", "media_search", {"query": "Masters of the Air: Part 2"})
     assert result["status"] == "ok"
     assert not any("overseerr" in w for w in result.get("warnings", []))
+
+
+async def test_doctor_omits_legacy_orb_when_federated(core, monkeypatch):
+    # The federation status is tested separately against fake MCP servers.
+    # Do not probe the legacy Orb backend once a federation identity is mapped.
+    core.config.upstreams["orb"]["client_tokens"] = {"dot": "/fake/orb.token"}
+    original = core.backends.probe
+    probed = []
+
+    async def probe(name):
+        probed.append(name)
+        return await original(name)
+
+    async def upstream_status():
+        return {"status": "ok", "reason": "reachable with mapped identities"}
+
+    monkeypatch.setattr(core.backends, "probe", probe)
+    monkeypatch.setattr(core.orb, "status", upstream_status)
+    result = await core.call("dot", "ops_switchboard_status", {})
+    assert "orb" not in result["backends"] and "orb" not in probed
+    assert result["upstreams"]["orb"]["status"] == "ok"

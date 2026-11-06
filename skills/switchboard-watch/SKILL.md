@@ -8,6 +8,14 @@ Use Switchboard's named tools (or `sb --client <your-client> call <tool> --json
 internals, contact luna-media, or bypass a denied capability with a raw API call.
 Library search and availability remain with `media_search` and
 `media_library_status` through media-api; title requests stay with Overseerr.
+For “do I have the latest season/episode?” use `media_show_detail {tmdb_id}` or
+`{title}` (exactly one), resolve ambiguous library candidates, and check aired,
+Plex and watched counts plus `missing_aired` and `latest_season_complete`.
+Availability flags cannot prove completeness. Dates use America/New_York;
+specials require `include_specials: true`. Episode inspection covers at most six
+seasons, latest first. Honor `truncated`: skipped seasons are omitted from
+`seasons`, so absence there cannot establish completeness; missing lists are
+capped at 60. Future seasons are complete only relative to episodes aired.
 
 ## Recommendations
 
@@ -47,9 +55,12 @@ web knowledge may supply background, never proof of local availability.
 
 ## Playback and corrections
 
-`media_now_playing` returns users, titles, progress and transcoding, plus player
-product names. Missing progress or transcode information is unknown. It does not
-expose IPs, named devices or device identifiers.
+`media_now_playing` reads Plex sessions and returns users, compatible combined
+titles, progress, transcoding and player product names. It also returns optional
+Plex `rating_key`, `parent_rating_key`, `grandparent_rating_key`, `kind`, show,
+integer season/episode, `bandwidth_kbps`, LAN/WAN `location` and boolean `local`.
+Missing values are unknown. It does not expose IPs, named devices, session IDs
+or device identifiers. Tautulli is still used for history.
 
 Only change watch state on explicit request. Resolve the exact title and Plex
 `rating_key` from watch-tool results; media-api/TMDB/TVDB IDs are not Plex keys.

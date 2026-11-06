@@ -136,3 +136,72 @@ private actor FailingBackend: EventKitBackend {
   #expect(text.contains("PRIVATE_BACKEND_EXCEPTION") == false)
   #expect(text.contains("backend_error"))
 }
+
+@Test func updateRequestsValidateEveryFieldBeforeBackend() async throws {
+  let backend = FakeBackend()
+  let event: [String: JSONValue] = [
+    "event_id": .string("e1"), "calendar_ids": .array([.string("cal1")]),
+  ]
+  let reminder: [String: JSONValue] = [
+    "reminder_id": .string("r1"), "list_ids": .array([.string("list1")]),
+  ]
+  let fixtures: [(String, [String: JSONValue], [[String: JSONValue]], [[String: JSONValue]])] = [
+    (
+      "events.update", event,
+      [
+        ["title": .string("Changed")], ["location": .string("")], ["notes": .string("")],
+        ["all_day": .bool(false)], ["start": .string("2026-11-01T18:00:00Z")],
+        ["end": .string("2026-11-01T19:00:00Z")],
+      ],
+      [
+        [:], ["title": .string(" ")], ["title": .string(String(repeating: "x", count: 201))],
+        ["location": .string(String(repeating: "x", count: 1001))],
+        ["notes": .string(String(repeating: "x", count: 2001))], ["notes": .null],
+        ["all_day": .number(1)], ["start": .string("bad")], ["end": .null],
+        ["start": .string("2026-11-01T19:00:00Z"), "end": .string("2026-11-01T18:00:00Z")],
+        ["start": .string("2026-11-01T19:00:00Z"), "end": .string("2028-11-01T18:00:00Z")],
+        ["calendar_id": .string("override"), "title": .string("x")],
+        ["calendar_ids": .array([]), "title": .string("x")],
+        ["calendar_ids": .array([.bool(true)]), "title": .string("x")],
+        ["event_id": .string(""), "title": .string("x")],
+        ["start": .string(String(repeating: "x", count: 101))],
+      ]
+    ),
+    (
+      "reminders.update", reminder,
+      [
+        ["title": .string("Changed")], ["notes": .string("")], ["due": .null],
+        ["due": .string("2026-11-01")], ["due": .string("2026-11-01T12:00:00-05:00")],
+        ["priority": .number(0)], ["priority": .number(9)],
+      ],
+      [
+        [:], ["title": .string(" ")], ["due": .string("2026-02-30")],
+        ["due": .string("2026-1-01")], ["due": .string("tomorrow")], ["due": .bool(false)],
+        ["priority": .number(-1)], ["priority": .number(10)], ["priority": .bool(true)],
+        ["priority": .number(1.5)], ["notes": .null],
+        ["title": .string(String(repeating: "x", count: 201))],
+        ["notes": .string(String(repeating: "x", count: 2001))],
+        ["list_id": .string("override"), "title": .string("x")],
+        ["list_ids": .array([]), "title": .string("x")],
+        ["reminder_id": .bool(true), "title": .string("x")],
+      ]
+    ),
+  ]
+  var expected = 0
+  for (method, base, valid, invalid) in fixtures {
+    for extra in valid + invalid {
+      let args = base.merging(extra) { _, new in new }
+      let response = await Router.respond(try encoded(method, args), backend: backend)
+      let value = try JSONDecoder().decode([String: JSONValue].self, from: response)
+      let allowed = valid.contains(extra)
+      #expect(value["ok"] == .bool(allowed))
+      if allowed { expected += 1 }
+    }
+    for missing in base.keys {
+      var args = base.merging(["title": .string("x")]) { _, new in new }
+      args.removeValue(forKey: missing)
+      #expect(throws: BridgeError.self) { try Request(data: encoded(method, args)) }
+    }
+  }
+  #expect(await backend.calls().count == expected)
+}

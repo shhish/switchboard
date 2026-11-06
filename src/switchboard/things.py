@@ -11,6 +11,7 @@ METHODS = {
     "things.areas",
     "things.add",
     "things.complete",
+    "things.update",
 }
 
 

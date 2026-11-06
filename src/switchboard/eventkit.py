@@ -17,10 +17,12 @@ METHODS = {
     "calendars.list",
     "events.list",
     "events.create",
+    "events.update",
     "reminder_lists.list",
     "reminders.list",
     "reminders.add",
     "reminders.complete",
+    "reminders.update",
 }
 ERRORS = {
     "timeout": "Native operation timed out; inspect reads before retrying a write",
@@ -87,6 +89,10 @@ class EventKit:
                 if not isinstance(code, str) or code not in (ERRORS.keys() | {"unsupported"}):
                     raise ValueError
                 message = ERRORS.get(code, "Native helper operation unsupported")
+                if method == "events.update" and code == "resource_denied":
+                    message += (
+                        "; events with attendees or another organizer must be changed in Calendar"
+                    )
                 if self.backend == "things":
                     message = {
                         "unauthorized": (

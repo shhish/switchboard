@@ -202,3 +202,63 @@ func thingsWhenValuesAreTyped(_ value: String) throws {
         "area_id": .string("a1"), "area_name": .string("Home"), "tags": .array([.string("Errand")]),
       ]))
 }
+
+@Test @MainActor func thingsUpdatesUseOnlyDescriptorsWithPresenceFlags() throws {
+  let runner = RecordingScript()
+  let backend = ThingsBackend(runner: runner)
+  let text = "雪 \" & do shell script \"never\" --\n\\"
+  let args = taskPolicy.merging([
+    "todo_id": .string("t1"), "title": .string(text), "notes": .string(""),
+    "deadline": .null, "tags": .array([]), "area_id": .string("a2"),
+  ]) { _, new in new }
+  _ = try backend.dispatch(thingsRequest("things.update", args))
+  let call = try #require(runner.calls.last)
+  #expect(call.0 == "updateTodo")
+  #expect(
+    call.1 == [
+      .string("t1"), .bool(true), .string(text), .bool(true), .string(""),
+      .bool(false), .string(""), .bool(true), .string(""), .bool(false), .string(""),
+      .bool(true), .string("a2"), .bool(true), .array([]),
+      .bool(false), .array([.string("p1")]), .array([]), .array([]), .array([.string("blocked")]),
+    ])
+  let event = try ThingsDescriptors.call(call.0, parameters: call.1)
+  let parameters = try #require(event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject)))
+  #expect(parameters.atIndex(3)?.stringValue == text)
+  #expect(parameters.atIndex(8)?.booleanValue == true)  // explicit deadline clear
+}
+
+@Test func thingsUpdateRevalidatesEveryField() throws {
+  let base = taskPolicy.merging(["todo_id": .string("t1")]) { _, new in new }
+  for extra: [String: JSONValue] in [
+    ["notes": .string("")], ["deadline": .null], ["tags": .array([])],
+    ["title": .string("Changed")], ["project_id": .string("p2")], ["area_id": .string("a2")],
+    ["when": .string("today")], ["when": .string("tomorrow")], ["when": .string("anytime")],
+    ["when": .string("someday")], ["when": .string("2026-11-01")],
+    ["deadline": .string("2026-11-01")],
+  ] {
+    _ = try thingsRequest("things.update", base.merging(extra) { _, new in new })
+  }
+  for extra: [String: JSONValue] in [
+    [:], ["todo_id": .string(""), "title": .string("x")], ["title": .string(" ")],
+    ["title": .string(String(repeating: "x", count: 201))],
+    ["notes": .string(String(repeating: "x", count: 2001))], ["notes": .null],
+    ["when": .string("evening")], ["when": .string("tonight")], ["when": .null],
+    ["when": .string("2026-02-30")], ["deadline": .string("")],
+    ["deadline": .string("2026-1-01")], ["deadline": .bool(false)],
+    ["project_id": .string("p1"), "area_id": .string("a1")],
+    ["project_id": .string(" ")], ["area_id": .null], ["checklist": .array([])],
+    ["tags": .array([.string("a,b")])], ["tags": .array([.string("a\nb")])],
+    ["tags": .array([.string(" ")])], ["tags": .array([.bool(true)])],
+    ["tags": .array(Array(repeating: .string("x"), count: 11))],
+    ["allow_all": .string("true"), "title": .string("x")],
+  ] {
+    #expect(throws: BridgeError.self) {
+      try thingsRequest("things.update", base.merging(extra) { _, new in new })
+    }
+  }
+  for key in base.keys {
+    var args = base.merging(["title": .string("x")]) { _, new in new }
+    args.removeValue(forKey: key)
+    #expect(throws: BridgeError.self) { try thingsRequest("things.update", args) }
+  }
+}

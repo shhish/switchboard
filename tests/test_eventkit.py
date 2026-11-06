@@ -47,6 +47,7 @@ async def socket_helper(config):
         "request_access": {"events": "full_access", "reminders": "full_access", **META},
         "events.list": {"events": [EVENT], "truncated": True, **META},
         "events.create": {"event": EVENT, **META},
+        "events.update": {"event": EVENT, **META},
         "calendars.list": {
             "calendars": [{"id": "cal1", "title": "Personal", "writable": True}],
             **META,
@@ -58,6 +59,7 @@ async def socket_helper(config):
         "reminders.list": {"reminders": [REMINDER], **META},
         "reminders.add": {"reminder": REMINDER, **META},
         "reminders.complete": {"reminder": {**REMINDER, "completed": True}, **META},
+        "reminders.update": {"reminder": REMINDER, **META},
     }
     calls, tasks = [], set()
     pause = asyncio.Event()
@@ -79,8 +81,11 @@ async def socket_helper(config):
             else:
                 # Emulate the helper's current-list check before the completion save.
                 if (
-                    message["method"] == "reminders.complete"
+                    message["method"] in {"reminders.complete", "reminders.update"}
                     and REMINDER["list_id"] not in message["args"]["list_ids"]
+                ) or (
+                    message["method"] == "events.update"
+                    and EVENT["calendar_id"] not in message["args"]["calendar_ids"]
                 ):
                     value = {
                         "ok": False,
@@ -616,3 +621,153 @@ async def test_remote_hosts_go_through_the_helper(core, socket_helper, tmp_path)
     with pytest.raises(CapabilityError) as error:
         await remote.call(core, "remotehost", "snapshot")
     assert error.value.code == "backend_down"
+
+
+UPDATES = [
+    (
+        "calendar_update_event",
+        "events.update",
+        {"event_id": "e1", "title": "Changed"},
+        "calendar_ids",
+        "event",
+    ),
+    (
+        "reminders_update",
+        "reminders.update",
+        {"reminder_id": "r1", "due": None},
+        "list_ids",
+        "reminder",
+    ),
+]
+
+
+@pytest.mark.parametrize("tool,method,args,key,resource", UPDATES)
+async def test_updates_scope_policy_and_current_destination(
+    core, config, socket_helper, tool, method, args, key, resource
+):
+    _, calls, _ = socket_helper
+    assert (await core.call("dot", tool, args))["error"]["code"] == "resource_denied"
+    assert calls == []
+    allow(config, calendars=["cal1"], lists=["list1"])
+    assert (await core.call("agy", tool, args))["error"]["code"] == "scope_denied"
+    assert tool not in {t["name"] for t in core.tools("agy")}
+    assert calls == []
+    result = await core.call("dot", tool, args)
+    assert (
+        result["status"] == "ok"
+        and result[resource]["id"] == args["event_id" if resource == "event" else "reminder_id"]
+    )
+    assert calls[-1] == {
+        "method": method,
+        "args": {**args, key: ["cal1" if resource == "event" else "list1"]},
+    }
+    assert "NEVER_RETURN" not in json.dumps(result)
+    # Allowlist another destination: the helper must reject the current one.
+    allow(config, calendars=["other"], lists=["other"])
+    assert (await core.call("dot", tool, args))["error"]["code"] == "eventkit_resource_denied"
+    assert calls[-1]["args"][key] == ["other"]
+    allow(config)
+    before = len(calls)
+    assert (await core.call("dot", tool, args))["error"]["code"] == "resource_denied"
+    assert len(calls) == before
+
+
+@pytest.mark.parametrize("default", [True, False])
+@pytest.mark.parametrize("tool,method,args,key,resource", UPDATES)
+async def test_updates_effective_allowlists_subtract_denials(
+    core, config, socket_helper, default, tool, method, args, key, resource
+):
+    _, calls, _ = socket_helper
+    allow(
+        config,
+        calendars=[] if default else ["cal1", "denied"],
+        lists=[] if default else ["list1", "denied"],
+        calendar="cal1",
+        list="list1",
+    )
+    change_policy(
+        config,
+        lambda p: (
+            p["allowlists"]["calendar"].update(deny_calendars=["denied"]),
+            p["allowlists"]["reminders"].update(deny_lists=["denied"]),
+        ),
+    )
+    assert (await core.call("dot", tool, args))["status"] == "ok"
+    assert calls[-1]["args"][key] == ["cal1" if resource == "event" else "list1"]
+    change_policy(
+        config,
+        lambda p: (
+            p["allowlists"]["calendar"].update(deny_calendars=["cal1", "denied"]),
+            p["allowlists"]["reminders"].update(deny_lists=["list1", "denied"]),
+        ),
+    )
+    before = len(calls)
+    assert (await core.call("dot", tool, args))["error"]["code"] == "resource_denied"
+    assert len(calls) == before
+
+
+@pytest.mark.parametrize(
+    "tool,id_key,extra",
+    [
+        ("calendar_update_event", "event_id", {}),
+        ("calendar_update_event", "event_id", {"title": "x" * 201}),
+        ("calendar_update_event", "event_id", {"all_day": 1}),
+        ("calendar_update_event", "event_id", {"start": None}),
+        ("calendar_update_event", "event_id", {"end": ""}),
+        ("calendar_update_event", "event_id", {"notes": "x" * 2001}),
+        ("calendar_update_event", "event_id", {"location": "x" * 1001}),
+        ("calendar_update_event", "event_id", {"calendar_ids": ["override"], "title": "x"}),
+        ("calendar_update_event", "event_id", {"calendar_id": "override", "title": "x"}),
+        ("reminders_update", "reminder_id", {}),
+        ("reminders_update", "reminder_id", {"priority": True}),
+        ("reminders_update", "reminder_id", {"priority": -1}),
+        ("reminders_update", "reminder_id", {"priority": 10}),
+        ("reminders_update", "reminder_id", {"priority": 1.5}),
+        ("reminders_update", "reminder_id", {"due": ""}),
+        ("reminders_update", "reminder_id", {"due": False}),
+        ("reminders_update", "reminder_id", {"title": ""}),
+        ("reminders_update", "reminder_id", {"notes": None}),
+        ("reminders_update", "reminder_id", {"list_ids": ["override"], "title": "x"}),
+    ],
+)
+async def test_update_schemas_are_closed(core, socket_helper, tool, id_key, extra):
+    assert (await core.call("dot", tool, {id_key: "id", **extra}))["error"][
+        "code"
+    ] == "invalid_arguments"
+    assert not socket_helper[1]
+
+
+@pytest.mark.parametrize("tool,method,args,key,resource", UPDATES)
+async def test_updates_never_retry_or_fallback(
+    core, config, socket_helper, tool, method, args, key, resource
+):
+    state, calls, _ = socket_helper
+    allow(config, calendars=["cal1"], lists=["list1"])
+    state[method] = {"ok": False, "error": {"code": "resource_denied", "message": "PRIVATE"}}
+    result = await core.call("dot", tool, args)
+    assert result["error"]["code"] == "eventkit_resource_denied"
+    assert "PRIVATE" not in json.dumps(result)
+    if resource == "event":
+        assert "Calendar" in result["error"]["message"]
+    assert len(calls) == 1
+    config.backends["eventkit"]["enabled"] = False
+    assert (await core.call("dot", tool, args))["error"]["code"] == "backend_disabled"
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("tool,method,args,key,resource", UPDATES)
+async def test_updates_forward_clears_and_only_supplied_changes(
+    core, config, socket_helper, tool, method, args, key, resource
+):
+    allow(config, calendars=["cal1"], lists=["list1"])
+    extra = (
+        {"notes": "", "location": "", "all_day": False}
+        if resource == "event"
+        else {"notes": "", "priority": 0}
+    )
+    assert (await core.call("dot", tool, {**args, **extra}))["status"] == "ok"
+    assert socket_helper[1][-1]["args"] == {
+        **args,
+        **extra,
+        key: ["cal1" if resource == "event" else "list1"],
+    }

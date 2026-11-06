@@ -120,8 +120,8 @@ raw commands, credentials and device administration are outside Switchboard.
 
 Use Things for the owner's to-dos and projects; ctasks is retired. Follow
 `switchboard-tasks` for `tasks.*` discovery, Inbox defaults, date clarification,
-policy-gated adds and single-item completion. Use Reminders only when explicitly
-requested or for time-based nudges. Never mass-complete Things tasks.
+policy-gated adds, edits and single-item completion. Use Reminders only when
+explicitly requested or for time-based nudges. Never mass-complete Things tasks.
 
 For calendar/reminder work, confirm date, time and timezone with the user when
 ambiguous, including daylight-saving transitions and all-day boundaries. Prefer
@@ -139,7 +139,17 @@ ID filters). Honor returned coverage and truncation: native reads cap at 200;
 FrameServer fallback still has limited windows and identifiers. Filtered reads
 require the native helper. Create with `calendar_create_event`, add with
 `reminders_add`, and complete only a discovered ID with `reminders_complete`;
-completion checks its current list against policy. No event edit/delete exists.
+completion checks its current list against policy.
+Use `calendar_update_event` to edit one discovered event occurrence, or
+`reminders_update` to edit one discovered reminder. Confirm the exact change with
+the human before editing. Supply the discovered ID and at least one change;
+omitted fields stay unchanged. Calendar edits accept start/end, title, location,
+notes and all_day; only the identified recurring occurrence changes (.thisEvent).
+Events with attendees or another organizer must be changed in Calendar instead.
+Reminder edits accept title, due (date/datetime or null to clear), notes and
+priority. Empty notes/location clear those fields. The helper checks the current
+calendar/list against the effective write allowlist, with denials subtracted.
+There is no event delete tool.
 Creation is not idempotent: after a timeout inspect reads before retrying.
 
 Missing/denied native access requires the owner setup in README. Only the local
