@@ -16,11 +16,13 @@ from switchboard.core import Core
 from switchboard.server import create_app
 
 SCOPES = [
+    "notes:read",
     "feedback:write",
     "feedback:read",
     "feedback:manage",
     "ops:read",
     "media:read",
+    "notes:read",
     "home:read",
     "calendar:read",
     "calendar:write",
@@ -39,7 +41,7 @@ SCOPES = [
 def block_live_services(monkeypatch):
     """Only ephemeral loopback test ports are allowed, including child test configuration."""
     original = socket.socket.connect
-    forbidden = {18800, 8050, 8010, 5055, 18796, 8095, 8445, 32400, 8181}
+    forbidden = {3000, 18800, 8050, 8010, 5055, 18796, 8095, 8445, 32400, 8181}
 
     def guarded(sock, address):
         if isinstance(address, tuple):

@@ -56,6 +56,8 @@ public enum Operation: String, Codable, Sendable {
   case netProbe = "net.probe"
   case netAccess = "net.request_access"
   case remoteSSH = "remote.ssh"
+  case notesSearch = "notes.search"
+  case notesGet = "notes.get"
   case status
   case requestAccess = "request_access"
   case calendars = "calendars.list"
@@ -143,6 +145,10 @@ public struct Request: Sendable {
   }
 
   private func validate() throws {
+    if method == .notesSearch || method == .notesGet {
+      try Notes.validate(self)
+      return
+    }
     if method == .remoteSSH {
       try RemoteSSH.validate(self)
       return
@@ -189,7 +195,8 @@ public struct Request: Sendable {
     case .updateReminder:
       fields = ["reminder_id", "list_ids", "title", "due", "notes", "priority"]
       required = ["reminder_id", "list_ids"]
-    case .netProbe, .netAccess, .remoteSSH, .thingsStatus, .thingsAccess, .thingsLists,
+    case .notesSearch, .notesGet, .netProbe, .netAccess, .remoteSSH, .thingsStatus, .thingsAccess,
+      .thingsLists,
       .thingsSearch,
       .thingsProjects, .thingsAreas, .thingsAdd, .thingsComplete, .thingsUpdate:
       throw BridgeError("invalid_arguments")
@@ -237,7 +244,7 @@ public struct Request: Sendable {
       }
     }
     for key in ["start", "end", "due", "due_before"] where args[key] != nil {
-      if method == .updateReminder && key == "due" {
+      if (method == .updateReminder || method == .add) && key == "due" {
         if let due = text(key) { _ = try Self.parseDue(due) }
       } else {
         _ = try date(key)

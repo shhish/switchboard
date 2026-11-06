@@ -20,6 +20,7 @@ from .schema import validate
 from .services import Services
 from .storage import Storage
 from .upstreams.orb import EVENT_METHODS, EVENT_NAMES, READ_TOOLS, TOOLS, WRITE_TOOLS, OrbUpstream
+from .watches import Watches
 
 
 class Core:
@@ -41,7 +42,8 @@ class Core:
         self.backends = Backends(config)
         self.probes = HealthProbes(config)
         self.alerts = AlertDelivery(config, self.storage)
-        self.monitor = Monitor(config, self.storage, self.probes, self.alerts)
+        self.watches = Watches(self)
+        self.monitor = Monitor(config, self.storage, self.probes, self.alerts, self.watches)
         self.services = Services(self)
         self.context = OwnerContext(self)
         self.orb = OrbUpstream(config, self.policy)
@@ -235,6 +237,7 @@ class Core:
             "tautulli": "tautulli",
             "lazylibrarian": "lazylibrarian",
             "things": "things",
+            "recipes": "recipes",
             "eventkit": "eventkit",
         }.get(cap.service, "switchboard")
 

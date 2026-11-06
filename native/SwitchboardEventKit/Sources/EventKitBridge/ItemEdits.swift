@@ -56,6 +56,22 @@ enum ItemEdits {
     }
   }
 
+  static func dueJSON(_ components: DateComponents?) -> JSONValue {
+    guard let components else { return .null }
+    if components.hour == nil, components.minute == nil, components.second == nil,
+      let year = components.year, let month = components.month, let day = components.day
+    {
+      return .string(String(format: "%04d-%02d-%02d", year, month, day))
+    }
+    var calendar = Calendar.current
+    calendar.timeZone = components.timeZone ?? .current
+    guard let date = calendar.date(from: components) else { return .null }
+    let formatter = ISO8601DateFormatter()
+    formatter.timeZone = .current
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return .string(formatter.string(from: date))
+  }
+
   static func dueComponents(_ value: String) throws -> DateComponents {
     let due = try Request.parseDue(value)
     let fields: Set<Calendar.Component> =

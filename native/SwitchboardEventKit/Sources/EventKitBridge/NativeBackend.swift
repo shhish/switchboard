@@ -81,7 +81,7 @@ public actor NativeBackend: EventKitBackend {
       json: .object([
         "id": .string(reminder.calendarItemIdentifier),
         "list_id": .string(reminder.calendar.calendarIdentifier),
-        "title": .string(reminder.title ?? ""), "due": due.map { .string(iso($0)) } ?? .null,
+        "title": .string(reminder.title ?? ""), "due": ItemEdits.dueJSON(reminder.dueDateComponents),
         "completed": .bool(reminder.isCompleted), "priority": .number(Double(reminder.priority)),
       ]))
   }
@@ -122,6 +122,8 @@ public actor NativeBackend: EventKitBackend {
     switch request.method {
     case .netProbe, .netAccess:
       return try await NetProbe.execute(request)
+    case .notesSearch, .notesGet:
+      return try await Notes.execute(request)
     case .remoteSSH:
       return try await RemoteSSH.execute(request)
     case .status: result = status()
@@ -247,11 +249,8 @@ public actor NativeBackend: EventKitBackend {
       reminder.title = request.text("title")!
       reminder.notes = request.text("notes")
       reminder.priority = request.number("priority") ?? 0
-      if let due = try request.date("due") {
-        var components = Calendar.current.dateComponents(
-          [.year, .month, .day, .hour, .minute, .second], from: due)
-        components.timeZone = .current
-        reminder.dueDateComponents = components
+      if let due = request.text("due") {
+        reminder.dueDateComponents = try ItemEdits.dueComponents(due)
       }
       try store.save(reminder, commit: true)
       result = ["reminder": Self.reminderRow(reminder).json]

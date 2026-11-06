@@ -78,3 +78,42 @@ import Testing
     }
   }
 }
+
+@Test func remindersCreateAndUpdateAcceptDaysAndSerializeDaysWithoutTime() throws {
+  for method in ["reminders.add", "reminders.update"] {
+    let base: [String: JSONValue] =
+      method == "reminders.add"
+      ? ["list_id": .string("list1"), "title": .string("Task")]
+      : ["reminder_id": .string("r1"), "list_ids": .array([.string("list1")])]
+    for value in ["2026-11-20", "2026-11-20T12:34:56-05:00"] {
+      let request = try Request(
+        data: JSONEncoder().encode(
+          JSONValue.object([
+            "method": .string(method),
+            "args": .object(base.merging(["due": .string(value)]) { _, new in new }),
+          ])))
+      let components = try ItemEdits.dueComponents(request.text("due")!)
+      let result = ItemEdits.dueJSON(components)
+      if value.count == 10 {
+        #expect(result == .string(value))
+      } else {
+        guard case .string(let serialized) = result else {
+          Issue.record("missing datetime")
+          continue
+        }
+        #expect(try Request.parseDate(serialized) == Request.parseDate(value))
+      }
+    }
+    for value in ["2026-02-30", "2026-1-01", "tomorrow"] {
+      #expect(throws: BridgeError.self) {
+        try Request(
+          data: JSONEncoder().encode(
+            JSONValue.object([
+              "method": .string(method),
+              "args": .object(base.merging(["due": .string(value)]) { _, new in new }),
+            ])))
+      }
+    }
+  }
+  #expect(ItemEdits.dueJSON(nil) == .null)
+}

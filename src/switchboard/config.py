@@ -19,6 +19,7 @@ from .nws import validate_settings as validate_weather
 DEFAULT_BACKENDS = {
     "health": {"url": "http://127.0.0.1:8050"},
     "media": {"url": "http://127.0.0.1:8010"},
+    "recipes": {"url": "http://127.0.0.1:3000", "enabled": False, "token_file": None},
     "plex": {
         "url": "http://127.0.0.1:32400",
         "token_file": "~/.config/switchboard/secrets/plex.token",
@@ -51,6 +52,7 @@ DEFAULT_BACKENDS = {
         ),
     },
     "frame": {"url": "http://127.0.0.1:8095"},
+    "notes": {"enabled": False, "root": None, "exclude": []},
     "things": {"enabled": False},
     "eventkit": {
         "socket": "~/Library/Application Support/switchboard/eventkit.sock",
@@ -377,6 +379,8 @@ class Config:
             fields = (
                 {"enabled", "python", "script", "state_dir", "timeout_s"}
                 if name == "media_compress"
+                else {"enabled", "root", "exclude"}
+                if name == "notes"
                 else {"enabled"}
                 if name == "things"
                 else {"socket" if name == "eventkit" else "path", "enabled"}
@@ -397,6 +401,8 @@ class Config:
             if "control_token_file" in settings and name != "home":
                 raise ValueError("control_token_file is only valid for home")
             for key in ("token_file", "control_token_file", "api_key_file", "api_key_json_path"):
+                if name == "recipes" and key == "token_file" and settings.get(key) is None:
+                    continue
                 if key in settings and (
                     not isinstance(settings[key], str) or not settings[key].strip()
                 ):
@@ -418,6 +424,11 @@ class Config:
                 if not path.is_absolute():
                     raise ValueError("Maintenance status path must be absolute")
                 settings["path"] = str(path)
+                continue
+            if name == "notes":
+                from .notes import validate_settings
+
+                validate_settings(settings)
                 continue
             if name == "things":
                 continue

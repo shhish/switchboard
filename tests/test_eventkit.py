@@ -771,3 +771,22 @@ async def test_updates_forward_clears_and_only_supplied_changes(
         **extra,
         key: ["cal1" if resource == "event" else "list1"],
     }
+
+
+@pytest.mark.parametrize(
+    "tool,method,args",
+    [
+        ("reminders_add", "reminders.add", {"list_id": "list1", "title": "Task"}),
+        ("reminders_update", "reminders.update", {"reminder_id": "r1"}),
+    ],
+)
+@pytest.mark.parametrize("due", ["2026-11-20", "2026-11-20T12:34:56-05:00"])
+async def test_reminder_due_values_round_trip_unchanged(
+    core, config, socket_helper, tool, method, args, due
+):
+    allow(config, lists=["list1"])
+    state, calls, _ = socket_helper
+    state[method] = {"reminder": {**REMINDER, "due": due}, **META}
+    result = await core.call("dot", tool, {**args, "due": due})
+    assert calls[-1]["args"]["due"] == due
+    assert result["reminder"]["due"] == due
