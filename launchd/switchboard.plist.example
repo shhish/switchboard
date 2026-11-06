@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>__LABEL__</string>
+  <key>ProgramArguments</key>
+  <array><string>__RELEASE__/.venv/bin/sb</string><string>serve</string></array>
+  <key>WorkingDirectory</key><string>__RELEASE__</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>SWITCHBOARD_LABEL</key><string>__LABEL__</string><key>SWITCHBOARD_CONFIG_DIR</key><string>__HOME__/.config/switchboard</string></dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>Umask</key><integer>63</integer>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/switchboard/service.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/switchboard/service-error.log</string>
+</dict>
+</plist>

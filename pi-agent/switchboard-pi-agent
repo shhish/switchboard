@@ -1,0 +1,395 @@
+#!/usr/bin/python3
+"""Switchboard's fixed command set on the Raspberry Pi.
+
+Installed root-owned at /usr/local/bin/switchboard-pi-agent and bound to Switchboard's
+SSH key with `restrict,command=...` in authorized_keys, so that key can run only this
+file. The request arrives in SSH_ORIGINAL_COMMAND as `<command> [args]`; anything not
+listed below is refused. Every subprocess uses a fixed argv (no shell) and every answer
+is one JSON object on stdout.
+
+Commands:
+  snapshot                 host resources, temperature, throttling, failed units
+  status [service]         systemd/docker state for one or all known services
+  logs <service> <lines>   last 1-400 journal or container log lines
+  checks                   DNS answers, Tailscale, Uptime Kuma monitors, pending updates
+  restart <service>        restart an allowlisted service, then report its state
+  refresh-updates          apt-get update (package lists only; installs nothing)
+  version                  agent version
+
+Install: see pi-agent/README.md in the Switchboard repo.
+"""
+
+import json
+import os
+import re
+import sqlite3
+import subprocess
+import sys
+import time
+
+VERSION = "2"
+SERVICES = {
+    # name: (kind, target, restartable)
+    "homebridge": ("systemd", "homebridge.service", True),
+    "adguard": ("systemd", "AdGuardHome.service", True),
+    "nginx": ("systemd", "nginx.service", True),
+    "kuma": ("docker", "uptime-kuma", True),
+    "tailscale": ("systemd", "tailscaled.service", False),  # restarting could cut remote access
+    "ssh": ("systemd", "ssh.service", False),  # restarting could cut Switchboard off
+    "docker": ("systemd", "docker.service", False),
+}
+KUMA_DB = "/opt/uptime-kuma/data/kuma.db"
+ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8"}
+
+
+def run(argv, timeout=15):
+    try:
+        done = subprocess.run(
+            argv, capture_output=True, text=True, timeout=timeout, env=ENV, check=False
+        )
+        return done.returncode, done.stdout[:512 * 1024], done.stderr[:4096]
+    except (OSError, subprocess.TimeoutExpired):
+        return -1, "", "unavailable"
+
+
+def sudo(argv, timeout=30):
+    return run(["/usr/bin/sudo", "-n", *argv], timeout)
+
+
+def read(path):
+    try:
+        with open(path) as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def meminfo():
+    fields = {}
+    for line in read("/proc/meminfo").splitlines():
+        key, _, value = line.partition(":")
+        if value.strip().endswith("kB"):
+            fields[key] = int(value.split()[0]) / 1024
+    total, available = fields.get("MemTotal"), fields.get("MemAvailable")
+    memory = {"total_mb": round(total or 0, 1), "available_mb": round(available or 0, 1)}
+    if total and available is not None:
+        memory["used_mb"] = round(total - available, 1)
+    swap = {
+        "total_mb": round(fields.get("SwapTotal", 0), 1),
+        "free_mb": round(fields.get("SwapFree", 0), 1),
+    }
+    swap["used_mb"] = round(swap["total_mb"] - swap["free_mb"], 1)
+    return memory, swap
+
+
+def disk(path):
+    try:
+        info = os.statvfs(path)
+    except OSError:
+        return None
+    total, free = info.f_blocks * info.f_frsize, info.f_bavail * info.f_frsize
+    return {
+        "name": path,
+        "total_gb": round(total / 1024**3, 2),
+        "free_gb": round(free / 1024**3, 2),
+        "used_percent": round((total - free) / total * 100, 1) if total else 0,
+    }
+
+
+def processes():
+    code, out, _ = run(["/bin/ps", "-eo", "pid=,pcpu=,rss=,comm="])
+    rows = []
+    for line in out.splitlines() if code == 0 else []:
+        parts = line.split(None, 3)
+        if len(parts) == 4 and parts[0].isdigit():
+            try:
+                rows.append(
+                    {
+                        "pid": int(parts[0]),
+                        "cpu_percent": float(parts[1]),
+                        "rss_mb": round(int(parts[2]) / 1024, 1),
+                        "name": parts[3][:64],
+                    }
+                )
+            except ValueError:
+                continue
+    return rows
+
+
+THROTTLE_BITS = {
+    0: "under_voltage_now",
+    1: "freq_capped_now",
+    2: "throttled_now",
+    3: "soft_temp_limit_now",
+    16: "under_voltage_since_boot",
+    17: "freq_capped_since_boot",
+    18: "throttled_since_boot",
+    19: "soft_temp_limit_since_boot",
+}
+
+
+def cpu_ticks():
+    fields = [int(x) for x in read("/proc/stat").splitlines()[0].split()[1:]]
+    idle = fields[3] + (fields[4] if len(fields) > 4 else 0)
+    return sum(fields), idle
+
+
+def default_interface():
+    for line in read("/proc/net/route").splitlines()[1:]:
+        parts = line.split()
+        if len(parts) > 2 and parts[1] == "00000000" and re.fullmatch(r"[a-z0-9]{1,15}", parts[0]):
+            return parts[0]
+    return None
+
+
+def net_bytes(interface):
+    base = f"/sys/class/net/{interface}/statistics/"
+    try:
+        return int(read(base + "rx_bytes")), int(read(base + "tx_bytes"))
+    except ValueError:
+        return None
+
+
+def sample(seconds=1.0):
+    """CPU busy % and default-interface throughput over the same short window."""
+    interface = default_interface()
+    total0, idle0 = cpu_ticks()
+    net0 = net_bytes(interface) if interface else None
+    started = time.monotonic()
+    time.sleep(seconds)
+    elapsed = time.monotonic() - started
+    total1, idle1 = cpu_ticks()
+    net1 = net_bytes(interface) if interface else None
+    result = {}
+    if total1 > total0:
+        result["cpu_percent"] = round(100 * (1 - (idle1 - idle0) / (total1 - total0)), 1)
+    if net0 and net1:
+        result["network"] = {
+            "interface": interface,
+            "rx_bytes_per_s": round((net1[0] - net0[0]) / elapsed),
+            "tx_bytes_per_s": round((net1[1] - net0[1]) / elapsed),
+        }
+    return result
+
+
+def snapshot():
+    load = read("/proc/loadavg").split()
+    memory, swap = meminfo()
+    result = {
+        "hostname": os.uname().nodename,
+        "kernel": os.uname().release,
+        "uptime_s": round(float(read("/proc/uptime").split()[0] or 0)),
+        "load_averages": [float(x) for x in load[:3]] if len(load) >= 3 else [],
+        "cpu_count": os.cpu_count(),
+        "memory": memory,
+        "swap": swap,
+        "disks": [d for d in (disk("/"), disk("/boot/firmware")) if d],
+        "reboot_required": os.path.exists("/var/run/reboot-required"),
+        **sample(),
+    }
+    code, out, _ = run(["/usr/bin/vcgencmd", "measure_temp"])
+    if match := re.search(r"temp=([\d.]+)", out):
+        result["temperature_c"] = float(match[1])
+    code, out, _ = run(["/usr/bin/vcgencmd", "get_throttled"])
+    if match := re.search(r"throttled=(0x[0-9a-fA-F]+)", out):
+        value = int(match[1], 16)
+        result["throttled"] = [name for bit, name in THROTTLE_BITS.items() if value >> bit & 1]
+    code, out, _ = run(["/bin/systemctl", "--failed", "--no-legend", "--plain"])
+    result["failed_units"] = [line.split()[0] for line in out.splitlines() if line.strip()][:20]
+    rows = processes()
+    result["top_cpu"] = sorted(rows, key=lambda r: r["cpu_percent"], reverse=True)[:6]
+    result["top_rss"] = sorted(rows, key=lambda r: r["rss_mb"], reverse=True)[:6]
+    return result
+
+
+def service_status(name):
+    kind, target, restartable = SERVICES[name]
+    row = {"name": name, "kind": kind, "unit": target, "restartable": restartable}
+    if kind == "systemd":
+        props = "ActiveState,SubState,MainPID,NRestarts,ExecMainStartTimestamp,MemoryCurrent"
+        code, out, _ = run(["/bin/systemctl", "show", target, "--property=" + props])
+        values = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+        row["running"] = values.get("ActiveState") == "active"
+        row["state"] = values.get("ActiveState", "unknown") + "/" + values.get("SubState", "")
+        if values.get("MainPID", "0").isdigit() and int(values["MainPID"]):
+            row["pid"] = int(values["MainPID"])
+        if values.get("NRestarts", "").isdigit():
+            row["restart_count"] = int(values["NRestarts"])
+        if values.get("ExecMainStartTimestamp"):
+            row["started_at"] = values["ExecMainStartTimestamp"][:64]
+        if values.get("MemoryCurrent", "").isdigit():
+            row["rss_mb"] = round(int(values["MemoryCurrent"]) / 1024**2, 1)
+    else:
+        code, out, _ = sudo(
+            ["/usr/bin/docker", "inspect", "--format", "{{json .State}} {{.RestartCount}}", target]
+        )
+        try:
+            state_text, count = out.strip().rsplit(" ", 1)
+            state = json.loads(state_text)
+            row["running"] = state.get("Running") is True
+            row["state"] = str(state.get("Status", "unknown"))[:32]
+            row["restart_count"] = int(count)
+            row["started_at"] = str(state.get("StartedAt", ""))[:64]
+            health = (state.get("Health") or {}).get("Status")
+            if health:
+                row["docker_health"] = str(health)[:16]
+        except (ValueError, AttributeError):
+            row.update(running=False, state="unknown")
+    return row
+
+
+def status(args):
+    if args:
+        if args[0] not in SERVICES:
+            raise ValueError("unknown service")
+        return {"services": [service_status(args[0])]}
+    return {"services": [service_status(name) for name in SERVICES]}
+
+
+def logs(args):
+    if len(args) != 2 or args[0] not in SERVICES or not args[1].isdigit():
+        raise ValueError("usage: logs <service> <lines>")
+    lines = max(1, min(400, int(args[1])))
+    kind, target, _ = SERVICES[args[0]]
+    if kind == "systemd":
+        code, out, err = sudo(
+            ["/bin/journalctl", "-u", target, "-n", str(lines), "--no-pager", "-o", "short-iso"]
+        )
+    else:
+        code, out, err = sudo(["/usr/bin/docker", "logs", "--tail", str(lines), target])
+        out = out + err  # docker writes the container's stderr there
+    if code != 0:
+        raise RuntimeError("logs unavailable")
+    return {"service": args[0], "source": "journal" if kind == "systemd" else "docker",
+            "lines": out.splitlines()[-lines:]}
+
+
+def dig(name):
+    code, out, _ = run(
+        ["/usr/bin/dig", "@127.0.0.1", name, "A", "+short", "+time=2", "+tries=1"], timeout=6
+    )
+    answers = [line for line in out.splitlines() if re.fullmatch(r"[\d.]+", line)]
+    return {"name": name, "ok": code == 0 and bool(answers), "answers": answers[:4]}
+
+
+def tailscale():
+    code, out, _ = run(["/usr/bin/tailscale", "status", "--json"])
+    try:
+        data = json.loads(out)
+    except ValueError:
+        return {"ok": False, "state": "unavailable"}
+    me = data.get("Self") or {}
+    peers = (data.get("Peer") or {}).values()
+    return {
+        "ok": data.get("BackendState") == "Running" and me.get("Online") is True,
+        "state": str(data.get("BackendState", "unknown"))[:32],
+        "online": me.get("Online") is True,
+        "routes": [str(r)[:43] for r in (me.get("PrimaryRoutes") or [])][:8],
+        "exit_node_offered": me.get("ExitNodeOption") is True,
+        "peers_online": sum(1 for p in peers if p.get("Online")),
+    }
+
+
+def kuma_monitors():
+    # Read-only: the newest heartbeat per active monitor.
+    query = (
+        "SELECT m.name, m.type, h.status, h.time FROM monitor m LEFT JOIN heartbeat h "
+        "ON h.id = (SELECT id FROM heartbeat WHERE monitor_id = m.id ORDER BY id DESC LIMIT 1) "
+        "WHERE m.active = 1 ORDER BY m.name"
+    )
+    code, out, _ = sudo(["/usr/bin/sqlite3", "-readonly", "-json", KUMA_DB, query], timeout=20)
+    try:
+        rows = json.loads(out or "[]")
+    except ValueError:
+        return {"ok": False, "reason": "kuma database unavailable"}
+    names = {0: "down", 1: "up", 2: "pending", 3: "maintenance"}
+    monitors = [
+        {"name": str(r["name"])[:150], "type": str(r["type"])[:20],
+         "status": names.get(r["status"], "unknown"), "last_check": r["time"]}
+        for r in rows
+    ]
+    return {
+        "ok": all(m["status"] in ("up", "maintenance") for m in monitors),
+        "active": len(monitors),
+        "not_up": [m for m in monitors if m["status"] not in ("up", "maintenance")],
+    }
+
+
+def updates():
+    code, out, _ = run(["/usr/bin/apt", "list", "--upgradable"], timeout=30)
+    packages = [line.split("/", 1)[0] for line in out.splitlines() if "/" in line][:200]
+    # The lists directory changes whenever `apt-get update` fetches new indexes.
+    stamps = [p for p in ("/var/lib/apt/lists", "/var/lib/apt/periodic/update-success-stamp")
+              if os.path.exists(p)]
+    try:
+        age = round(time.time() - max(os.stat(p).st_mtime for p in stamps)) if stamps else None
+    except OSError:
+        age = None
+    return {"count": len(packages), "packages": packages[:40], "lists_age_s": age}
+
+
+def refresh_updates(args):
+    """`apt-get update` only: refreshes package lists, installs nothing."""
+    if args:
+        raise ValueError("usage: refresh-updates")
+    code, _, _ = sudo(["/usr/bin/apt-get", "update", "-qq"], timeout=180)
+    return {"refreshed": code == 0, "updates": updates()}
+
+
+def checks():
+    return {
+        "dns": [dig("example.com"), dig("sonarr.lan")],
+        "tailscale": tailscale(),
+        "kuma": kuma_monitors(),
+        "updates": updates(),
+    }
+
+
+def restart(args):
+    if len(args) != 1 or args[0] not in SERVICES:
+        raise ValueError("unknown service")
+    kind, target, restartable = SERVICES[args[0]]
+    if not restartable:
+        raise PermissionError("service is not restartable")
+    argv = (
+        ["/bin/systemctl", "restart", target]
+        if kind == "systemd"
+        else ["/usr/bin/docker", "restart", target]
+    )
+    code, _, _ = sudo(argv, timeout=90)
+    time.sleep(2)
+    return {"restarted": code == 0, "service": service_status(args[0])}
+
+
+COMMANDS = {
+    "snapshot": lambda args: snapshot(),
+    "status": status,
+    "logs": logs,
+    "checks": lambda args: checks(),
+    "restart": restart,
+    "refresh-updates": refresh_updates,
+    "version": lambda args: {"version": VERSION},
+}
+
+
+def main():
+    request = os.environ.get("SSH_ORIGINAL_COMMAND", "").split()
+    if not request or request[0] not in COMMANDS or len(request) > 3 or any(
+        not re.fullmatch(r"[a-z0-9_-]{1,40}", part) for part in request
+    ):
+        print(json.dumps({"ok": False, "error": "unsupported request"}))
+        return 2
+    try:
+        result = COMMANDS[request[0]](request[1:])
+    except PermissionError as exc:
+        print(json.dumps({"ok": False, "error": str(exc), "code": "not_allowed"}))
+        return 3
+    except (ValueError, RuntimeError) as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}))
+        return 2
+    print(json.dumps({"ok": True, "agent_version": VERSION, **result}))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
