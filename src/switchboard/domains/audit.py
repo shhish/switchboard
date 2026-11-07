@@ -50,7 +50,9 @@ def compact(record):
 
 
 def window(args, default_hours=24):
-    until_ms = int(time.time() * 1000)
+    # +1: rows are stamped in whole milliseconds and the query end is exclusive, so a
+    # call in the same millisecond as this request must still count.
+    until_ms = int(time.time() * 1000) + 1
     return until_ms - args.get("hours", default_hours) * 3_600_000, until_ms
 
 
