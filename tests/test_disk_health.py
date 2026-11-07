@@ -75,6 +75,7 @@ async def disks(core, monkeypatch):
     health.runner = runner
     health.mounts = lambda: copy.deepcopy(mounts)
     health.statvfs = usage
+    health.important_free = lambda path: None
     return core, health, calls, replies, mounts
 
 
@@ -207,6 +208,7 @@ async def test_hourly_retention_and_restart_cache(disks):
     assert total <= 4 * (MAX_POINTS + 1)
     new = DiskHealth(core)
     new.runner, new.mounts, new.statvfs = health.runner, health.mounts, health.statvfs
+    new.important_free = health.important_free
     count = len([c for c in calls if c[0] == hostcmd.SMARTCTL])
     await new.status(now=now + 5 * HOUR)
     assert len([c for c in calls if c[0] == hostcmd.SMARTCTL]) == count
@@ -539,3 +541,26 @@ def test_smart_exit_bits_warn_on_present_failures_and_note_the_past():
     now = smart_reading(data, 16 | 64)
     assert len(now["warnings"]) == 2 and now["state"] == "ok"
     assert smart_reading(data, 4)["state"] == "unsupported"
+
+
+async def test_purgeable_space_counts_as_free(disks):
+    _, health, _, _, _ = disks
+    baseline = await health.status(refresh=True, now=100000)
+    data = next(c for c in baseline["containers"] if c["mount"] == "/System/Volumes/Data")
+    assert data["purgeable_bytes"] == 0
+    health.important_free = lambda path: (
+        data["free_bytes"] + 50 * 1024**3 if path == "/System/Volumes/Data" else None
+    )
+    result = await health.status(refresh=True, now=100001)
+    after = next(c for c in result["containers"] if c["mount"] == "/System/Volumes/Data")
+    assert after["purgeable_bytes"] == 50 * 1024**3
+    assert after["free_bytes"] == data["free_bytes"] + 50 * 1024**3
+    assert after["used_percent"] < data["used_percent"]
+
+
+def test_important_free_reads_this_mac_or_returns_none():
+    from switchboard.mounts import important_free
+
+    value = important_free("/")
+    assert value is None or value > 0
+    assert important_free("/no/such/volume\0") is None

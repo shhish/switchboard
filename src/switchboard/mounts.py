@@ -53,3 +53,64 @@ def _mounted_volumes():
         }
         for row in buffer[:count]
     ]
+
+
+_CF = None
+
+
+def _corefoundation():
+    global _CF
+    if _CF is None:
+        cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+        cf.CFURLCreateFromFileSystemRepresentation.restype = ctypes.c_void_p
+        cf.CFURLCreateFromFileSystemRepresentation.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_char_p,
+            ctypes.c_long,
+            ctypes.c_bool,
+        ]
+        cf.CFURLCopyResourcePropertyForKey.restype = ctypes.c_bool
+        cf.CFURLCopyResourcePropertyForKey.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.c_void_p,
+        ]
+        cf.CFNumberGetValue.restype = ctypes.c_bool
+        cf.CFNumberGetValue.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+        cf.CFRelease.argtypes = [ctypes.c_void_p]
+        _CF = cf
+    return _CF
+
+
+def important_free(path):
+    """Free bytes macOS reports for important use, counting purgeable space as free.
+
+    statvfs counts purgeable data (Time Machine local snapshots, evictable caches) as
+    used, although macOS deletes it on demand. Returns None when unavailable.
+    """
+    if sys.platform != "darwin" or not isinstance(path, str) or "\0" in path:
+        return None
+    try:
+        cf = _corefoundation()
+        key = ctypes.c_void_p.in_dll(cf, "kCFURLVolumeAvailableCapacityForImportantUsageKey")
+        raw = path.encode()
+        url = cf.CFURLCreateFromFileSystemRepresentation(None, raw, len(raw), True)
+        if not url:
+            return None
+        try:
+            value = ctypes.c_void_p()
+            if not cf.CFURLCopyResourcePropertyForKey(url, key, ctypes.byref(value), None):
+                return None
+            if not value.value:
+                return None
+            number = ctypes.c_longlong()
+            try:
+                ok = cf.CFNumberGetValue(value, 4, ctypes.byref(number))  # kCFNumberSInt64Type
+            finally:
+                cf.CFRelease(value)
+            return number.value if ok and number.value >= 0 else None
+        finally:
+            cf.CFRelease(url)
+    except (OSError, ValueError, AttributeError):
+        return None

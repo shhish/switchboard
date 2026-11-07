@@ -213,4 +213,7 @@ def serve(core):
         access_log=None,
         print=None,
         handler_cancellation=True,
+        # TCP keepalive is pointless on loopback, and setting it on a socket the client
+        # already closed raised EINVAL tracebacks into the error log on every such accept.
+        tcp_keepalive=False,
     )

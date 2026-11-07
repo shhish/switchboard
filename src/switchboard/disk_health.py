@@ -16,7 +16,7 @@ from pathlib import Path
 from . import hostcmd, remote
 from .domains.common import sanitize_text
 from .errors import CapabilityError
-from .mounts import mounted_volumes
+from .mounts import important_free, mounted_volumes
 
 HOUR = 3600
 DAY = 24 * HOUR
@@ -181,6 +181,7 @@ class DiskHealth:
         self.db = core.storage.db
         self.runner = hostcmd.run
         self.statvfs = os.statvfs
+        self.important_free = important_free
         self.mounts = mounted_volumes
         self.lock = asyncio.Lock()
 
@@ -349,6 +350,12 @@ class DiskHealth:
             free = usage.f_bfree * usage.f_frsize
             if not 0 < total < 10**20 or not 0 <= free <= total or usage.f_flag & os.ST_RDONLY:
                 continue
+            # macOS frees purgeable space (Time Machine local snapshots, caches) on
+            # demand, so judge fill on what it reports as available for important use.
+            available = await asyncio.to_thread(self.important_free, path)
+            purgeable = 0
+            if isinstance(available, int) and free < available <= total:
+                purgeable, free = available - free, available
             label = label_for("mac", str(identity))
             name = text(infos.get(identifier, {}).get("VolumeName") or Path(path).name)
             role = "data" if path == "/System/Volumes/Data" else None
@@ -368,6 +375,7 @@ class DiskHealth:
                 "total_bytes": total,
                 "used_bytes": total - free,
                 "free_bytes": free,
+                "purgeable_bytes": purgeable,
                 "used_percent": round(100 * (total - free) / total, 2),
                 "shares_space_with": [],
             }
@@ -380,7 +388,13 @@ class DiskHealth:
             ]
             row["shares_space_with"] = peers
             # All shared members expose the same container-level allocation.
-            for key in ("total_bytes", "used_bytes", "free_bytes", "used_percent"):
+            for key in (
+                "total_bytes",
+                "used_bytes",
+                "free_bytes",
+                "purgeable_bytes",
+                "used_percent",
+            ):
                 row[key] = containers[row["label"]][key]
         for row in containers.values():
             row["shares_space_with"] = [
@@ -546,6 +560,7 @@ class DiskHealth:
                     "total_bytes": total,
                     "used_bytes": total - free,
                     "free_bytes": free,
+                    "purgeable_bytes": 0,
                     "used_percent": round(100 * (total - free) / total, 2),
                     "shares_space_with": [],
                 }
