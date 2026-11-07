@@ -1,5 +1,7 @@
 """Reload and enforce policy at every call, failing closed on invalid policy."""
 
+import copy
+import os
 import re
 from pathlib import Path
 
@@ -12,8 +14,31 @@ from .errors import CapabilityError
 class Policy:
     def __init__(self, path):
         self.path = path
+        self._cache = None  # (file identity, validated data)
 
     def load(self):
+        """The validated policy, re-read whenever the file changes.
+
+        Every call checks the file's identity (device, inode, size, mtime, ctime), so an
+        edit, replacement or deletion takes effect on the very next check, exactly as
+        before. Only the YAML parse is skipped while the file is unchanged: parsing it
+        for each of ~120 per-tool checks made tools/list take seconds under load.
+        """
+        try:
+            info = os.stat(self.path)
+            key = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        except OSError:
+            self._cache = None
+            raise CapabilityError(
+                "policy_invalid", "Policy missing or invalid; run sb doctor"
+            ) from None
+        if self._cache is not None and self._cache[0] == key:
+            return copy.deepcopy(self._cache[1])
+        data = self._read()
+        self._cache = (key, data)
+        return copy.deepcopy(data)
+
+    def _read(self):
         try:
             data = yaml.safe_load(self.path.read_text())
             if not isinstance(data, dict) or set(data) - {"clients", "allowlists"}:

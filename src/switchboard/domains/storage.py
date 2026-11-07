@@ -66,6 +66,7 @@ VOLUME = obj(
         "total_bytes": NUM,
         "used_bytes": NUM,
         "free_bytes": NUM,
+        "purgeable_bytes": NUM,
         "used_percent": {**NUM, "maximum": 100},
         "shares_space_with": {**array(string(1024)), "maxItems": 128},
     }
