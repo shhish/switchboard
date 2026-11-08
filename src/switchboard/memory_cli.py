@@ -139,9 +139,13 @@ def note_parts(body):
 
 
 def retire_previous(core, name, keep_hashes):
-    """Retract earlier proposals imported from this note, so re-imports replace them."""
+    """Retract earlier imports of this note (proposed or approved) that its new version replaces.
+
+    The replacement lands as a proposal for the owner to approve; history keeps the old rows.
+    """
     rows = core.storage.db.execute(
-        "SELECT id, content_hash FROM memory WHERE source_client='claude' AND status='proposed' "
+        "SELECT id, content_hash FROM memory WHERE source_client='claude' "
+        "AND status IN ('proposed','active') "
         "AND (evidence_ref=? OR evidence_ref LIKE ?)",
         ("claude-memory:" + name, "claude-memory:" + name.replace("%", "") + "#%"),
     ).fetchall()
