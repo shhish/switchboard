@@ -22,7 +22,9 @@ KINDS = ["fact", "preference", "procedure", "incident", "decision", "note"]
 TRUSTED = {"claude", "codex", "agy"}
 DIRECTIVE = re.compile(r"\b(always|never|ignore|you must|do not|run\s|execute|disregard)\b", re.I)
 SENSITIVE = re.compile(
-    r"\b(health|medical|diagnos\w*|medication|therapy|disease|disabilit\w*|"
+    # Personal health only: "service health" and "diagnose a service" are ops words.
+    r"\b(medical|diagnosis|diagnosed with|medication|therapy|disease|disabilit\w*|"
+    r"mental health|health (?:condition|record|records|insurance|issue|issues|data)|"
     r"finance\w*|trading|investment\w*|salary|income|bank\w*|credit card|"
     r"sexual\w*|religio\w*|political|social security|passport|birth date)\b",
     re.I,
