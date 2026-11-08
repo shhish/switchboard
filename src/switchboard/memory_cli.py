@@ -20,18 +20,41 @@ def owner(config, client):
         raise CapabilityError("owner_required", "Local owner credential required")
 
 
+def simple_front_matter(lines):
+    """Lenient `key: value` front matter for notes whose values contain unquoted colons."""
+    front, parent = {}, None
+    for line in lines:
+        if not line.strip():
+            continue
+        indented = line.startswith((" ", "\t"))
+        key, sep, value = line.strip().partition(":")
+        if not sep or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            continue
+        value = value.strip().strip('"').strip("'")
+        if indented and isinstance(parent, dict):
+            parent[key] = value
+        elif value:
+            front[key], parent = value, None
+        else:
+            front[key] = parent = {}
+    return front
+
+
 def read_note(path):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, "rb") as stream:
         info = os.fstat(stream.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_size > 16000:
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 64000:
             raise ValueError("Invalid note file")
-        text = stream.read(16001).decode("utf-8")
+        text = stream.read(64001).decode("utf-8")
     lines = text.splitlines()
     if not lines or lines[0] != "---":
         raise ValueError("Missing front matter")
     end = lines.index("---", 1)
-    front = yaml.safe_load("\n".join(lines[1:end]))
+    try:
+        front = yaml.safe_load("\n".join(lines[1:end]))
+    except yaml.YAMLError:
+        front = simple_front_matter(lines[1:end])
     if not isinstance(front, dict) or not isinstance(front.get("name"), str):
         raise ValueError("Invalid note front matter")
     return front, "\n".join(lines[end + 1 :]).strip()
@@ -58,6 +81,75 @@ def infer_domain(text):
     return "general"
 
 
+PART_CHARS = 1900
+MAX_PARTS = 12
+KIND_BY_TYPE = {
+    "user": "preference",
+    "feedback": "procedure",
+    "project": "fact",
+    "reference": "note",
+}
+
+
+def note_type(front):
+    """Claude notes keep `type` at the top level or under `metadata`."""
+    value = front.get("type")
+    if not isinstance(value, str):
+        meta = front.get("metadata")
+        value = meta.get("type") if isinstance(meta, dict) else None
+    return value if isinstance(value, str) else None
+
+
+def note_title(description, name):
+    """A readable title: the description's first clause, at most 120 characters."""
+    text = " ".join(str(description or "").split()).strip(" \"'")
+    if not text:
+        return name[:120]
+    if len(text) <= 120:
+        return text
+    for mark in (" — ", ". ", "; "):
+        head = text.split(mark, 1)[0]
+        if 20 <= len(head) <= 120:
+            return head
+    return text if len(text) <= 120 else text[:117].rstrip() + "..."
+
+
+def note_parts(body):
+    """Split a long note at paragraph boundaries into parts of at most PART_CHARS."""
+    parts, current = [], ""
+    for paragraph in re.split(r"\n\s*\n", body.strip()):
+        while len(paragraph) > PART_CHARS:  # one huge paragraph: cut at a line or space
+            cut = paragraph.rfind("\n", 0, PART_CHARS)
+            cut = cut if cut > PART_CHARS // 2 else paragraph.rfind(" ", 0, PART_CHARS)
+            cut = cut if cut > 0 else PART_CHARS
+            if current:
+                parts.append(current)
+                current = ""
+            parts.append(paragraph[:cut].strip())
+            paragraph = paragraph[cut:].strip()
+        candidate = (current + "\n\n" + paragraph).strip() if current else paragraph
+        if len(candidate) > PART_CHARS and current:
+            parts.append(current)
+            current = paragraph
+        else:
+            current = candidate
+    if current:
+        parts.append(current)
+    return parts
+
+
+def retire_previous(core, name, keep_hashes):
+    """Retract earlier proposals imported from this note, so re-imports replace them."""
+    rows = core.storage.db.execute(
+        "SELECT id, content_hash FROM memory WHERE source_client='claude' AND status='proposed' "
+        "AND (evidence_ref=? OR evidence_ref LIKE ?)",
+        ("claude-memory:" + name, "claude-memory:" + name.replace("%", "") + "#%"),
+    ).fetchall()
+    for row in rows:
+        if row["content_hash"] not in keep_hashes:
+            core.memory.retract("owner", {"id": row["id"], "reason": "Replaced by a re-import"})
+
+
 def import_claude(core, directory):
     root = Path(directory)
     if root.is_symlink() or not root.is_dir():
@@ -76,50 +168,89 @@ def import_claude(core, directory):
             description = front.get("description", name)
             if not isinstance(description, str) or len(name) > 270:
                 raise ValueError("Invalid description")
-            item = {
-                "title": name,
-                "body": body,
-                "kind": {
-                    "user": "preference",
-                    "feedback": "procedure",
-                    "project": "fact",
-                    "reference": "note",
-                }.get(front.get("type"), "note"),
-                "domain": infer_domain(name + " " + description + " " + body),
-                "search_keys": description[:300],
-                "evidence_ref": "claude-memory:" + name,
-                # One label for the batch, so --approve-source/retract-source claude-memory work.
-                "source_label": "claude-memory",
-            }
-            # Validate lengths rather than silently truncating the source note.
+            if SENSITIVE.search(name + " " + description + " " + body):
+                raise CapabilityError("sensitive", "Sensitive note")
+            kind_type = note_type(front)
+            title = note_title(description, name)
+            # Working-style notes apply everywhere; project notes go to their area.
+            domain = (
+                "general"
+                if kind_type in ("user", "feedback")
+                else infer_domain(name + " " + description)
+            )
+            parts = note_parts(body)[:MAX_PARTS]
             from .domains.memory import FIELDS
             from .schema import obj, validate
 
-            validate(
-                {k: v for k, v in item.items() if k not in ("evidence_ref", "source_label")},
-                obj(FIELDS, ("title", "body", "kind", "domain")),
+            items = []
+            for index, text in enumerate(parts, 1):
+                suffix = f" (part {index}/{len(parts)})" if len(parts) > 1 else ""
+                items.append(
+                    {
+                        "title": title[: 120 - len(suffix)] + suffix,
+                        "body": text,
+                        "subject": name[:200],
+                        "kind": KIND_BY_TYPE.get(kind_type, "note"),
+                        "domain": domain,
+                        "search_keys": description[:300],
+                        "evidence_ref": "claude-memory:" + name + (f"#{index}" if suffix else ""),
+                        # One label for the batch, so --approve-source/retract-source work.
+                        "source_label": "claude-memory",
+                        # Parts of one note share a subject; they are not duplicates.
+                        **({"force_new": True} if index > 1 else {}),
+                    }
+                )
+            for candidate in items:
+                validate(
+                    {
+                        k: v
+                        for k, v in candidate.items()
+                        if k not in ("evidence_ref", "source_label", "force_new")
+                    },
+                    obj(FIELDS, ("title", "body", "kind", "domain")),
+                )
+            retire_previous(
+                core,
+                name,
+                {
+                    content_hash(
+                        core.memory.clean({k: v for k, v in i.items() if k != "force_new"})
+                    )
+                    for i in items
+                },
             )
-            if SENSITIVE.search(name + " " + description + " " + body):
-                raise CapabilityError("sensitive", "Sensitive note")
-            token = CALL_CONTEXT.set(ctx)
-            try:
-                result = core.memory.remember("owner", item, imported=True, source_client="claude")
-            finally:
-                CALL_CONTEXT.reset(token)
-            identifier = result.get("duplicate_of") or result["memory"]["id"]
-            # The importer never creates links on an unrelated near-duplicate.
-            stored = core.memory.row("owner", identifier)
-            if (
-                stored["evidence_ref"] == item["evidence_ref"]
-                and stored["source_client"] == "claude"
-                and stored["content_hash"] == content_hash(core.memory.clean(item))
-            ):
-                names[name] = identifier
-                names[path.stem] = identifier
-                pending.append((identifier, re.findall(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]", body)))
-            results.append(
-                {"result": "duplicate" if "duplicate_of" in result else "written", "id": identifier}
-            )
+            first = None
+            for item in items:
+                token = CALL_CONTEXT.set(ctx)
+                try:
+                    result = core.memory.remember(
+                        "owner", item, imported=True, source_client="claude"
+                    )
+                finally:
+                    CALL_CONTEXT.reset(token)
+                identifier = result.get("duplicate_of") or result["memory"]["id"]
+                # The importer never creates links on an unrelated near-duplicate.
+                stored = core.memory.row("owner", identifier)
+                if (
+                    stored["evidence_ref"] == item["evidence_ref"]
+                    and stored["source_client"] == "claude"
+                    and stored["content_hash"] == content_hash(core.memory.clean(item))
+                ):
+                    if first is None:
+                        first = identifier
+                        names[name] = identifier
+                        names[path.stem] = identifier
+                    elif first != identifier:
+                        pending.append((identifier, [name]))  # later parts link to part 1
+                    pending.append(
+                        (identifier, re.findall(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]", item["body"]))
+                    )
+                results.append(
+                    {
+                        "result": "duplicate" if "duplicate_of" in result else "written",
+                        "id": identifier,
+                    }
+                )
         except (ValueError, OSError, UnicodeError, yaml.YAMLError, CapabilityError) as exc:
             result = {"status": "error"}
             results.append(

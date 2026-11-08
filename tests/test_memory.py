@@ -763,3 +763,57 @@ async def test_claude_import_batch_has_one_source_label(mem, tmp_path):
     import_claude(mem, root)
     labels = {r[0] for r in mem.storage.db.execute("SELECT source_label FROM memory").fetchall()}
     assert labels == {"claude-memory"}
+
+
+async def test_claude_import_reads_metadata_type_splits_long_notes_and_replaces(mem, tmp_path):
+    root = tmp_path / "notes"
+    root.mkdir()
+    long_body = "\n\n".join(
+        f"Step {i} covers area {i * 7} with notes " + " ".join(f"w{i}x{j}" for j in range(60))
+        for i in range(12)
+    )
+    (root / "big.md").write_text(
+        '---\nname: big-project\ndescription: "Big project: the deploy flow and open steps"\n'
+        "metadata:\n  type: project\n---\n" + long_body + "\n"
+    )
+    (root / "style.md").write_text(
+        "---\nname: style-rule\ndescription: Keep answers short — owner prefers brevity\n"
+        "metadata:\n  type: feedback\n---\nShort answers.\n"
+    )
+    first = import_claude(mem, root)
+    written = [r for r in first["results"] if r["result"] == "written"]
+    rows = [mem.memory.row("owner", r["id"]) for r in written]
+    parts = [r for r in rows if r["subject"] == "big-project"]
+    assert len(parts) > 1 and all(len(r["body"]) <= 1900 for r in parts)
+    assert parts[0]["title"].startswith("Big project: the deploy flow and open steps (part 1/")
+    assert parts[0]["kind"] == "fact"
+    style = next(r for r in rows if r["subject"] == "style-rule")
+    assert style["kind"] == "procedure" and style["domain"] == "general"
+    assert style["title"] == "Keep answers short — owner prefers brevity"
+    # Re-running with a changed note replaces its proposal instead of piling up.
+    (root / "style.md").write_text(
+        "---\nname: style-rule\ndescription: Keep answers short — owner prefers brevity\n"
+        "metadata:\n  type: feedback\n---\nVery short answers.\n"
+    )
+    import_claude(mem, root)
+    live = mem.storage.db.execute(
+        "SELECT body FROM memory WHERE subject='style-rule' AND status='proposed'"
+    ).fetchall()
+    assert [r[0] for r in live] == ["Very short answers."]
+
+
+def test_sensitive_filter_ignores_ops_health_and_front_matter_is_lenient(tmp_path):
+    from switchboard.memory import SENSITIVE
+    from switchboard.memory_cli import read_note
+
+    assert not SENSITIVE.search("Service health probes; diagnose a slow service")
+    assert SENSITIVE.search("Owner's medication schedule")
+    assert SENSITIVE.search("mental health notes")
+    note = tmp_path / "n.md"
+    note.write_text(
+        "---\nname: duo\ndescription: Only 27.1 runs Duo: fold needs Device Hub\n"
+        "metadata:\n  type: project\n---\nBody.\n"
+    )
+    front, body = read_note(note)
+    assert front["description"].startswith("Only 27.1 runs Duo: fold")
+    assert front["metadata"]["type"] == "project" and body == "Body."
