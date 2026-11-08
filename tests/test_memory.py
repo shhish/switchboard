@@ -817,3 +817,18 @@ def test_sensitive_filter_ignores_ops_health_and_front_matter_is_lenient(tmp_pat
     front, body = read_note(note)
     assert front["description"].startswith("Only 27.1 runs Duo: fold")
     assert front["metadata"]["type"] == "project" and body == "Body."
+
+
+async def test_reimport_replaces_an_approved_earlier_import(mem, tmp_path):
+    root = tmp_path / "notes"
+    root.mkdir()
+    note = root / "rule.md"
+    note.write_text("---\nname: rule\ndescription: Old wording\ntype: feedback\n---\nOld.\n")
+    first = import_claude(mem, root)["results"][0]["id"]
+    await mem.call("owner", "memory_review", {"ids": [first], "decision": "approve"})
+    note.write_text("---\nname: rule\ndescription: New wording\ntype: feedback\n---\nNew.\n")
+    import_claude(mem, root)
+    rows = mem.storage.db.execute(
+        "SELECT status, body FROM memory WHERE subject='rule' ORDER BY recorded_at"
+    ).fetchall()
+    assert [tuple(r) for r in rows] == [("retracted", "Old."), ("proposed", "New.")]
