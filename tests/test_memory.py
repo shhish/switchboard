@@ -853,3 +853,34 @@ def test_paths_and_plain_urls_are_not_secrets_but_credentials_still_are():
     ]
     for text in risky:
         assert looks_secret(mask_benign_locations(text)), text
+
+
+async def test_brief_one_line_per_subject_rules_first_and_no_use_feedback(mem):
+    for i in (1, 2, 3):
+        await remember(
+            mem,
+            "owner",
+            kind="fact",
+            domain="general",
+            subject="big",
+            title=f"Big note (part {i}/3)",
+            body=f"Part {i} text.",
+            force_new=True,
+        )
+    await remember(
+        mem,
+        "owner",
+        kind="procedure",
+        domain="general",
+        subject="rule",
+        title="Always rule",
+        body="Rule text.",
+    )
+    brief = (await mem.call("codex", "memory_brief", {}))["brief"]
+    lines = [line for line in brief.splitlines() if " | " in line]
+    assert lines[0].split(" | ")[2] == "rule"
+    big = [line for line in lines if " | big | " in line]
+    assert len(big) == 1 and "[3 parts" in big[0] and "(part" not in big[0]
+    assert "Part 1 text." in big[0]
+    used = mem.storage.db.execute("SELECT max(use_count) FROM memory").fetchone()[0]
+    assert used == 0

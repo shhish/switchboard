@@ -45,6 +45,7 @@ def mask_benign_locations(text):
     return BENIGN_PATH.sub(" PATH ", BENIGN_URL.sub(" URL ", text))
 
 
+PART_SUFFIX = re.compile(r" \(part \d+/\d+\)$")
 ENV_DUMP = re.compile(r"(?m)^\s*(?:export\s+)?[A-Z][A-Z0-9_]{1,}=.+$")
 
 
@@ -325,10 +326,12 @@ class Memory:
         text = " ".join(
             str(item.get(key) or "") for key in ("title", "body", "subject", "search_keys")
         )
-        if source in ("imported", "derived_from_external") or DIRECTIVE.search(text):
+        if source in ("imported", "derived_from_external"):
             return "proposed"
         if client == "owner":
-            return "active"
+            return "active"  # The owner's own words are not an injection, however phrased.
+        if DIRECTIVE.search(text):
+            return "proposed"
         return "active" if client in TRUSTED and item["kind"] != "procedure" else "proposed"
 
     def matches(self, query):
@@ -587,7 +590,12 @@ class Memory:
             "+ 1.0/(1+(?-m.recorded_at)/2592000)) DESC"
         )
         if brief:
-            order = "m.pinned DESC,m.use_count DESC,COALESCE(m.last_used_at,m.recorded_at) DESC"
+            # Working rules first (they apply to every task), then incidents, facts, notes.
+            order = (
+                "m.pinned DESC, CASE m.kind WHEN 'preference' THEN 0 WHEN 'procedure' THEN 0 "
+                "WHEN 'incident' THEN 1 WHEN 'decision' THEN 2 WHEN 'fact' THEN 2 ELSE 3 END, "
+                "m.use_count DESC, COALESCE(m.last_used_at,m.recorded_at) DESC"
+            )
         else:
             prefix = [time.time()]
         rows = self.db.execute(
@@ -598,7 +606,7 @@ class Memory:
             + " ORDER BY "
             + order
             + ",m.id LIMIT ?",
-            [*params, *prefix, 40 if brief else args.get("limit", 10)],
+            [*params, *prefix, 300 if brief else args.get("limit", 10)],
         ).fetchall()
         # Trigram fallback for partial IDs/error codes, still under exactly the same filters.
         if (
@@ -664,18 +672,34 @@ class Memory:
                 )
                 if len(text) + len(line) <= 1500:
                     text += line
-        used = []
+        # One line per subject: a note imported in parts shows its first part and a count.
+        parts = {}
         for row in rows:
+            parts[row["subject"] or row["id"]] = parts.get(row["subject"] or row["id"], 0) + 1
+        first = {}
+        for row in rows:  # the representative is part 1 when a note was split
+            key = row["subject"] or row["id"]
+            if key not in first or " (part 1/" in row["title"]:
+                first[key] = row
+        seen = set()
+        for row in rows:
+            key = row["subject"] or row["id"]
+            if key in seen:
+                continue
+            seen.add(key)
+            row = first[key]
+            title = PART_SUFFIX.sub("", row["title"])
+            if parts[key] > 1:
+                title += f" [{parts[key]} parts; memory_search subject={key}]"
             age = max(0, int((time.time() - row["recorded_at"]) / 86400))
             line = (
-                f"{row['id']} | {row['kind']} | {row['subject']} | {row['title']} | "
-                f"{row['body'][:160]} | {age}d" + (" | stale" if row["stale"] else "") + "\n"
+                f"{row['id']} | {row['kind']} | {row['subject']} | {title} | "
+                f"{row['body'][:140]} | {age}d" + (" | stale" if row["stale"] else "") + "\n"
             )
             if len(text) + len(line) > 6000:
                 break
             text += line
-            used.append(row)
-        self.use(used)
+        # Being listed in a brief is not use: counting it would keep the same rows on top.
         with self.db:
             usage(self, client, "brief")
         return {"status": "ok", "brief": text}
