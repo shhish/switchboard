@@ -832,3 +832,24 @@ async def test_reimport_replaces_an_approved_earlier_import(mem, tmp_path):
         "SELECT status, body FROM memory WHERE subject='rule' ORDER BY recorded_at"
     ).fetchall()
     assert [tuple(r) for r in rows] == [("retracted", "Old."), ("proposed", "New.")]
+
+
+def test_paths_and_plain_urls_are_not_secrets_but_credentials_still_are():
+    from switchboard.memory import mask_benign_locations
+    from switchboard.secretscan import looks_secret
+
+    benign = [
+        "see ~/workspace/projects/repos/switchboard/src",
+        "`esp32s3-firmware.wt/opt-d6/sim/build/test_font`",
+        "https://claude.ai/artifact/" + "Qz7Kp2Lm9Xw4Rt8Yb1Nv",
+    ]
+    for text in benign:
+        assert not looks_secret(mask_benign_locations(text)), text
+    risky = [
+        "token=" + "Ab9" * 12,
+        "https://x.example.com/a?token=" + "Zq8" * 10,
+        "key: sk-" + "Qz7" * 12,
+        "path=/a/b/" + "Qz7" * 12,
+    ]
+    for text in risky:
+        assert looks_secret(mask_benign_locations(text)), text

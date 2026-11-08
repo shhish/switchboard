@@ -29,6 +29,22 @@ SENSITIVE = re.compile(
     r"sexual\w*|religio\w*|political|social security|passport|birth date)\b",
     re.I,
 )
+# Plain URLs (no query, fragment or login) and file paths carry IDs that look random to
+# the entropy check but are not credentials; masking them keeps key=value, token and
+# header detection intact for everything else.
+BENIGN_URL = re.compile(
+    r"\bhttps?://[A-Za-z0-9.-]+(?::\d+)?(?:/[A-Za-z0-9._~%-]{1,40})*/?(?=[\s`'\")\],.;:]|$)"
+)
+BENIGN_PATH = re.compile(
+    r"(?<![\w=:/])(?:~|\.{1,2}|[A-Za-z0-9._@+-]{1,40})?(?:/[A-Za-z0-9._@+-]{1,40}){2,}/?"
+    r"(?=[\s`'\")\],;:]|$)"
+)
+
+
+def mask_benign_locations(text):
+    return BENIGN_PATH.sub(" PATH ", BENIGN_URL.sub(" URL ", text))
+
+
 ENV_DUMP = re.compile(r"(?m)^\s*(?:export\s+)?[A-Z][A-Z0-9_]{1,}=.+$")
 
 
@@ -263,7 +279,7 @@ class Memory:
             for k in ("title", "body", "subject", "search_keys", "evidence_ref", "source_label")
         )
         if (
-            looks_secret(text)
+            looks_secret(mask_benign_locations(text))
             or ENV_DUMP.search(text)
             or re.search(r"authorization\s*:\s*bearer\b", text, re.I)
         ):
