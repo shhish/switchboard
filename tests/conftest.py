@@ -330,6 +330,8 @@ def fake_approval():
         tier="approval",
         output_schema=obj({"status": string(), "value": string()}),
         idempotent=False,
+        memory=None,
+        memory_optout="Test-only capability",
     )
 
 

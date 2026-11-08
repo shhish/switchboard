@@ -300,3 +300,9 @@ storage:
   # Hourly fill samples, 35-day retention, seven-day regression; SMART every six
   # hours (or explicit storage_status refresh), always using -n standby.
   # Install smartmontools at /opt/homebrew/bin/smartctl before enabling.
+
+# Durable cross-agent facts in the existing state DB; opt in after granting scopes.
+memory:
+  enabled: false
+  daily_write_cap: 50
+  digest_hour: 9  # Local time; tidy runs after 03:00 and never changes records.

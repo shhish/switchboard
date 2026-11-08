@@ -94,6 +94,9 @@ def canonical(value):
 
 def safe_args(value, hash_fields=frozenset(), _key=None):
     """Arguments as they may be stored: short scalars verbatim, long text hashed."""
+    if _key in hash_fields and isinstance(value, (dict, list)):
+        text = canonical(value)
+        return {"len": len(text), "sha256": digest(text)[:16]}
     if isinstance(value, dict):
         return {
             safe_key(k): (

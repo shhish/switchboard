@@ -28,6 +28,8 @@ def register(registry):
         obj({"job_id": string(128)}, ("job_id",)),
         scope="jobs:read",
         output_schema=JOB,
+        memory=None,
+        memory_optout="No specific backend entity; aggregate or control-plane operation",
     )
     async def get(core, client, args):
         return core.jobs.get(args["job_id"], client)
@@ -40,6 +42,8 @@ def register(registry):
         obj({"limit": {"type": "integer", "minimum": 1, "maximum": 100}}),
         scope="jobs:read",
         output_schema=output(jobs=array(JOB)),
+        memory=None,
+        memory_optout="No specific backend entity; aggregate or control-plane operation",
     )
     async def list_jobs(core, client, args):
         limit = args.get("limit", 20)
@@ -60,6 +64,8 @@ def register(registry):
         scope="jobs:cancel",
         tier="write",
         output_schema=JOB,
+        memory=None,
+        memory_optout="No specific backend entity; aggregate or control-plane operation",
     )
     async def cancel(core, client, args):
         return core.jobs.cancel(args["job_id"], client)

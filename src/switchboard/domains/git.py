@@ -4,6 +4,7 @@ import re
 
 from ..errors import CapabilityError
 from ..git import TAG, Git
+from ..memory_subjects import MemorySubject
 from ..schema import obj, string
 from .common import array, output
 
@@ -128,6 +129,12 @@ def register(registry):
             service="local_git" if name == "git_local_status" else "gitea",
             output_schema=result,
             audit_hash_fields=frozenset(hashes),
+            memory=MemorySubject(
+                "git", arg_keys=("repo",), result_paths=("repo", "pr.repo", "checkouts[].repo")
+            )
+            if name != "git_repos"
+            else None,
+            memory_optout="Repository discovery is a bulk listing",
         )(handler)
 
     declare(

@@ -76,6 +76,9 @@ async def diagnose(config, backends, policy, orb=None, monitor=None, *, core=Non
         last_cycle = monitor.status()["last_cycle_at"]
         heartbeat = heartbeat_status(config, monitor.db)
         checks["audit_chain"] = audit_chain(monitor.db)
+        from .memory import doctor as memory_doctor
+
+        checks["memory"] = memory_doctor(monitor.db)
     else:
         try:
             path = config.state_dir / "state.sqlite3"
@@ -86,6 +89,9 @@ async def diagnose(config, backends, policy, orb=None, monitor=None, *, core=Non
                 last_cycle = row[0] if row else None
                 heartbeat = heartbeat_status(config, db)
                 checks["audit_chain"] = audit_chain(db)
+                from .memory import doctor as memory_doctor
+
+                checks["memory"] = memory_doctor(db)
         except (OSError, ValueError, sqlite3.Error):
             pass
     age = max(0, time.time() - last_cycle) if last_cycle is not None else None

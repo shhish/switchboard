@@ -1,5 +1,6 @@
 """Client-owned, one-off notifications delivered outside the chat."""
 
+from ..memory_subjects import MemorySubject
 from ..schema import obj, string
 from .common import array, output
 
@@ -42,6 +43,7 @@ def register(registry):
         timeout_s=90,
         service="media+overseerr+plex",
         output_schema=output(watch_id=string(64)),
+        memory=MemorySubject("media", arg_keys=("tmdb_id", "title_contains")),
     )
     async def add(core, client, args):
         return await core.watches.add(client, args)
@@ -54,6 +56,9 @@ def register(registry):
         "fired watches; owner sees all clients.",
         scope="media:read",
         output_schema=output(watches=array(WATCH)),
+        memory=MemorySubject(
+            "media", result_paths=("watches[].tmdb_id", "watches[].title_contains")
+        ),
     )
     async def list_watches(core, client, args):
         return await core.watches.list(client)
@@ -68,6 +73,8 @@ def register(registry):
         scope="media:read",
         tier="write",
         output_schema=output(watch_id=string(64)),
+        memory=None,
+        memory_optout="No specific backend entity; aggregate or control-plane operation",
     )
     async def remove(core, client, args):
         return await core.watches.remove(client, args["watch_id"])

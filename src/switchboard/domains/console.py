@@ -17,6 +17,7 @@ import ipaddress
 import re
 
 from ..errors import CapabilityError
+from ..memory_subjects import MemorySubject
 from ..netrules import RFC1918_NETWORKS
 from ..schema import obj, string
 from .common import array, output
@@ -296,6 +297,18 @@ def register(registry):
         service="console",
         timeout_s=25,
         output_schema=STATUS,
+        memory=MemorySubject(
+            "console",
+            arg_keys=("title_id",),
+            result_paths=(
+                "console.name",
+                "launched.name",
+                "closed[].name",
+                "games[].name",
+                "running.name",
+            ),
+            subjects=("ps5",),
+        ),
     )
     async def status(core, client, args):
         power, extra = await asyncio.gather(
@@ -343,6 +356,18 @@ def register(registry):
         service="console",
         timeout_s=75,
         output_schema=CONTROL,
+        memory=MemorySubject(
+            "console",
+            arg_keys=("title_id",),
+            result_paths=(
+                "console.name",
+                "launched.name",
+                "closed[].name",
+                "games[].name",
+                "running.name",
+            ),
+            subjects=("ps5",),
+        ),
     )
     async def wake(core, client, args):
         return await ps5(core, "wake", CONTROL)
@@ -358,6 +383,18 @@ def register(registry):
         service="console",
         timeout_s=75,
         output_schema=CONTROL,
+        memory=MemorySubject(
+            "console",
+            arg_keys=("title_id",),
+            result_paths=(
+                "console.name",
+                "launched.name",
+                "closed[].name",
+                "games[].name",
+                "running.name",
+            ),
+            subjects=("ps5",),
+        ),
     )
     async def standby(core, client, args):
         return await ps5(core, "standby", CONTROL)
@@ -373,6 +410,18 @@ def register(registry):
         service="console",
         timeout_s=20,
         output_schema=GAMES,
+        memory=MemorySubject(
+            "console",
+            arg_keys=("title_id",),
+            result_paths=(
+                "console.name",
+                "launched.name",
+                "closed[].name",
+                "games[].name",
+                "running.name",
+            ),
+            subjects=("ps5",),
+        ),
     )
     async def games(core, client, args):
         addr = await engine_console(core)
@@ -406,6 +455,18 @@ def register(registry):
         idempotent=False,
         timeout_s=40,
         output_schema=LAUNCH,
+        memory=MemorySubject(
+            "console",
+            arg_keys=("title_id",),
+            result_paths=(
+                "console.name",
+                "launched.name",
+                "closed[].name",
+                "games[].name",
+                "running.name",
+            ),
+            subjects=("ps5",),
+        ),
     )
     async def launch(core, client, args):
         addr = await engine_console(core)
@@ -434,6 +495,18 @@ def register(registry):
         idempotent=False,
         timeout_s=40,
         output_schema=CLOSE,
+        memory=MemorySubject(
+            "console",
+            arg_keys=("title_id",),
+            result_paths=(
+                "console.name",
+                "launched.name",
+                "closed[].name",
+                "games[].name",
+                "running.name",
+            ),
+            subjects=("ps5",),
+        ),
     )
     async def close(core, client, args):
         addr = await engine_console(core)

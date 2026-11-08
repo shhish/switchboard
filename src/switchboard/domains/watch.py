@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 from ..errors import CapabilityError
 from ..maintenance import STATUS_SCHEMA, read_status
+from ..memory_subjects import MemorySubject
 from ..schema import obj, string
 from .common import array, output, sanitize_text
 
@@ -343,6 +344,7 @@ def register(registry):
         scope="media:read",
         service="plex",
         output_schema=list_output,
+        memory=MemorySubject("media", result_paths=("items[].title", "items[].rating_key")),
     )
     async def continue_watching(core, client, args):
         return await plex_list(core, "/library/onDeck", 20)
@@ -356,6 +358,7 @@ def register(registry):
         scope="media:read",
         service="plex",
         output_schema=list_output,
+        memory=MemorySubject("media", result_paths=("items[].title", "items[].rating_key")),
     )
     async def recently_added(core, client, args):
         return await plex_list(
@@ -380,6 +383,7 @@ def register(registry):
         output_schema=output(
             history=array(HISTORY_ITEM), truncated={"type": "boolean"}, coverage=string(200)
         ),
+        memory=MemorySubject("media", result_paths=("history[].title", "history[].rating_key")),
     )
     async def history(core, client, args):
         limit = args.get("limit", 20)
@@ -441,6 +445,7 @@ def register(registry):
         scope="media:read",
         service="plex",
         output_schema=output(sessions=array(SESSION), truncated={"type": "boolean"}),
+        memory=MemorySubject("media", result_paths=("sessions[].title",)),
     )
     async def now_playing(core, client, args):
         _, values = rows(await core.backends.get("plex", "/status/sessions"))
@@ -510,6 +515,7 @@ def register(registry):
         service="plex",
         timeout_s=30,
         output_schema=list_output,
+        memory=MemorySubject("media", result_paths=("items[].title", "items[].rating_key")),
     )
     async def unwatched(core, client, args):
         return await find_unwatched(core, args)
@@ -528,6 +534,9 @@ def register(registry):
         tier="write",
         service="plex",
         output_schema=write_output,
+        memory=MemorySubject(
+            "media", arg_keys=("rating_key",), result_paths=("item.title", "item.rating_key")
+        ),
     )
     async def mark_watched(core, client, args):
         return await mark(core, client, args, True)
@@ -543,6 +552,9 @@ def register(registry):
         tier="write",
         service="plex",
         output_schema=write_output,
+        memory=MemorySubject(
+            "media", arg_keys=("rating_key",), result_paths=("item.title", "item.rating_key")
+        ),
     )
     async def mark_unwatched(core, client, args):
         return await mark(core, client, args, False)
@@ -556,6 +568,9 @@ def register(registry):
         scope="media:read",
         service="maintenance",
         output_schema=STATUS_SCHEMA,
+        memory=MemorySubject(
+            "media", result_paths=("active_work[].title", "attention_items[].title")
+        ),
     )
     async def maintenance(core, client, args):
         settings = core.backends.settings("maintenance")

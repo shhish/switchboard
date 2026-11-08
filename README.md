@@ -5,15 +5,15 @@
 **One set of hands in your house for every AI agent you use.**
 
 Ask Claude to wake the PS5. Ask Codex why Sonarr restarted at 3am. Ask ChatGPT to dim the bedroom lights.<br/>
-They all go through the same 118 tools, one rulebook and one audit log, running on your own Mac.
+They all go through the same 129 tools, one rulebook and one audit log, running on your own Mac.
 
 [![MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.13+-3776AB?style=flat-square&logo=python&logoColor=white)
 ![macOS](https://img.shields.io/badge/macOS-host-000000?style=flat-square&logo=apple&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-server-8A2BE2?style=flat-square)
-![118 tools](https://img.shields.io/badge/tools-118-success?style=flat-square)
+![129 tools](https://img.shields.io/badge/tools-129-success?style=flat-square)
 
-[What it does](#what-it-can-do) · [See it](#a-day-with-switchboard) · [Guard rails](#guard-rails) · [Quick start](#quick-start) · [All 118 tools](docs/CAPABILITIES.md)
+[What it does](#what-it-can-do) · [See it](#a-day-with-switchboard) · [Guard rails](#guard-rails) · [Quick start](#quick-start) · [All 129 tools](docs/CAPABILITIES.md)
 
 </div>
 
@@ -44,6 +44,7 @@ More things you can ask:
 | *"Unlock the front door"* | `home_set_secure` | Waits for your approval, then runs once |
 | *"Is this PR green, and is the checkout safe to edit?"* | `git_pr` → `git_local_status` | Gitea CI results and changes in each local worktree |
 | *"Turn the hall light on with motion after dark"* | `routines_propose` | A routine draft you approve once; then it runs on its own |
+| *"What should the next agent know about this server?"* | `memory_brief` → `memory_remember` | Shared facts with sources, stale flags and owner-reviewed proposals |
 | *"What did the agents do overnight?"* | `audit_digest` | A summary of calls, errors, loops and writes |
 | *"Will a disk fill up soon?"* | `storage_status` → `storage_history` | Shared APFS free space, fill estimates and drive-health warnings |
 | *"Why did Sonarr restart at 3am?"* | `audit_trace` | The chain from the restart back to the agent that caused it |
@@ -53,7 +54,7 @@ More things you can ask:
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/readme/how-it-fits-dark.svg">
-    <img src="docs/readme/how-it-fits-light.svg" alt="Claude Code, Codex, Antigravity, ChatGPT and your own scripts call Switchboard on your Mac, which applies policy and approvals, runs 118 typed tools, keeps an audit log and shared names, and reaches Plex, Apple Home, PlayStation 5, Things 3, notes and recipes, and the Mac mini and Raspberry Pi." width="100%">
+    <img src="docs/readme/how-it-fits-light.svg" alt="Claude Code, Codex, Antigravity, ChatGPT and your own scripts call Switchboard on your Mac, which applies policy and approvals, runs 129 typed tools, keeps an audit log and shared names, and reaches Plex, Apple Home, PlayStation 5, Things 3, notes and recipes, and the Mac mini and Raspberry Pi." width="100%">
   </picture>
 </p>
 
@@ -74,6 +75,7 @@ Every integration is optional. Turn on the ones you run. The [full tour](#the-fu
 | 💡 **Run the house**<br/><sub>`home_*` `routines_*` · 15 tools</sub> | Lights, accessories and scenes in Apple Home, and routines that run on their own: motion, held-open, time and sunset triggers. Locks and garage doors need your approval. |
 | ✅ **Get things done**<br/><sub>`tasks_*` `reminders_*` `calendar_*` · 19 tools</sub> | Things 3, Apple Reminders and Calendar: read, add, edit, complete. |
 | 📚 **Remember things**<br/><sub>`notes_*` `recipes_*` `books_*` `context_*` · 13 tools</sub> | Search your Obsidian notes and recipes, request books, and learn your names for things. |
+| 🧠 **Share what agents learn**<br/><sub>`memory_*` · 11 tools</sub> | Durable facts and preferences for Claude, Codex and ChatGPT; source history, scoped search and Markdown import/export, kept current with daily review findings and owner digests. |
 | 🕵️ **Keep an eye on the agents**<br/><sub>`audit_*` `alerts_*` `jobs_*` · 12 tools</sub> | A tamper-evident log of every call, "why did that happen?", and "tell me when". |
 | 🌦️ **Weather**<br/><sub>`weather_*` · 4 tools</sub> | Now, hourly, 7-day and alerts from the US National Weather Service. |
 

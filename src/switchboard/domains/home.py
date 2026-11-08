@@ -3,6 +3,7 @@
 from urllib.parse import quote
 
 from ..errors import CapabilityError
+from ..memory_subjects import MemorySubject
 from ..schema import obj, string
 from .common import array, output, pick, require_one, selected
 
@@ -349,6 +350,11 @@ def register(registry):
         idempotent=False,
         preflight=set_preflight,
         output_schema=set_output,
+        memory=MemorySubject(
+            "home",
+            arg_keys=("accessory_id", "name"),
+            result_paths=("accessory.id", "accessory.name"),
+        ),
     )
     async def set_home(core, client, args):
         return await set_accessory(core, client, args, False)
@@ -366,6 +372,11 @@ def register(registry):
         idempotent=False,
         preflight=set_preflight,
         output_schema=set_output,
+        memory=MemorySubject(
+            "home",
+            arg_keys=("accessory_id", "name"),
+            result_paths=("accessory.id", "accessory.name"),
+        ),
     )
     async def set_secure(core, client, args):
         return await set_accessory(core, client, args, True)
@@ -389,6 +400,9 @@ def register(registry):
         service="home",
         idempotent=False,
         output_schema=scene_output,
+        memory=MemorySubject(
+            "home", arg_keys=("scene_id",), result_paths=("scene.id", "scene.name")
+        ),
     )
     async def scene_home(core, client, args):
         return await run_scene(core, client, args, False)
@@ -405,6 +419,9 @@ def register(registry):
         service="home",
         idempotent=False,
         output_schema=scene_output,
+        memory=MemorySubject(
+            "home", arg_keys=("scene_id",), result_paths=("scene.id", "scene.name")
+        ),
     )
     async def scene_secure(core, client, args):
         return await run_scene(core, client, args, True)
@@ -419,6 +436,10 @@ def register(registry):
         service="home",
         output_schema=output(
             homes=array(HOME), total_homes={"type": "integer"}, truncated={"type": "boolean"}
+        ),
+        memory=MemorySubject(
+            "home",
+            result_paths=("homes[].name", "homes[].accessories[].id", "homes[].accessories[].name"),
         ),
     )
     async def list_home(core, client, args):
@@ -456,6 +477,11 @@ def register(registry):
         scope="home:read",
         service="home",
         output_schema=output(accessory=ACCESSORY),
+        memory=MemorySubject(
+            "home",
+            arg_keys=("accessory_id", "name"),
+            result_paths=("accessory.id", "accessory.name"),
+        ),
     )
     async def get_home(core, client, args):
         require_one(args, "accessory_id", "name")
@@ -509,6 +535,7 @@ def register(registry):
         scope="home:read",
         service="home",
         output_schema=output(states=array(state_row)),
+        memory=MemorySubject("home", result_paths=("states[].name", "states[].id")),
     )
     async def list_states(core, client, args):
         rows = await core.backends.get("home", "/states")
@@ -527,6 +554,9 @@ def register(registry):
         tier="write",
         service="home",
         output_schema=output(state=state_row),
+        memory=MemorySubject(
+            "home", arg_keys=("state", "name"), result_paths=("state.id", "state.name")
+        ),
     )
     async def set_state(core, client, args):
         check_pause_state(client, args["state"])
@@ -557,6 +587,9 @@ def register(registry):
         service="home",
         idempotent=False,
         output_schema=output(state=state_row),
+        memory=MemorySubject(
+            "home", arg_keys=("state", "name"), result_paths=("state.id", "state.name")
+        ),
     )
     async def create_state(core, client, args):
         check_pause_state(client, args["name"])

@@ -64,6 +64,25 @@ def parser():
     issues_close = issues.add_parser("close")
     issues_close.add_argument("issue_id")
     issues_close.add_argument("resolution")
+    memory = sub.add_parser("memory").add_subparsers(dest="action", required=True)
+    brief = memory.add_parser("brief")
+    brief.add_argument("--domain")
+    brief.add_argument("--client", choices=CLIENTS, default=argparse.SUPPRESS)
+    brief.add_argument("--json", action="store_true", dest="json_output")
+    review = memory.add_parser("review")
+    choice = review.add_mutually_exclusive_group()
+    choice.add_argument("--approve", nargs="+")
+    choice.add_argument("--reject", nargs="+")
+    choice.add_argument("--approve-source")
+    choice.add_argument("--keep-finding", nargs="+")
+    choice.add_argument("--retract-finding", nargs="+")
+    choice.add_argument("--supersede-finding", nargs="+")
+    review.add_argument("--with-id")
+    for action in ("export", "import-claude"):
+        memory.add_parser(action).add_argument("directory")
+    retract = memory.add_parser("retract-source")
+    retract.add_argument("source_label")
+    retract.add_argument("--reason", required=True)
     stdio = sub.add_parser("mcp-stdio")
     stdio.add_argument("--client", dest="stdio_client", choices=CLIENTS, required=True)
     return root
@@ -102,6 +121,10 @@ async def request(config, client, method, path, args=None):
 
 async def execute(args, config):
     client = args.client
+    if args.command == "memory":
+        from .memory_cli import execute as memory_execute
+
+        return await memory_execute(args, config)
     if args.command in ("eventkit", "things", "net", "notes"):
         from .eventkit import EventKit
         from .notes import Notes
@@ -211,6 +234,16 @@ def main():
                 registry.markdown() if args.markdown else json.dumps(registry.manifest(), indent=2),
                 end="" if args.markdown else "\n",
             )
+            return 0
+        if args.command == "memory" and args.action == "brief":
+            try:
+                result = asyncio.run(execute(args, Config.load()))
+            except Exception:
+                result = {"status": "ok", "brief": ""}
+            if args.json_output:
+                print(json.dumps(result, ensure_ascii=False))
+            elif result.get("brief"):
+                print(result["brief"], end="" if result["brief"].endswith("\n") else "\n")
             return 0
         config = Config.load()
         if args.command == "serve":

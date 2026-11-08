@@ -1,6 +1,7 @@
 """Read-only Recipe API with compact, explicitly selected fields."""
 
 from ..errors import CapabilityError
+from ..memory_subjects import MemorySubject
 from ..schema import obj, string
 from .common import array, output, pick, sanitize_text
 
@@ -122,6 +123,7 @@ def register(registry):
         scope="notes:read",
         service="recipes",
         output_schema=output(recipes=array(ROW)),
+        memory=MemorySubject("general", result_paths=("recipes[].name",)),
     )
     async def search(core, client, args):
         params = {
@@ -166,6 +168,7 @@ def register(registry):
             ingredients=array(INGREDIENT),
             steps=array(STEP),
         ),
+        memory=MemorySubject("general", arg_keys=("id",), result_paths=("name", "id")),
     )
     async def get(core, client, args):
         data = await core.backends.get("recipes", f"/api/recipes/{args['id']}")

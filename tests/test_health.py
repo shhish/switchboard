@@ -347,7 +347,9 @@ async def test_doctor_reports_count_without_contacting_aggregator(core, fake_bac
 async def test_cortex_auth_discovery_and_denials(server, config):
     core, url, session = server
     policy = Policy(Path("config/policy.example.yaml"))
-    assert policy.client("cortex") == {"scopes": ["ops:read", "weather:read", "git:read"]}
+    assert policy.client("cortex") == {
+        "scopes": ["memory:read", "ops:read", "weather:read", "git:read"]
+    }
     core.policy = policy
     assert (
         Tokens(config.token_dir).authenticate(bearer(config, "cortex")["Authorization"]) == "cortex"
@@ -358,14 +360,17 @@ async def test_cortex_auth_discovery_and_denials(server, config):
         name
         for name in core.registry.capabilities
         if name.startswith(("weather_", "storage_"))
-        or (name.startswith("git_") and core.registry.capabilities[name].tier == "read")
+        or (
+            name.startswith(("git_", "memory_"))
+            and core.registry.capabilities[name].scope in ("git:read", "memory:read")
+        )
     }
     assert {tool["name"] for tool in catalog["tools"]} == cortex_tools
     assert {tool["name"] for tool in await core.mcp_tools("cortex")} == cortex_tools
     result = await core.call("cortex", "ops_health", {})
     assert result["status"] == "ok"
     for name, cap in core.registry.capabilities.items():
-        if cap.scope not in ("ops:read", "weather:read", "git:read"):
+        if cap.scope not in ("ops:read", "weather:read", "git:read", "memory:read"):
             assert (await core.call("cortex", name, {}))["error"]["code"] == "scope_denied"
 
 

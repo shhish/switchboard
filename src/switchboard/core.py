@@ -14,6 +14,7 @@ from .errors import CapabilityError
 from .execution import Execution
 from .guidance import SkillCatalog
 from .jobs import Jobs
+from .memory import CALL_CONTEXT, Memory
 from .monitor import Monitor
 from .names import canonical_name
 from .owner_context import OwnerContext
@@ -52,6 +53,10 @@ class Core:
         self.disk_health = DiskHealth(self)
         self.monitor.disk_health = self.disk_health
         self.context = OwnerContext(self)
+        self.memory = Memory(self)
+        from .memory_reflection import record_incident
+
+        self.monitor.on_event(lambda event, name: record_incident(self.memory, event, name))
         self.orb = OrbUpstream(config, self.policy)
         self.media_request_lock = asyncio.Lock()
         self.watch_state_lock = asyncio.Lock()
@@ -85,6 +90,10 @@ class Core:
                 await self.disk_health.maintain()
             except Exception:
                 pass  # Storage discovery must not stop audit housekeeping.
+            try:
+                self.memory.maintain()
+            except Exception:
+                pass  # Optional memory housekeeping must not interrupt serving.
             await asyncio.sleep(600)
 
     async def close(self):
@@ -135,7 +144,17 @@ class Core:
         error_code = None
         try:
             self.policy.client(client)
-            result = self.skills.request(method, params)
+            uri = params.get("uri")
+            if method == "resources/read" and isinstance(uri, str) and uri.startswith("memory://"):
+                from .guidance import memory_resource
+
+                result = memory_resource(self, client, params)
+            else:
+                result = self.skills.request(method, params)
+                if method == "resources/list" and self.config.memory["enabled"]:
+                    from .guidance import memory_resources
+
+                    result["resources"].extend(memory_resources(self, client))
             # An unknown prompt or resource is a denied request, as for unknown tools.
             decision, outcome = "allowed", "ok"
             return result
@@ -244,13 +263,18 @@ class Core:
                 self.approvals.consume(approval_id, client, name, args)
             decision = "allowed"
             async with asyncio.timeout(cap.timeout_s):
-                result = await cap.handler(self, client, args)
+                token = CALL_CONTEXT.set(ctx)
+                try:
+                    result = await cap.handler(self, client, args)
+                finally:
+                    CALL_CONTEXT.reset(token)
             if not isinstance(result, dict):
                 raise CapabilityError("handler_invalid", "Handler did not return a JSON object")
             try:
                 json.dumps(result, allow_nan=False)
             except (TypeError, ValueError):
                 raise CapabilityError("handler_invalid", "Handler returned invalid JSON") from None
+            notes_count = self.memory.attach_notes(client, cap, args, result)
             result = result_envelope(result, source=self.result_source(cap, result), arguments=args)
             # Validate the declared output, including future handlers, without leaking values.
             try:
@@ -259,6 +283,18 @@ class Core:
                 raise CapabilityError(
                     "handler_invalid", "Handler output violates its schema"
                 ) from None
+            if notes_count:
+                try:
+                    from .memory_maintenance import usage
+
+                    with self.storage.db:
+                        usage(self.memory, client, "notes", n=notes_count)
+                        self.storage.db.executemany(
+                            "UPDATE memory SET use_count=use_count+1,last_used_at=? WHERE id=?",
+                            [(time.time(), note["id"]) for note in result["notes"]],
+                        )
+                except Exception:
+                    pass  # Statistics must not break a successful entity tool.
             return result
         except CapabilityError as exc:
             result = exc.result()

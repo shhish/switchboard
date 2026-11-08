@@ -102,7 +102,15 @@ async def test_timeout_and_invalid_output_are_safe(core):
 
     core.registry.add(
         Capability(
-            "test.timeout", "Wait", "Test timeout", obj(), "ops:read", blocked, timeout_s=0.001
+            "test.timeout",
+            "Wait",
+            "Test timeout",
+            obj(),
+            "ops:read",
+            blocked,
+            timeout_s=0.001,
+            memory=None,
+            memory_optout="Test-only capability",
         )
     )
     result = await core.call("dot", "test.timeout", {})
@@ -112,7 +120,16 @@ async def test_timeout_and_invalid_output_are_safe(core):
         return {"status": "ok", "nested": {"value": float("inf")}}
 
     core.registry.add(
-        Capability("test.invalid", "Invalid", "Test invalid output", obj(), "ops:read", invalid)
+        Capability(
+            "test.invalid",
+            "Invalid",
+            "Test invalid output",
+            obj(),
+            "ops:read",
+            invalid,
+            memory=None,
+            memory_optout="Test-only capability",
+        )
     )
     assert (await core.call("dot", "test.invalid", {}))["error"]["code"] == "handler_invalid"
 
