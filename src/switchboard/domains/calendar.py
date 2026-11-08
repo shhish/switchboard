@@ -3,6 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 from ..errors import CapabilityError
+from ..memory_subjects import MemorySubject
 from ..schema import obj, string
 from .common import array, output, pick, selected
 from .eventkit_common import (
@@ -39,6 +40,7 @@ def register(registry):
             truncated={"type": "boolean"},
             **TIME,
         ),
+        memory=MemorySubject("calendar", result_paths=("events[].title", "events[].id")),
     )
     async def upcoming(core, client, args):
         days = args.get("days", 2)
@@ -88,6 +90,7 @@ def register(registry):
         scope="calendar:read",
         service="eventkit",
         output_schema=output(calendars=array(CALENDAR), truncated={"type": "boolean"}, **TIME),
+        memory=MemorySubject("calendar", result_paths=("calendars[].title", "calendars[].id")),
     )
     async def list_calendars(core, client, args):
         data = await core.backends.eventkit.call("calendars.list")
@@ -125,6 +128,9 @@ def register(registry):
         idempotent=False,
         service="eventkit",
         output_schema=output(event=EVENT, **TIME),
+        memory=MemorySubject(
+            "calendar", arg_keys=("title", "event_id"), result_paths=("event.title", "event.id")
+        ),
     )
     async def create_event(core, client, args):
         core.policy.require_allowed("calendar", "calendars", args["calendar_id"])
@@ -159,6 +165,9 @@ def register(registry):
         tier="write",
         service="eventkit",
         output_schema=output(event=EVENT, **TIME),
+        memory=MemorySubject(
+            "calendar", arg_keys=("title", "event_id"), result_paths=("event.title", "event.id")
+        ),
     )
     async def update_event(core, client, args):
         if len(args) == 1:

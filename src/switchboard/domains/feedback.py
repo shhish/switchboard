@@ -73,6 +73,8 @@ def register(registry):
         tier="write",
         idempotent=False,
         output_schema=output(issue_id={"type": "string"}, duplicate={"type": "boolean"}),
+        memory=None,
+        memory_optout="No specific backend entity; aggregate or control-plane operation",
     )
     async def report(core, client, args):
         args = {**args, "capability": canonical_name(args.get("capability"))}
@@ -123,6 +125,8 @@ def register(registry):
         ),
         scope="feedback:read",
         output_schema=output(issues=array(ISSUE)),
+        memory=None,
+        memory_optout="No specific backend entity; aggregate or control-plane operation",
     )
     async def list_issues(core, client, args):
         status = args.get("status", "open")
@@ -148,6 +152,8 @@ def register(registry):
         scope="feedback:manage",
         tier="write",
         output_schema=output(issue_id={"type": "string"}),
+        memory=None,
+        memory_optout="No specific backend entity; aggregate or control-plane operation",
     )
     async def close(core, client, args):
         db = core.storage.db

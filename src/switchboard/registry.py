@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from .memory_subjects import NOTE_SCHEMA, UNDECLARED, MemorySubject, validate_declaration
 from .names import canonical_name
 from .schema import check_schema, obj, string
 
@@ -30,20 +31,23 @@ class Capability:
     audit_hash_fields: frozenset = field(default=frozenset(), compare=False)
     always_load: bool = False
     max_result_chars: int | None = None
+    memory: MemorySubject | None = field(default=UNDECLARED)
+    memory_optout: str | None = None
 
     def __post_init__(self):
         from .domains.common import result_schema
 
         object.__setattr__(self, "name", canonical_name(self.name))
+        validate_declaration(self)
         if not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", self.name):
             raise ValueError("Invalid capability name")
-        object.__setattr__(
-            self,
-            "output_schema",
-            result_schema(
-                self.output_schema, takes_limit="limit" in self.input_schema.get("properties", {})
-            ),
+        output = result_schema(
+            self.output_schema, takes_limit="limit" in self.input_schema.get("properties", {})
         )
+        if self.memory is not None:
+            output["properties"]["notes"] = NOTE_SCHEMA
+            output["properties"].setdefault("truncated", {"type": "boolean"})
+        object.__setattr__(self, "output_schema", output)
         if self.tier not in ("read", "write", "approval"):
             raise ValueError("Invalid tier")
         if self.input_schema.get("additionalProperties") is not False:
@@ -155,6 +159,8 @@ class Capability:
             "timeout_s": self.timeout_s,
             "idempotent": self.idempotent,
             "service": self.service,
+            "memory": self.memory.manifest() if self.memory else None,
+            "memory_optout": self.memory_optout,
         }
 
 

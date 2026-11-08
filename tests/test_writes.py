@@ -608,7 +608,7 @@ def test_example_write_scopes_and_secure_defaults():
     policy = yaml.safe_load(
         (Path(__file__).resolve().parents[1] / "config/policy.example.yaml").read_text()
     )
-    for client in set(policy["clients"]) - {"cortex", "deepseek"}:
+    for client in set(policy["clients"]) - {"cortex", "deepseek", "dream"}:
         assert {"media:request", "home:control", "home:secure"} <= set(
             policy["clients"][client]["scopes"]
         )

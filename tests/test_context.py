@@ -370,9 +370,11 @@ def test_example_config_and_scopes(config):
     assert Config.load().weather["zip"] is None
     policy = yaml.safe_load(Path("config/policy.example.yaml").read_text())
     for client, rule in policy["clients"].items():
-        assert "weather:read" in rule["scopes"]
-        assert ("context:read" in rule["scopes"]) is (client not in ("cortex", "deepseek"))
-        assert ("context:write" in rule["scopes"]) is (client not in ("cortex", "deepseek"))
+        assert ("weather:read" in rule["scopes"]) is (client != "dream")
+        assert ("context:read" in rule["scopes"]) is (client not in ("cortex", "deepseek", "dream"))
+        assert ("context:write" in rule["scopes"]) is (
+            client not in ("cortex", "deepseek", "dream")
+        )
 
 
 async def test_alias_survives_renamed_todo_and_persists(core, context, config):
@@ -444,6 +446,9 @@ async def test_policy_example_cortex_ops_weather_and_git_reads(core, config):
         "git_pr",
         "git_prs",
         "git_repos",
+        "memory_brief",
+        "memory_get",
+        "memory_search",
         "ops_alerts_status",
         "ops_health",
         "ops_switchboard_status",

@@ -812,7 +812,7 @@ def test_watch_config_and_policy_example(config):
     assert all(
         "media:watch_state" in c["scopes"]
         for client, c in policy["clients"].items()
-        if client not in ("cortex", "deepseek")
+        if client not in ("cortex", "deepseek", "dream")
     )
     assert "media:watch_state" not in policy["clients"]["cortex"]["scopes"]
     assert policy["allowlists"]["plex"]["rating_keys"] == []

@@ -374,7 +374,7 @@ def test_example_grants_task_scopes_to_agents():
 
     policy = Policy(Path(__file__).resolve().parents[1] / "config/policy.example.yaml")
     for client in CLIENTS:
-        if client in ("cortex", "deepseek"):
+        if client in ("cortex", "deepseek", "dream"):
             assert not {"tasks:read", "tasks:write"} & set(policy.client(client)["scopes"])
             continue
         assert {"tasks:read", "tasks:write"} <= set(policy.client(client)["scopes"])

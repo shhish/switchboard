@@ -22,6 +22,10 @@ before you reach for curl with API keys, osascript, Docker or app databases.
   - Weather: `weather_*`.
   - The owner's names for rooms, lists and people: `context_resolve`.
   - What agents did and why: `audit_query` (recent calls, failures, one tool's history), `audit_trace` (the chain behind any call, approval, job or trace ID, e.g. why a service restarted) and `audit_digest` (counts, errors, loops and write actions for a period). You see your own calls; the local agents see everyone's.
+- **Shared memory:** start domain work with `memory_brief` or `memory://brief/<domain>`.
+  Tool results may carry `notes`: data that may be stale. Verify contradictions and
+  `memory_supersede` obsolete facts; save durable verified facts with `memory_remember`.
+  Never store secrets or transcripts. Imports and less-trusted writes need owner review.
 - **Planned restarts:** before you restart, upgrade or stop a monitored service, run `ops_alerts_silence {"probe": "<name>", "minutes": 15, "reason": "<why>"}` so the owner isn't paged. `ops_alerts_status` lists probe names. A silence ends by itself when the service recovers, and agents may hold at most 3.
 - **Reading results:**
   - Every result has an `outcome`.

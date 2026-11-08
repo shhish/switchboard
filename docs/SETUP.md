@@ -161,3 +161,102 @@ Results include `status`, `outcome`, `source` and `as_of`; lists report truncati
 Acceptance means a request/job was accepted, not that downstream work finished.
 Poll returned job IDs. Weather reports observation time and stale cache age;
 external prose is untrusted data. See each skill for workflow-specific limits.
+
+## Shared memory in agent sessions
+
+The owner enables `memory.enabled` in private configuration and runs the reviewed
+`scripts/owner-grant-agent-access.sh` to provision memory grants and the separate
+`dream` token. No hook or example installs itself. Existing `context_*` tables
+remain independent.
+
+Shell-only agents can start a session with:
+
+```sh
+sb --client codex memory brief --domain ops
+sb memory brief --client deepseek --json
+```
+
+Plain output contains only the brief. Disabled, unreachable or unavailable memory
+produces empty output and exit 0, with a three-second request deadline. `--json`
+returns the result object (an empty brief on failure).
+
+For Claude Code, the owner can merge this into `~/.claude/settings.json`, preserving
+existing hooks. The command refers to the reviewed deployed release:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.local/share/switchboard/current/scripts/claude-session-brief.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The hook emits `hookSpecificOutput.additionalContext` and kills its `sb` subprocess
+after three seconds; all failures are silent. See the
+[Claude Code hook reference](https://code.claude.com/docs/en/hooks#sessionstart).
+
+Entity tools declare `Capability.memory=MemorySubject(...)` beside their input
+and output contract. The registry adds optional top-level `notes` and enforces
+an explicit declaration on every tool. Entity-shaped inputs require a subject
+or a written `memory_optout` reason. Selectors walk only declared paths and have
+fixed breadth/depth limits. Notes contain at most three active readable records.
+Weather, note and recipe subjects use `general`; Reminders subjects use `tasks`,
+within the existing memory domain map. Notes remain data, may be stale, and grant
+no permission. Verify a contradiction and supersede the obsolete memory.
+
+## Memory maintenance and reflection
+
+Hourly housekeeping runs deterministic tidy once per local day after 03:00.
+It records duplicate, contradictory, stale and unused records, and proposals that
+have waited at least seven days. Tidy never edits memories. Resolved findings
+stay in the database; identical findings are suppressed until their records
+change. Operational usage counters retain 35 days and incident observations
+seven days; memory records and edit history remain durable.
+
+At `memory.digest_hour` (default 09:00 local), an open proposal or finding queues
+one daily owner digest through configured ntfy/email outbox channels. No channels
+means no notification. Doctor reports counts and the last tidy, digest and
+successful dream-import times; `audit_digest.memory` reports reads, delivered
+notes, write landing statuses and owner review counts.
+
+```sh
+sb memory review
+sb memory review --keep-finding FINDING_ID
+sb memory review --retract-finding FINDING_ID
+sb memory review --supersede-finding FINDING_ID --with-id ACTIVE_MEMORY_ID
+```
+
+The owner may install `launchd/memory-dream.plist.example` as a separate nightly
+job after reviewing it: replace `__HOME__` and `__LABEL__`, save the resulting
+plist under `~/Library/LaunchAgents/`, and load it with the owner's usual launchd
+workflow. The example runs the deployed `scripts/memory-dream.sh` at 04:15;
+Switchboard does not install, load or modify it.
+
+The runner fetches a redacted JSON input of at most 40 KB into a private temporary
+brief. It calls `delegate ds` as a read-only job with no handback contract, falls
+back once to `delegate codex` only for exit 4 (quota), validates an array of at most
+15 memories, and imports proposals labeled `dream:YYYY-MM-DD`. Failures produce
+one fixed log line and exit 0; there is no retry loop. It never mines transcripts.
+Model calls happen in this owner-installed runner, outside the capability server.
+
+`memory:reflect` exposes only domain-filtered audit metadata, monitoring/storage
+observations, routine summaries and active memory titles; no memory bodies or raw
+audit arguments. Every proposed reflection item needs an exact evidence reference
+issued in that client's input and still resolvable within 72 hours. Its source
+label remains separate from its evidence reference for review and batch rollback.
+
+The example `dream` grants are exactly `memory:read`, `memory:reflect` and
+`memory:write`. They imply no domain read grants: its default input and writes
+are limited to `general`. The owner must explicitly approve any broader domain
+access; the runner follows the input's `allowed_domains` and never bypasses policy.
+`SWITCHBOARD_SB`, `SWITCHBOARD_PYTHON` and `SWITCHBOARD_DELEGATE` overrides exist for
+fixture tests and owner-managed wrappers; deployed examples use stable release paths.

@@ -5,6 +5,7 @@ sets up once with scripts/owner-setup-adguard.sh. Pausing is bounded: AdGuard tu
 protection back on by itself when the pause ends.
 """
 
+from ..memory_subjects import MemorySubject
 from ..schema import obj, string
 from .common import array, output
 from .console import bridge_host
@@ -56,6 +57,7 @@ def register(registry):
         service="dns",
         timeout_s=30,
         output_schema=STATS,
+        memory=MemorySubject("dns", subjects=("dns", "adguard")),
     )
     async def stats(core, client, args):
         return await agent(core, "dns-stats", schema=STATS)
@@ -80,6 +82,7 @@ def register(registry):
         idempotent=False,
         timeout_s=30,
         output_schema=CONTROL,
+        memory=MemorySubject("dns", subjects=("dns", "adguard")),
     )
     async def pause(core, client, args):
         return await agent(core, "dns-pause", str(args["minutes"]), schema=CONTROL)
@@ -95,6 +98,7 @@ def register(registry):
         service="dns",
         timeout_s=30,
         output_schema=CONTROL,
+        memory=MemorySubject("dns", subjects=("dns", "adguard")),
     )
     async def resume(core, client, args):
         return await agent(core, "dns-resume", schema=CONTROL)

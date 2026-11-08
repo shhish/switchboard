@@ -1,5 +1,6 @@
 """Storage reads for agents and dashboards, all behind ops:read."""
 
+from ..memory_subjects import MemorySubject
 from ..schema import obj, string
 from .common import array, output
 
@@ -109,6 +110,27 @@ def register(registry):
         idempotent=True,
         service="storage",
         output_schema=STATUS,
+        memory=MemorySubject(
+            "storage",
+            arg_keys=("host",),
+            result_paths=(
+                "disks[].name",
+                "disks[].id",
+                "disks[].label",
+                "disks[].health_id",
+                "disks[].mount",
+                "volumes[].name",
+                "volumes[].id",
+                "volumes[].label",
+                "volumes[].health_id",
+                "volumes[].mount",
+                "containers[].name",
+                "containers[].id",
+                "containers[].label",
+                "containers[].health_id",
+                "containers[].mount",
+            ),
+        ),
     )
     async def status(core, client, args):
         return await core.disk_health.status(args.get("host", "mac"), args.get("refresh", False))
@@ -135,6 +157,7 @@ def register(registry):
                 "maxItems": 840,
             },
         ),
+        memory=MemorySubject("storage", arg_keys=("label",), result_paths=("label",)),
     )
     async def history(core, client, args):
         return core.disk_health.history(args["label"], args.get("days", 7))

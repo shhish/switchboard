@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>__LABEL__</string>
+  <key>ProgramArguments</key><array><string>__HOME__/.local/share/switchboard/current/scripts/memory-dream.sh</string></array>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/bin:/bin</string></dict>
+  <key>StartCalendarInterval</key><dict><key>Hour</key><integer>4</integer><key>Minute</key><integer>15</integer></dict>
+  <key>ProcessType</key><string>Background</string>
+  <key>Umask</key><integer>63</integer>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/switchboard/memory-dream.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/switchboard/memory-dream-error.log</string>
+</dict></plist>

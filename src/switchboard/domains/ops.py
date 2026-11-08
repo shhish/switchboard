@@ -3,6 +3,7 @@
 from ..auth import CLIENTS
 from ..config import DEFAULT_BACKENDS
 from ..doctor import diagnose
+from ..memory_subjects import MemorySubject
 from ..schema import obj, string
 from .common import array, output
 
@@ -45,6 +46,23 @@ CHECKS = obj(
                 **CHECK["properties"],
                 "rows": {"type": "integer", "minimum": 0},
                 "seq": {"type": "integer", "minimum": 0},
+            }
+        ),
+        "memory": obj(
+            {
+                **CHECK["properties"],
+                "fts": {"type": "boolean"},
+                "findings_open": {"type": "integer", "minimum": 0},
+                **{
+                    key: {"type": ["number", "null"]}
+                    for key in ("last_tidy_at", "last_digest_at", "last_dream_at")
+                },
+                "counts": obj(
+                    {
+                        key: {"type": "integer", "minimum": 0}
+                        for key in ("proposed", "active", "superseded", "retracted", "expired")
+                    }
+                ),
             }
         ),
         "monitor": obj(
@@ -94,6 +112,7 @@ def register(registry):
             },
             ("status", "checked_at", "summary", "services"),
         ),
+        memory=MemorySubject("ops", result_paths=("services[].name",)),
     )
     async def health(core, client, args):
         return await core.probes.health()
@@ -119,6 +138,7 @@ def register(registry):
             ),
             limitations={"type": "array", "items": {"type": "string"}},
         ),
+        memory=MemorySubject("ops", subjects=("switchboard",)),
     )
     async def status(core, client, args):
         return await diagnose(
@@ -198,6 +218,7 @@ def register(registry):
                 "outbox_failed",
             ),
         ),
+        memory=MemorySubject("ops", result_paths=("open_incidents[].name", "silences[].probe")),
     )
     async def alerts_status(core, client, args):
         return core.monitor.status()
@@ -215,6 +236,8 @@ def register(registry):
             {"status": {"type": "string", "enum": ["queued"]}, "outbox_ids": array(string(64))},
             ("status", "outbox_ids"),
         ),
+        memory=None,
+        memory_optout="No specific backend entity; aggregate or control-plane operation",
     )
     async def alerts_test(core, client, args):
         return {"status": "queued", "outbox_ids": core.alerts.test()}
@@ -238,6 +261,7 @@ def register(registry):
         tier="write",
         idempotent=False,
         output_schema=output(probe=string(80), until=string(100)),
+        memory=MemorySubject("ops", arg_keys=("probe",), result_paths=("probe",)),
     )
     async def alerts_silence(core, client, args):
         return core.monitor.silence(args["probe"], args["minutes"], args["reason"], client)
@@ -252,6 +276,7 @@ def register(registry):
         scope="ops:silence",
         tier="write",
         output_schema=output(probe=string(80)),
+        memory=MemorySubject("ops", arg_keys=("probe",), result_paths=("probe",)),
     )
     async def alerts_unsilence(core, client, args):
         return core.monitor.unsilence(args["probe"])

@@ -66,6 +66,8 @@ def register(registry):
         scope="context:read",
         service="system+home+eventkit+things+sqlite",
         output_schema=output(**PROFILE),
+        memory=None,
+        memory_optout="No specific backend entity; aggregate or control-plane operation",
     )
     async def get(core, client, args):
         return await core.context.profile()
@@ -88,6 +90,8 @@ def register(registry):
             incomplete={"type": "boolean"},
             truncated={"type": "boolean"},
         ),
+        memory=None,
+        memory_optout="No specific backend entity; aggregate or control-plane operation",
     )
     async def resolve(core, client, args):
         return await core.context.resolve(**args)
@@ -107,6 +111,8 @@ def register(registry):
         service="sqlite+read-backends",
         timeout_s=30,
         output_schema=output(previous=ALIAS_PREVIOUS),
+        memory=None,
+        memory_optout="No specific backend entity; aggregate or control-plane operation",
     )
     async def set_alias(core, client, args):
         return await core.context.set_alias(client, args)
@@ -122,6 +128,8 @@ def register(registry):
         tier="write",
         service="sqlite",
         output_schema=output(previous=ALIAS_PREVIOUS),
+        memory=None,
+        memory_optout="No specific backend entity; aggregate or control-plane operation",
     )
     async def remove_alias(core, client, args):
         alias = normalize(args["alias"])
@@ -148,6 +156,8 @@ def register(registry):
         tier="write",
         service="sqlite",
         output_schema=output(previous=PREFERENCE_PREVIOUS),
+        memory=None,
+        memory_optout="No specific backend entity; aggregate or control-plane operation",
     )
     async def set_preference(core, client, args):
         preference_key(args["key"])
@@ -179,6 +189,8 @@ def register(registry):
         tier="write",
         service="sqlite",
         output_schema=output(previous=PREFERENCE_PREVIOUS),
+        memory=None,
+        memory_optout="No specific backend entity; aggregate or control-plane operation",
     )
     async def remove_preference(core, client, args):
         preference_key(args["key"])

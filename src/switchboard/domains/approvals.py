@@ -17,6 +17,8 @@ def register(registry):
         tier="approval",
         idempotent=False,
         output_schema=output(approval_id={"type": "string"}),
+        memory=None,
+        memory_optout="No specific backend entity; aggregate or control-plane operation",
     )
     async def confirm(core, client, args):
         rule = core.policy.require(client, core.registry.capabilities["approvals_confirm"])

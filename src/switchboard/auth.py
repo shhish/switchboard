@@ -9,7 +9,18 @@ import stat
 from pathlib import Path
 from urllib.parse import urlsplit
 
-CLIENTS = ("dot", "orb", "openclaw", "claude", "codex", "agy", "deepseek", "cortex", "owner")
+CLIENTS = (
+    "dot",
+    "orb",
+    "openclaw",
+    "claude",
+    "codex",
+    "agy",
+    "deepseek",
+    "cortex",
+    "owner",
+    "dream",
+)
 
 
 SECRET_MAX_BYTES = 1024 * 1024

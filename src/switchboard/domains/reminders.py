@@ -3,6 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 from ..errors import CapabilityError
+from ..memory_subjects import MemorySubject
 from ..schema import obj, string
 from .common import array, output, pick, selected
 from .eventkit_common import (
@@ -39,6 +40,7 @@ def register(registry):
             truncated={"type": "boolean"},
             **TIME,
         ),
+        memory=MemorySubject("tasks", result_paths=("reminders[].title", "reminders[].id")),
     )
     async def due(core, client, args):
         days = args.get("days", 1)
@@ -79,6 +81,7 @@ def register(registry):
         scope="reminders:read",
         service="eventkit",
         output_schema=output(lists=array(LIST), truncated={"type": "boolean"}, **TIME),
+        memory=MemorySubject("tasks", result_paths=("lists[].title", "lists[].id")),
     )
     async def list_lists(core, client, args):
         data = await core.backends.eventkit.call("reminder_lists.list")
@@ -110,6 +113,11 @@ def register(registry):
         idempotent=False,
         service="eventkit",
         output_schema=output(reminder=REMINDER, **TIME),
+        memory=MemorySubject(
+            "tasks",
+            arg_keys=("title", "reminder_id"),
+            result_paths=("reminder.title", "reminder.id"),
+        ),
     )
     async def add(core, client, args):
         core.policy.require_allowed("reminders", "lists", args["list_id"])
@@ -130,6 +138,11 @@ def register(registry):
         tier="write",
         service="eventkit",
         output_schema=output(reminder=REMINDER, **TIME),
+        memory=MemorySubject(
+            "tasks",
+            arg_keys=("title", "reminder_id"),
+            result_paths=("reminder.title", "reminder.id"),
+        ),
     )
     async def complete(core, client, args):
         allowed = core.policy.allowed_ids("reminders", "lists")
@@ -167,6 +180,11 @@ def register(registry):
         tier="write",
         service="eventkit",
         output_schema=output(reminder=REMINDER, **TIME),
+        memory=MemorySubject(
+            "tasks",
+            arg_keys=("title", "reminder_id"),
+            result_paths=("reminder.title", "reminder.id"),
+        ),
     )
     async def update(core, client, args):
         if len(args) == 1:

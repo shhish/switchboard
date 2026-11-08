@@ -4,6 +4,7 @@ import math
 import re
 
 from ..errors import CapabilityError
+from ..memory_subjects import MemorySubject
 from ..schema import obj, string
 from .common import sanitize_text
 
@@ -184,6 +185,18 @@ def register(registry):
                 10,
             )
         ),
+        memory=MemorySubject(
+            "books",
+            arg_keys=("book_id",),
+            result_paths=(
+                "title",
+                "author",
+                "results[].title",
+                "results[].author",
+                "books[].title",
+                "books[].author",
+            ),
+        ),
     )
     async def search(core, client, args):
         query = args["query"].strip()
@@ -225,6 +238,18 @@ def register(registry):
             **BOOK_FIELDS,
             queued=array({"type": "string", "enum": list(FORMATS)}, 2),
             already=array({"type": "string", "enum": list(FORMATS)}, 2),
+        ),
+        memory=MemorySubject(
+            "books",
+            arg_keys=("book_id",),
+            result_paths=(
+                "title",
+                "author",
+                "results[].title",
+                "results[].author",
+                "books[].title",
+                "books[].author",
+            ),
         ),
     )
     async def request(core, client, args):
@@ -312,6 +337,18 @@ def register(registry):
                 ),
                 50,
             )
+        ),
+        memory=MemorySubject(
+            "books",
+            arg_keys=("book_id",),
+            result_paths=(
+                "title",
+                "author",
+                "results[].title",
+                "results[].author",
+                "books[].title",
+                "books[].author",
+            ),
         ),
     )
     async def status(core, client, args):

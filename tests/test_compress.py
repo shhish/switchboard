@@ -459,7 +459,7 @@ def test_config_validation(config, settings):
 def test_config_defaults_and_examples(config):
     assert Config.load().backends["media_compress"] == DEFAULT_BACKENDS["media_compress"]
     policy = yaml.safe_load(Path("config/policy.example.yaml").read_text())
-    for client in set(policy["clients"]) - {"cortex", "deepseek"}:
+    for client in set(policy["clients"]) - {"cortex", "deepseek", "dream"}:
         assert {"media:compress", "media:compress_read"} <= set(policy["clients"][client]["scopes"])
     assert policy["allowlists"]["media"]["compress_roots"] == [
         "/Volumes/server",

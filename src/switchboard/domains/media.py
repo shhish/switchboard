@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from ..errors import CapabilityError
 from ..media_compress import NOTE, REQUEST_ID, STATUSES, validate_receipt, validate_status
+from ..memory_subjects import MemorySubject
 from ..schema import obj, string
 from .common import array, output, pick, require_one, sanitize_text, selected
 from .watch import identifier, integer, rows
@@ -467,6 +468,7 @@ def register(registry):
             },
             ("status", "note"),
         ),
+        memory=MemorySubject("media", arg_keys=("tmdb_id", "path"), result_paths=("path", "title")),
     )
     async def compress(core, client, args):
         compress_preflight(core, client, args)
@@ -522,6 +524,7 @@ def register(registry):
             },
             ("request_id", "path", "status", "updated_at"),
         ),
+        memory=MemorySubject("media", arg_keys=("tmdb_id", "path"), result_paths=("path", "title")),
     )
     async def compress_status(core, client, args):
         core.backends.media_compress.settings()
@@ -553,6 +556,7 @@ def register(registry):
                 )
             )
         ),
+        memory=MemorySubject("media", result_paths=("requests[].path",)),
     )
     async def compress_list(core, client, args):
         limit = args.get("limit", 20)
@@ -585,6 +589,11 @@ def register(registry):
         timeout_s=25,
         idempotent=True,
         output_schema=request_output,
+        memory=MemorySubject(
+            "media",
+            arg_keys=("tmdb_id", "title"),
+            result_paths=("title", "show.title", "show.tmdb_id"),
+        ),
     )
     async def request_movie(core, client, args):
         return await request_title(core, client, args, "movie")
@@ -618,6 +627,11 @@ def register(registry):
         timeout_s=25,
         idempotent=True,
         output_schema=request_output,
+        memory=MemorySubject(
+            "media",
+            arg_keys=("tmdb_id", "title"),
+            result_paths=("title", "show.title", "show.tmdb_id"),
+        ),
     )
     async def request_show(core, client, args):
         return await request_title(core, client, args, "tv")
@@ -639,6 +653,8 @@ def register(registry):
             total_size_gb={"type": "number"},
             degraded_services={"type": "array", "items": {"type": "string"}},
         ),
+        memory=None,
+        memory_optout="No specific backend entity; aggregate or control-plane operation",
     )
     async def library(core, client, args):
         data = await core.backends.get("media", "/library/summary")
@@ -678,6 +694,7 @@ def register(registry):
             history=array(DOWNLOAD),
             truncated={"type": "boolean"},
         ),
+        memory=MemorySubject("media", result_paths=("active[].title", "history[].title")),
     )
     async def downloads(core, client, args):
         active, history = await asyncio.gather(
@@ -715,6 +732,7 @@ def register(registry):
             overseerr=array(SEERR_MATCH),
             warnings={"type": "array", "items": {"type": "string"}},
         ),
+        memory=MemorySubject("media", result_paths=("library[].title", "overseerr[].title")),
     )
     async def search(core, client, args, *, library_limit=10):
         query = args["query"].strip().casefold()
@@ -831,6 +849,11 @@ def register(registry):
             summary=string(300),
             candidates=array(LIBRARY_MATCH),
             truncated={"type": "boolean"},
+        ),
+        memory=MemorySubject(
+            "media",
+            arg_keys=("tmdb_id", "title"),
+            result_paths=("title", "show.title", "show.tmdb_id"),
         ),
     )
     async def detail(core, client, args):

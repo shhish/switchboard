@@ -1,5 +1,6 @@
 """Typed operations for the configured non-finance service inventory."""
 
+from ..memory_subjects import MemorySubject
 from ..schema import obj, string
 from .common import array, output
 
@@ -158,6 +159,9 @@ def register(registry):
         scope="ops:diagnose",
         timeout_s=30,
         output_schema=output(services=array(SERVICE)),
+        memory=MemorySubject(
+            "ops", arg_keys=("service",), result_paths=("service", "services[].name")
+        ),
     )
     async def status(core, client, args):
         return await core.services.status(args.get("service"))
@@ -187,6 +191,9 @@ def register(registry):
             truncated={"type": "boolean"},
             matched={"type": "integer", "minimum": 0},
         ),
+        memory=MemorySubject(
+            "ops", arg_keys=("service",), result_paths=("service", "services[].name")
+        ),
     )
     async def logs(core, client, args):
         return await core.services.logs(args)
@@ -201,6 +208,9 @@ def register(registry):
         scope="ops:diagnose",
         timeout_s=25,
         output_schema=SNAPSHOT,
+        memory=MemorySubject(
+            "ops", arg_keys=("host",), result_paths=("host", "hostname"), fallback_subjects=("mac",)
+        ),
     )
     async def snapshot(core, client, args):
         return await core.services.snapshot(args.get("host", "mac"))
@@ -215,6 +225,9 @@ def register(registry):
         scope="ops:diagnose",
         timeout_s=25,
         output_schema=HOST_CHECKS,
+        memory=MemorySubject(
+            "ops", arg_keys=("host",), result_paths=("host", "hostname"), fallback_subjects=("mac",)
+        ),
     )
     async def checks(core, client, args):
         from .. import remote
@@ -234,6 +247,9 @@ def register(registry):
         timeout_s=200,
         output_schema=output(
             refreshed={"type": "boolean"}, updates=HOST_CHECKS["properties"]["updates"]
+        ),
+        memory=MemorySubject(
+            "ops", arg_keys=("host",), result_paths=("host", "hostname"), fallback_subjects=("mac",)
         ),
     )
     async def refresh_updates(core, client, args):
@@ -257,6 +273,9 @@ def register(registry):
         idempotent=False,
         timeout_s=105,
         output_schema=output(service=string(40), job_id=string(64)),
+        memory=MemorySubject(
+            "ops", arg_keys=("service",), result_paths=("service", "services[].name")
+        ),
     )
     async def restart(core, client, args):
         return await core.services.restart(client, args)

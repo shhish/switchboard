@@ -15,6 +15,7 @@ from . import (
     home,
     jobs,
     media,
+    memory,
     notes,
     ops,
     recipes,
@@ -45,4 +46,5 @@ def build_registry():
     routines.register(registry)
     audit.register(registry)
     git.register(registry)
+    memory.register(registry)
     return registry

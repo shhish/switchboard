@@ -1,5 +1,6 @@
 """Compact weather contracts, exclusively through the dedicated NWS client."""
 
+from ..memory_subjects import MemorySubject
 from ..schema import obj
 from .common import array, output
 
@@ -67,6 +68,7 @@ def register(registry):
             today_high_f=NULL_NUMBER,
             today_low_f=NULL_NUMBER,
         ),
+        memory=MemorySubject("general", subjects=("weather",)),
     )
     async def now(core, client, args):
         return await core.backends.weather.read("now", args)
@@ -82,6 +84,7 @@ def register(registry):
         service="NWS",
         timeout_s=20,
         output_schema=output(**META, periods=array(PERIOD)),
+        memory=MemorySubject("general", subjects=("weather",)),
     )
     async def forecast(core, client, args):
         return await core.backends.weather.read("forecast", args)
@@ -108,6 +111,7 @@ def register(registry):
                 )
             ),
         ),
+        memory=MemorySubject("general", subjects=("weather",)),
     )
     async def hourly(core, client, args):
         return await core.backends.weather.read("hourly", args)
@@ -121,6 +125,7 @@ def register(registry):
         scope="weather:read",
         service="NWS",
         output_schema=output(**META, alerts=array(ALERT)),
+        memory=MemorySubject("general", subjects=("weather",)),
     )
     async def alerts(core, client, args):
         return await core.backends.weather.read("alerts", args)

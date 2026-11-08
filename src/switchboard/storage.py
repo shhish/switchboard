@@ -170,5 +170,9 @@ class Storage:
             )
             self.db.commit()
 
+        from .memory import migrate
+
+        migrate(self.db)
+
     def close(self):
         self.db.close()

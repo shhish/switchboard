@@ -3,6 +3,7 @@
 from datetime import date
 
 from ..errors import CapabilityError
+from ..memory_subjects import MemorySubject
 from ..schema import obj, string, validate
 from .common import array, output, sanitize_external
 from .eventkit_common import TIME, metadata
@@ -93,6 +94,7 @@ def register(registry):
                 scope="tasks:read",
                 service="things",
                 output_schema=output(todos=array(TODO), truncated={"type": "boolean"}, **TIME),
+                memory=MemorySubject("tasks", result_paths=("todos[].name", "todos[].id")),
             )
             async def read(core, client, args):
                 limit = args.get("limit", 50)
@@ -119,6 +121,7 @@ def register(registry):
         scope="tasks:read",
         service="things",
         output_schema=output(todos=array(TODO), truncated={"type": "boolean"}, **TIME),
+        memory=MemorySubject("tasks", result_paths=("todos[].name", "todos[].id")),
     )
     async def search(core, client, args):
         if not args["query"].strip():
@@ -141,6 +144,7 @@ def register(registry):
         scope="tasks:read",
         service="things",
         output_schema=output(projects=array(TODO), truncated={"type": "boolean"}, **TIME),
+        memory=MemorySubject("tasks", result_paths=("projects[].name", "projects[].id")),
     )
     async def projects(core, client, args):
         data = await core.backends.things.call("things.projects")
@@ -159,6 +163,7 @@ def register(registry):
         scope="tasks:read",
         service="things",
         output_schema=output(areas=array(AREA), truncated={"type": "boolean"}, **TIME),
+        memory=MemorySubject("tasks", result_paths=("areas[].name", "areas[].id")),
     )
     async def areas(core, client, args):
         data = await core.backends.things.call("things.areas")
@@ -201,6 +206,9 @@ def register(registry):
         idempotent=False,
         service="things",
         output_schema=output(todo=TODO, **TIME),
+        memory=MemorySubject(
+            "tasks", arg_keys=("title", "todo_id"), result_paths=("todo.name", "todo.id")
+        ),
     )
     async def add(core, client, args):
         validate_add(args)
@@ -223,6 +231,9 @@ def register(registry):
         tier="write",
         service="things",
         output_schema=output(todo=TODO, **TIME),
+        memory=MemorySubject(
+            "tasks", arg_keys=("title", "todo_id"), result_paths=("todo.name", "todo.id")
+        ),
     )
     async def complete(core, client, args):
         data = await core.backends.things.call(
@@ -257,6 +268,9 @@ def register(registry):
         tier="write",
         service="things",
         output_schema=output(todo=TODO, **TIME),
+        memory=MemorySubject(
+            "tasks", arg_keys=("title", "todo_id"), result_paths=("todo.name", "todo.id")
+        ),
     )
     async def update(core, client, args):
         if len(args) == 1:

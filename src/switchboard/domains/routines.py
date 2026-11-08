@@ -7,6 +7,7 @@ the scopes it may use (a hash), and only the owner can give it.
 from datetime import UTC, datetime
 
 from ..errors import CapabilityError
+from ..memory_subjects import MemorySubject
 from ..routines.language import RoutineError, definition_hash, parse
 from ..routines.validator import check
 from ..schema import obj, string
@@ -93,6 +94,7 @@ def register(registry):
         obj(),
         scope="routines:read",
         output_schema=output(routines=array(), engine=ANY),
+        memory=MemorySubject("routines", result_paths=("routines[].routine",)),
     )
     async def list_routines(core, client, args):
         eng = engine(core)
@@ -120,6 +122,9 @@ def register(registry):
         obj({"routine": NAME}, ("routine",)),
         scope="routines:read",
         output_schema=output(routine=string(64), versions=array(), runs=array()),
+        memory=MemorySubject(
+            "routines", arg_keys=("routine",), result_paths=("routine", "runs[].routine")
+        ),
     )
     async def get_routine(core, client, args):
         eng = engine(core)
@@ -148,6 +153,9 @@ def register(registry):
         ),
         scope="routines:read",
         output_schema=output(runs=array(), steps=array()),
+        memory=MemorySubject(
+            "routines", arg_keys=("routine",), result_paths=("routine", "runs[].routine")
+        ),
     )
     async def runs(core, client, args):
         eng = engine(core)
@@ -197,6 +205,9 @@ def register(registry):
             approve=string(200),
             existing={"type": "boolean"},
         ),
+        memory=MemorySubject(
+            "routines", arg_keys=("routine",), result_paths=("routine", "runs[].routine")
+        ),
     )
     async def propose(core, client, args):
         definition, scopes, hashed, warnings = await prepare(core, client, args["yaml"])
@@ -239,6 +250,9 @@ def register(registry):
         scope="routines:read",
         timeout_s=30,
         output_schema=output(plan=ANY, routine=string(64)),
+        memory=MemorySubject(
+            "routines", arg_keys=("routine",), result_paths=("routine", "runs[].routine")
+        ),
     )
     async def plan(core, client, args):
         eng = engine(core)
@@ -270,6 +284,9 @@ def register(registry):
         tier="write",
         idempotent=False,
         output_schema=output(run_id={"type": ["string", "null"]}),
+        memory=MemorySubject(
+            "routines", arg_keys=("routine",), result_paths=("routine", "runs[].routine")
+        ),
     )
     async def run_now(core, client, args):
         run_id = await engine(core).run_manual(args["routine"], client)
@@ -291,6 +308,9 @@ def register(registry):
         tier="write",
         idempotent=True,
         output_schema=output(routine=string(64)),
+        memory=MemorySubject(
+            "routines", arg_keys=("routine",), result_paths=("routine", "runs[].routine")
+        ),
     )
     async def disable(core, client, args):
         eng = engine(core)
@@ -312,6 +332,9 @@ def register(registry):
         idempotent=True,
         timeout_s=30,
         output_schema=output(routine=string(64), version={"type": "integer"}, hash=HASH),
+        memory=MemorySubject(
+            "routines", arg_keys=("routine",), result_paths=("routine", "runs[].routine")
+        ),
     )
     async def approve(core, client, args):
         if client != "owner":
@@ -355,6 +378,7 @@ def register(registry):
         tier="write",
         idempotent=True,
         output_schema=output(paused={"type": "boolean"}),
+        memory=MemorySubject("routines", subjects=("routines",)),
     )
     async def pause(core, client, args):
         if client != "owner":

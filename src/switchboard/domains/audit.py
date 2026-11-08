@@ -90,6 +90,8 @@ def register(registry):
         max_result_chars=500_000,  # Up to 200 rows with 8 KiB args each; Claude's hard ceiling.
         scope="audit:read",
         output_schema=output(rows=array(ROW), see_all={"type": "boolean"}),
+        memory=None,
+        memory_optout="No specific backend entity; aggregate or control-plane operation",
     )
     async def query(core, client, args):
         since_ms, until_ms = window(args)
@@ -120,6 +122,8 @@ def register(registry):
         max_result_chars=500_000,  # Same bounded rows as query; Claude's hard ceiling.
         scope="audit:read",
         output_schema=output(rows=array(ROW)),
+        memory=None,
+        memory_optout="No specific backend entity; aggregate or control-plane operation",
     )
     async def trace(core, client, args):
         limit = args.get("limit", 100)
@@ -154,7 +158,10 @@ def register(registry):
             actions=array(ROW),
             loops=array(ROW),
             catalog_changes=array(ROW),
+            memory={"type": "object"},
         ),
+        memory=None,
+        memory_optout="No specific backend entity; aggregate or control-plane operation",
     )
     async def digest(core, client, args):
         from ..audit import timestamp
@@ -164,4 +171,7 @@ def register(registry):
         report = core.audit.digest_report(
             viewer=client, see_all=everyone, since_ms=since_ms, until_ms=until_ms
         )
+        from ..memory_maintenance import stats
+
+        report["memory"] = stats(core.memory, client, everyone, since_ms, until_ms)
         return {"status": "ok", "since": timestamp(since_ms), "see_all": everyone, **report}

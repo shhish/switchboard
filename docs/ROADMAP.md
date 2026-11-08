@@ -228,7 +228,7 @@ profiles alongside; light evals (F) follow E.
   device/held/reachability/time/every/sun/manual triggers. Plan:
   `docs/home-automation/PLAN.md` in the owner's workspace.
 - [ ] B1 events (Switchboard's own event log for routines' `event:` triggers), C2 (`ask`
-  on the Orb, `wait_for`, `classify`), D1 memory, E1 tool profiles: see the design doc.
+  on the Orb, `wait_for`, `classify`), E1 tool profiles: see the design doc.
 
 ## Phase 18: storage health
 
@@ -249,3 +249,27 @@ profiles alongside; light evals (F) follow E.
 - [ ] Owner provisions the disabled Gitea backend, local roots and write-repository
   allowlist, runs the idempotent agent-grant script, reviews and deploys. No live
   configuration, checkout mutation, Gitea write or deployment performed here.
+
+## Phase 19: shared agent memory
+
+- [x] **D1:** opt-in SQLite memory, append-only history, Porter FTS5 and optional
+  trigram search; provenance, domain read gating, trust-based proposals, duplicate
+  checks, secret rejection and daily caps. Briefs include existing context preferences
+  without migrating them. MCP resources and notes on service/home/media/console/storage
+  tools use the same read boundaries. Owner review, retraction, supersession,
+  90/180-day stale flags, 14-day proposal expiry and doctor counts are included.
+- [x] **D2 import/export:** owner CLI review and rollback by source, deterministic
+  active-record Markdown mirror, fixture-tested Claude note import with links and
+  hash idempotency; bulk proposal import for Dot. No transcript mining.
+- [x] **D2 maintenance:** deterministic nightly tidy records duplicates, preference/link
+  contradictions, stale/unused facts and proposal backlog as owner-resolved findings;
+  no automatic memory edits. One configured-hour daily digest uses the existing outbox.
+- [x] **D2 reflection:** bounded, redacted, domain-gated `memory_reflect_input`, exact
+  recent evidence validation for dream imports, a minimal `dream` identity and an
+  owner-installed read-only delegate runner with quota fallback. No model calls in Core.
+- [x] **Automatic delivery:** explicit registry subjects cover entity tools and future
+  registrations are guarded; notes schemas are central. Shell briefs and the optional
+  Claude SessionStart hook complement MCP briefs/resources. Usage stats and doctor
+  include delivered notes, write landing statuses, findings and maintenance times.
+- [ ] Owner enables memory and grants scopes with the reviewed owner-run script;
+  no live policy changes or real memory import were performed during implementation.

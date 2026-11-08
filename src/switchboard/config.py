@@ -345,8 +345,12 @@ class Config:
     monitor: dict = field(default_factory=dict)
     alerts: dict = field(default_factory=dict)
     storage: dict = field(default_factory=dict)
+    memory: dict = field(default_factory=dict)
 
     def __post_init__(self):
+        from .memory import settings as memory_settings
+
+        self.memory = memory_settings(self.memory)
         self.storage = storage_settings(self.storage)
         self.git = validate_git(self.git)
         self.monitor = monitor_settings(self.monitor)
@@ -380,6 +384,7 @@ class Config:
             "weather",
             "monitor",
             "storage",
+            "memory",
             "alerts",
             "git",
         }:
@@ -396,6 +401,9 @@ class Config:
         for key in ("port", "approval_ttl_s"):
             if key in data:
                 setattr(result, key, data[key])
+        from .memory import settings as memory_settings
+
+        result.memory = memory_settings(data.get("memory", {}))
         result.storage = storage_settings(data.get("storage", {}))
         result.monitor = monitor_settings(data.get("monitor", {}))
         result.git = validate_git(data.get("git", {"roots": []}))
