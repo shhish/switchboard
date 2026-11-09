@@ -189,6 +189,13 @@ class Monitor:
                 "incident_id": None,
             }
         )
+        # A storage warning that turns critical is news even mid-incident.
+        escalated = (
+            "storage_detail" in probe
+            and state["alerted"]
+            and state["status"] == "degraded"
+            and status == "down"
+        )
         if state["status"] != status:
             state.update(status=status, last_change_at=now)
         if status == "unknown":
@@ -203,6 +210,8 @@ class Monitor:
                 probe, reason
             ):
                 kind = "down"
+            elif escalated:
+                kind = "escalation"
             elif state["alerted"] and now - state["last_alert_at"] >= self.reminder_seconds(probe):
                 kind = "reminder"
             if kind == "down" and not self.silenced(name, now):
@@ -280,7 +289,7 @@ class Monitor:
             body = f"{name} is not responding (since {since})."
         payload = {"title": title, "kind": kind, "body": body}
         key = f"{state['incident_id']}:{kind}"
-        if kind == "reminder":
+        if kind in ("reminder", "escalation"):
             key += f":{now}"
         return self.delivery.queue(key, payload, now)
 
