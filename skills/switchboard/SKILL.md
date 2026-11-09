@@ -15,7 +15,9 @@ owner's `probes` list in config.yaml to add services: each entry has a unique
 `tls_verify` (default true; false only on loopback). No credentials or custom
 headers are supported. Probes run concurrently with a 3-second timeout and share
 a 15-second cache. A slow, disk-backed loopback app may set `timeout_s` (1-30) and
-`failures_before_alert` (1-10) on its own entry instead of being paged on stalls. Any HTTP response below 500 counts as `up`, including 401/403;
+`failures_before_alert` (1-10) on its own entry instead of being paged on stalls.
+Probes that only time out need `monitor.slow_failures_before_alert` cycles (default
+10) before a page, since that is usually a stalled Mac rather than a dead service. Any HTTP response below 500 counts as `up`, including 401/403;
 500+ is `degraded`; connection, timeout or TLS failures are `down`. Results include
 counts, check time and latency, without URLs. This measures service reachability;
 use doctor for Switchboard's backend credentials and contracts.

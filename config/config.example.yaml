@@ -157,7 +157,10 @@ monitor:
   enabled: false
   interval_s: 60
   failures_before_alert: 2
+  # Probes that only time out (a stalled Mac, not a dead service) wait longer.
+  slow_failures_before_alert: 10
   reminder_hours: 6
+  storage_reminder_hours: 24
   recovery_alerts: true
   # Dead-man ping after each completed cycle, through the enabled native EventKit helper.
   # File contains one HTTP(S) RFC1918 IPv4 URL, no query/fragment/userinfo; path <=200.
