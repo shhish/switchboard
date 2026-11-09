@@ -386,7 +386,9 @@ def test_valid_monitor_and_alert_config_load(config):
         "enabled": True,
         "interval_s": 45,
         "failures_before_alert": 2,
+        "slow_failures_before_alert": 10,
         "reminder_hours": 0.5,
+        "storage_reminder_hours": 24,
         "recovery_alerts": True,
     }
     assert loaded.alerts["ntfy"]["url_file"].startswith("/")
@@ -466,3 +468,54 @@ def test_per_probe_failure_threshold(config):
         assert [json.loads(row["payload"])["kind"] for row in outbox(storage)] == ["down"]
     finally:
         storage.close()
+
+
+def test_timeouts_need_a_longer_streak_than_hard_failures(config):
+    storage, _, monitor = setup_monitor(config)
+    try:
+
+        def slow(now, reason="timeout"):
+            row = {"name": "homebridge", "group": "pi", "status": "down", "reason": reason}
+            monitor.process([row], now)
+
+        for minute in range(9):
+            slow(100 + 60 * minute)
+        assert not outbox(storage)  # Nine minutes of a stalled Mac is not an outage.
+        cycle(monitor, "up", 700)
+        assert not outbox(storage)  # Nor does the blip send a recovery.
+        for minute in range(10):
+            slow(1000 + 60 * minute)
+        assert [json.loads(row["payload"])["kind"] for row in outbox(storage)] == ["down"]
+        cycle(monitor, "up", 2000)
+        slow(3000, "refused")
+        slow(3060, "refused")  # A refused connection is a dead service: page promptly.
+        kinds = [json.loads(row["payload"])["kind"] for row in outbox(storage)]
+        assert kinds == ["down", "recovery", "down"]
+    finally:
+        storage.close()
+
+
+def test_storage_reminders_repeat_daily(config):
+    storage, _, monitor = setup_monitor(config)
+    try:
+        disk = {"name": "storage:disk-x", "label": "server3", "storage_detail": "99% used"}
+        for now in (0, 60, 6 * 3600 + 60):
+            with storage.db:
+                monitor.transition(disk, "down", now)
+        assert len(outbox(storage)) == 1
+        with storage.db:
+            monitor.transition(disk, "down", 24 * 3600 + 60)
+        assert [json.loads(row["payload"])["kind"] for row in outbox(storage)] == [
+            "down",
+            "reminder",
+        ]
+    finally:
+        storage.close()
+
+
+def test_slow_threshold_and_storage_reminder_settings_are_checked():
+    settings = monitor_settings({"slow_failures_before_alert": 5, "storage_reminder_hours": 12})
+    assert settings["slow_failures_before_alert"] == 5
+    for bad in ({"slow_failures_before_alert": 0}, {"storage_reminder_hours": -1}):
+        with pytest.raises(ValueError):
+            monitor_settings(bad)

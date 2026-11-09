@@ -474,6 +474,8 @@ async def test_smart_silences_quota_and_reminders_use_existing_pipeline(disks):
     await health.status(now=100072)
     assert len(queued) == count + 1
     await health.status(now=100072 + 6 * HOUR)
+    assert not any(item[1]["kind"] == "reminder" for item in queued)  # Storage nags daily.
+    await health.status(now=100072 + 24 * HOUR)
     assert any(item[1]["kind"] == "reminder" for item in queued)
     names = sorted(health.probe_names())
     for name in names[:3]:

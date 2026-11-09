@@ -11,7 +11,12 @@ DEFAULT_MONITOR = {
     "enabled": False,
     "interval_s": 60,
     "failures_before_alert": 2,
+    # A probe that only times out is usually a stalled Mac (swap, simulator boots,
+    # VMAF runs), not a dead service; it must stay silent this many cycles first.
+    "slow_failures_before_alert": 10,
     "reminder_hours": 6,
+    # Storage incidents last days; repeat their notices at most daily.
+    "storage_reminder_hours": 24,
     "recovery_alerts": True,
 }
 
@@ -25,12 +30,17 @@ def monitor_settings(value):
     for key in ("enabled", "recovery_alerts"):
         if type(result[key]) is not bool:
             raise ValueError("Monitor flags must be boolean")
-    for key, maximum in (("interval_s", 86400), ("failures_before_alert", 1000)):
+    for key, maximum in (
+        ("interval_s", 86400),
+        ("failures_before_alert", 1000),
+        ("slow_failures_before_alert", 1000),
+    ):
         if type(result[key]) is not int or not 1 <= result[key] <= maximum:
             raise ValueError("Invalid monitor interval or threshold")
-    hours = result["reminder_hours"]
-    if type(hours) not in (int, float) or not 0 < hours <= 8760 or not math.isfinite(hours):
-        raise ValueError("Invalid reminder interval")
+    for key in ("reminder_hours", "storage_reminder_hours"):
+        hours = result[key]
+        if type(hours) not in (int, float) or not 0 < hours <= 8760 or not math.isfinite(hours):
+            raise ValueError("Invalid reminder interval")
     if "heartbeat_url_file" in result:
         path = result["heartbeat_url_file"]
         if (

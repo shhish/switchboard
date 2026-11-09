@@ -65,6 +65,9 @@ async def test_health_status_shape_and_redaction(core):
         if status is not None:
             expected.add("http_status")
             assert row["http_status"] == status
+        else:
+            expected.add("reason")  # Down rows say whether it timed out or was refused.
+            assert row["reason"] in ("timeout", "error")
         assert set(row) == expected
         assert row["latency_ms"] >= 0
         assert row["status"] == (

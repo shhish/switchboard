@@ -95,6 +95,7 @@ class HealthProbes:
                 if "error" in data:
                     if data["error"] not in ("timeout", "refused", "unreachable", "tls", "other"):
                         raise ValueError
+                    result["reason"] = data["error"]
                 else:
                     code, latency = data.get("http_status"), data.get("latency_ms")
                     if (
@@ -126,7 +127,9 @@ class HealthProbes:
                     status="up" if response.status < 500 else "degraded",
                     http_status=response.status,
                 )
-        except (aiohttp.ClientError, TimeoutError, OSError):
-            pass
+        except (TimeoutError, aiohttp.ServerTimeoutError):
+            result["reason"] = "timeout"
+        except (aiohttp.ClientError, OSError):
+            result["reason"] = "error"
         result["latency_ms"] = round((monotonic() - started) * 1000, 2)
         return result

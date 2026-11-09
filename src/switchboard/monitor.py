@@ -147,7 +147,7 @@ class Monitor:
                 for row in services:
                     probe = configs.get(row["name"])
                     if probe and probe.get("alert", True):
-                        self.transition(probe, row["status"], now)
+                        self.transition(probe, row["status"], now, row.get("reason"))
             # Retire removed/opted-out states without issuing stale recovery notices.
             active = {name for name, row in configs.items() if row.get("alert", True)} | {
                 SYSTEM_PROBE
@@ -160,7 +160,18 @@ class Monitor:
                 "INSERT OR REPLACE INTO monitor_meta VALUES ('last_cycle_at', ?)", (now,)
             )
 
-    def transition(self, probe, status, now):
+    def failure_threshold(self, probe, reason):
+        threshold = probe.get("failures_before_alert", self.config.monitor["failures_before_alert"])
+        if reason == "timeout":
+            # Refused/5xx means the service is gone; a slow answer needs a longer streak.
+            return max(threshold, self.config.monitor["slow_failures_before_alert"])
+        return threshold
+
+    def reminder_seconds(self, probe):
+        key = "storage_reminder_hours" if "storage_detail" in probe else "reminder_hours"
+        return self.config.monitor[key] * 3600
+
+    def transition(self, probe, status, now, reason=None):
         name = probe["name"]
         row = self.db.execute("SELECT * FROM monitor_state WHERE name=?", (name,)).fetchone()
         state = (
@@ -188,14 +199,11 @@ class Monitor:
                 state.update(down_since=now, incident_id=uuid4().hex)
             state["consecutive_failures"] += 1
             kind = None
-            if not state["alerted"] and state["consecutive_failures"] >= probe.get(
-                "failures_before_alert", self.config.monitor["failures_before_alert"]
+            if not state["alerted"] and state["consecutive_failures"] >= self.failure_threshold(
+                probe, reason
             ):
                 kind = "down"
-            elif (
-                state["alerted"]
-                and now - state["last_alert_at"] >= self.config.monitor["reminder_hours"] * 3600
-            ):
+            elif state["alerted"] and now - state["last_alert_at"] >= self.reminder_seconds(probe):
                 kind = "reminder"
             if kind == "down" and not self.silenced(name, now):
                 self.emit("service.down", name)
