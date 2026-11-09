@@ -201,7 +201,11 @@ class AlertDelivery:
             completed = time.time() if real_clock else now
             delay = BACKOFF_MINUTES[min(attempts - 1, len(BACKOFF_MINUTES) - 1)] * 60
             with self.db:
-                if code is None and json.loads(row["payload"])["kind"] in ("down", "reminder"):
+                if code is None and json.loads(row["payload"])["kind"] in (
+                    "down",
+                    "reminder",
+                    "escalation",
+                ):
                     self.db.execute(
                         "UPDATE monitor_state SET notified=1, alerted=1 WHERE incident_id=?",
                         (row["dedupe_key"].split(":", 1)[0],),
@@ -242,7 +246,9 @@ class AlertDelivery:
                 headers={
                     "Content-Type": "text/plain; charset=utf-8",
                     "Title": payload["title"],
-                    "Priority": "high" if payload["kind"] in ("down", "reminder") else "default",
+                    "Priority": "high"
+                    if payload["kind"] in ("down", "reminder", "escalation")
+                    else "default",
                     "Tags": "white_check_mark" if payload["kind"] == "recovery" else "warning",
                 },
             ) as response:

@@ -298,6 +298,10 @@ storage:
   critical_percent: 95
   warn_days_to_full: 14
   hysteresis_percent: 2
+  # Optional floors in GB (0 = off): past the percentage, a container alerts only
+  # while free space is also below the floor, so big media disks stay quiet.
+  warn_free_gb: 0
+  critical_free_gb: 0
   temperature_c: 55
   nvme_percentage_used: 90
   # Hourly fill samples, 35-day retention, seven-day regression; SMART every six

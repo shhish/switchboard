@@ -479,19 +479,16 @@ class DiskHealth:
                 threshold = settings["warn_percent"] - margin
                 fill_failing = (
                     row["used_percent"] > threshold if margin else row["used_percent"] >= threshold
-                )
+                ) and below_floor(row, settings["warn_free_gb"], recovering)
                 days = row["trend"]["days_to_full"]
                 failing = fill_failing or (
                     days is not None and days < settings["warn_days_to_full"]
                 )
-                status = (
-                    "down"
-                    if row["used_percent"] >= settings["critical_percent"]
-                    else "degraded"
-                    if failing
-                    else "up"
+                critical = row["used_percent"] >= settings["critical_percent"] and below_floor(
+                    row, settings["critical_free_gb"], recovering
                 )
-                detail = f"{row['used_percent']:.1f}% used"
+                status = "down" if critical else "degraded" if failing else "up"
+                detail = f"{row['used_percent']:.1f}% used, {free_text(row['free_bytes'])} free"
                 if days is not None:
                     detail += f"; estimated full in {days:.1f} days"
                 monitor.transition(
@@ -615,3 +612,18 @@ class DiskHealth:
                     await self.status(host, now=now)
             except Exception:  # noqa: BLE001 - one host's failure must not skip the rest
                 continue  # A failed read is never a fabricated recovery or a zero sample.
+
+
+def below_floor(row, floor_gb, recovering):
+    """True when a free-space floor is off (0) or free space is under it. A disk
+    that is already alerting must clear the floor by 10% before it recovers."""
+    if not floor_gb:
+        return True
+    floor = floor_gb * 1e9 * (1.1 if recovering else 1)
+    return row["free_bytes"] < floor
+
+
+def free_text(free_bytes):
+    if free_bytes >= 1e12:
+        return f"{free_bytes / 1e12:.1f} TB"
+    return f"{free_bytes / 1e9:.0f} GB"

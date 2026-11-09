@@ -134,7 +134,7 @@ Local Git reads stay under configured roots; merges and release tags pin the SHA
 - **Health checks** every minute, with alerts to your phone (ntfy) and email. Each check has its own timeout and threshold, so a slow USB-disk service doesn't page you at 2am. A service that refuses connections pages within minutes; one that only answers slowly (a busy Mac) has to stay stuck for 10 minutes first. Disk warnings repeat once a day, not every few hours. Silences end by themselves when the service recovers.
 - **A dead-man heartbeat** to a second machine, so you still hear about it when the whole server dies.
 - **Logs, status, CPU, memory, swap and disk** for launchd jobs, Docker containers and apps, with secrets stripped from log lines.
-- **Disk health:** shared APFS container space, hourly fill charts and seven-day forecasts. SMART warnings cover failing health, new bad sectors, NVMe wear and hot HDDs; sleeping drives stay asleep during SMART reads.
+- **Disk health:** shared APFS container space, hourly fill charts and seven-day forecasts. Optional free-space floors keep a 90%-full 14 TB disk with a terabyte left from paging you, and a warning that turns critical sends a fresh alert. SMART warnings cover failing health, new bad sectors, NVMe wear and hot HDDs; sleeping drives stay asleep during SMART reads.
 - **Restarts** of allowlisted services, which silence their own alerts and respect a cooldown.
 - **A Raspberry Pi as a second host** over SSH, with a key that can only run a fixed set of commands: status, logs, DNS / Tailscale / uptime checks, allowlisted restarts. No shell, no reboot.
 </details>

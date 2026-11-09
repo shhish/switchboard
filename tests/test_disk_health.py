@@ -257,6 +257,35 @@ async def test_alerts_hysteresis_silence_and_monitor_preservation(disks):
         core.monitor.validate_probe("smart:disk123")
 
 
+async def test_free_space_floors_keep_big_disks_quiet(disks):
+    core, health, _, _, _ = disks
+    core.config.monitor["enabled"] = True
+    core.config.storage.update(warn_free_gb=400, critical_free_gb=200)
+    queued = []
+    core.alerts.queue = lambda *args: queued.append(args) or True
+    result = await health.status(now=100000)
+    row = copy.deepcopy(next(c for c in result["containers"] if c["container_id"] == "disk10"))
+    name = "storage:" + row["label"]
+    row["trend"] = {**row["trend"], "days_to_full": None}
+
+    def status(percent, free_gb, now):
+        row.update(used_percent=percent, free_bytes=int(free_gb * 1e9))
+        health.evaluate({"containers": [row], "disks": []}, now)
+        return health.db.execute(
+            "SELECT status FROM monitor_state WHERE name=?", (name,)
+        ).fetchone()[0]
+
+    # 96% of a 14 TB disk leaves 560 GB: past both percentages, above both floors.
+    assert status(96, 560, 100010) == "up"
+    assert status(96, 300, 100020) == "degraded"  # Under the warn floor only.
+    assert status(99.9, 2, 100030) == "down"  # Under the import floor: page.
+    assert "2 GB free" in queued[-1][1]["body"]
+    assert status(96, 430, 100040) == "degraded"  # Recovery must clear the floor by 10%.
+    assert status(96, 450, 100050) == "up"
+    core.config.storage.update(warn_free_gb=0, critical_free_gb=0)
+    assert status(96, 560, 100060) == "down"  # Floors off: percentages alone decide.
+
+
 async def test_smart_increases_persist_through_standby_and_refresh(disks):
     core, health, calls, replies, _ = disks
     core.config.monitor["enabled"] = True
@@ -408,6 +437,8 @@ async def test_remote_fill_reuses_snapshot(disks, monkeypatch):
         {"hysteresis_percent": 90},
         {"temperature_c": True},
         {"command": "anything"},
+        {"warn_free_gb": -1},
+        {"warn_free_gb": 200, "critical_free_gb": 400},
     ],
 )
 def test_storage_config_rejects_invalid(config, value):
