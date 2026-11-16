@@ -319,6 +319,40 @@ async def test_actions_also_gate_merge(git_api, status, conclusion, passes):
     assert bool(writes(git_api)) == passes
 
 
+async def test_null_statuses_with_zero_count_mean_no_checks(git_api):
+    # Gitea returns "statuses": null for a commit that has never had a status.
+    git_api[1]["runs"] = []
+    git_api[1]["combined"] = {"state": "pending", "total_count": 0, "statuses": None}
+    result = await call(git_api, "pr_merge", repo="project", number=1, allow_no_checks=True)
+    assert result["status"] == "done" and len(writes(git_api)) == 1
+
+
+async def test_skipped_duplicate_run_does_not_block_a_green_sibling(git_api):
+    green = run(10, A)
+    green["event"] = "pull_request"
+    git_api[1]["runs"] = [green, run(12, A, conclusion="skipped")]
+    git_api[1]["combined"] = {
+        "state": "success",
+        "total_count": 2,
+        "statuses": [
+            {"context": "validate (pull_request)", "status": "success"},
+            {"context": "validate (push)", "status": "skipped"},
+        ],
+    }
+    assert (await call(git_api, "pr_merge", repo="project", number=1))["status"] == "done"
+
+
+async def test_only_skipped_checks_never_pass(git_api):
+    git_api[1]["runs"] = [run(10, A, conclusion="skipped")]
+    git_api[1]["combined"] = {
+        "state": "success",
+        "total_count": 1,
+        "statuses": [{"context": "validate (push)", "status": "skipped"}],
+    }
+    result = await call(git_api, "pr_merge", repo="project", number=1, allow_no_checks=True)
+    assert result["error"]["code"] == "git_ci_denied" and not writes(git_api)
+
+
 async def test_only_exact_sha_latest_workflow_attempts_count(git_api):
     git_api[1]["runs"] = [
         run(10, A),
@@ -499,6 +533,7 @@ async def test_malformed_ci_fails_closed(git_api, corruption):
         data["combined"]["total_count"] = 55
     elif corruption == "statuses":
         data["combined"]["statuses"] = None
+        data["combined"]["total_count"] = 1
     else:
         data["overrides"]["/repos/example/project/actions/runs"] = {"workflow_runs": "bad"}
     result = await call(git_api, "pr_merge", repo="project", number=1, allow_no_checks=True)

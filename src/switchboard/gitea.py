@@ -10,6 +10,10 @@ from .auth import read_private
 from .errors import CapabilityError
 
 MAX_BODY = 2 * 1024 * 1024
+# Gitea answers slowly when the Mac is loaded (PR creation computes mergeability);
+# writes get longer because a timed-out POST may still have taken effect.
+READ_TIMEOUT_S = 20
+WRITE_TIMEOUT_S = 45
 PAGE_SIZE = 50
 MAX_PAGES = 4
 SLUG = r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}"
@@ -75,7 +79,9 @@ class Gitea:
                     "Accept": "text/plain" if text else "application/json",
                 },
                 allow_redirects=False,
-                timeout=aiohttp.ClientTimeout(total=10),
+                timeout=aiohttp.ClientTimeout(
+                    total=WRITE_TIMEOUT_S if payload is not None else READ_TIMEOUT_S
+                ),
             ) as response:
                 if missing and response.status == 404:
                     return None

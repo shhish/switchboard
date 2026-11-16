@@ -127,6 +127,8 @@ class Git:
             invalid()
         statuses = data.get("statuses")
         count = data.get("total_count")
+        if statuses is None and count == 0:
+            statuses = []  # Gitea sends null, not [], for a commit with no statuses.
         if not isinstance(statuses, list) or type(count) is not int or count < 0:
             invalid()
         checks = []
@@ -152,11 +154,18 @@ class Git:
         states += [
             "success"
             if r["status"] == "completed" and r["conclusion"] == "success"
+            else "skipped"
+            if r["status"] == "completed" and r["conclusion"] == "skipped"
             else "pending"
             if r["status"] != "completed"
             else "failure"
             for r in current
         ]
+        # A skipped duplicate (e.g. the push run beside a pull_request run) says
+        # nothing about the commit. It cannot pass on its own, though: a commit
+        # whose only checks were skipped stays unknown.
+        all_skipped = bool(states) and all(s == "skipped" for s in states)
+        states = [s for s in states if s != "skipped"]
         # Both the combined status and each visible check must agree. Unknown or
         # incomplete data can never authorize a write or the no-checks exception.
         combined_state = data.get("state")
@@ -164,7 +173,7 @@ class Git:
             invalid()
         if count or combined_state not in {"pending", "success"}:
             states.append(combined_state)
-        if incomplete:
+        if incomplete or all_skipped:
             state = "unknown"
         elif not states:
             state = "no_checks"
