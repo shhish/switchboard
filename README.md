@@ -75,7 +75,7 @@ Every integration is optional. Turn on the ones you run. The [full tour](#the-fu
 | 🎮 **Play**<br/><sub>`console_*` · 6 tools</sub> | PS5 on, off, temperature and storage; list your games, launch or close one. |
 | 🛡️ **Home network**<br/><sub>`dns_*` · 3 tools</sub> | AdGuard Home on the Pi: what it answered and blocked, for which devices; pause blocking for a few minutes. |
 | 💡 **Run the house**<br/><sub>`home_*` `routines_*` · 15 tools</sub> | Lights, accessories and scenes in Apple Home, and routines that run on their own: motion, held-open, time and sunset triggers. Locks and garage doors need your approval. |
-| ✅ **Get things done**<br/><sub>`tasks_*` `reminders_*` `calendar_*` · 19 tools</sub> | Things 3, Apple Reminders and Calendar: read, add, edit, complete. |
+| ✅ **Get things done**<br/><sub>`tasks_*` `reminders_*` `calendar_*` · 20 tools</sub> | Things 3, Apple Reminders and Calendar: read, add, edit, complete; create Things projects while the Mac is locked. |
 | 📚 **Remember things**<br/><sub>`notes_*` `recipes_*` `books_*` `context_*` · 13 tools</sub> | Search your Obsidian notes and recipes, request books, and learn your names for things. |
 | 🧠 **Share what agents learn**<br/><sub>`memory_*` · 11 tools</sub> | Durable facts and preferences for Claude, Codex and ChatGPT; source history, scoped search and Markdown import/export, kept current with daily review findings and owner digests. |
 | 🕵️ **Keep an eye on the agents**<br/><sub>`audit_*` `alerts_*` `jobs_*` · 12 tools</sub> | A tamper-evident log of every call, "why did that happen?", and "tell me when". |
@@ -180,7 +180,7 @@ Local Git reads stay under configured roots; merges and release tags pin the SHA
 <details>
 <summary><b>Get things done</b> · <code>tasks_*</code> <code>reminders_*</code> <code>calendar_*</code></summary>
 
-- **Things 3:** Today, Inbox, Upcoming, Anytime and search; add, edit (title, notes, when, deadline, project, area, tags) and complete.
+- **Things 3:** Today, Inbox, Upcoming, Anytime and search; add, edit (title, notes, when, deadline, project, area, tags) and complete; create projects headlessly, including while locked.
 - **Reminders:** due and overdue, add (timed or all-day), edit and complete.
 - **Calendar:** upcoming events and conflicts; create and edit, one occurrence of a recurring event at a time. Events with other attendees stay in the Calendar app.
 - Writes only go to the lists and projects your policy allows.

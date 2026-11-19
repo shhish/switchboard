@@ -62,7 +62,14 @@ Things reads reuse the existing Anytime, Today, Upcoming and Someday views,
 200 rows each, filtered by the uniquely resolved project ID and deduplicated.
 Honor `truncated`: the helper has no project-filtered paging endpoint, so a
 capture beyond a full view's limit can require a narrower future backend query.
-Unset configuration or unavailable Things quietly leaves the captures alone.
+If the configured project is missing, manual imports and monitoring create it
+once through the signed helper with no area, then rediscover and continue.
+Creation checks the explicit task destination policy and is audited as system
+`tasks_add_project` work even during a manual import. A concurrent exact-name
+conflict triggers one rediscovery, without retrying creation. Ambiguous or
+truncated project discovery refuses selection. The new project ID must still
+be allowed for capture completion; a project-only allowlist may need the owner
+to add it. Unset configuration or unavailable Things quietly leaves captures alone.
 Never complete these to-dos yourself before their cards exist.
 
 Writes are non-idempotent. After a timeout or partial failure, inspect the board

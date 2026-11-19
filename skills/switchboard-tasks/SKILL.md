@@ -39,6 +39,16 @@ new destination, including a new project's parent area, before changing anything
 Read visibility is unrestricted by these write allowlists. Missing task policy
 refuses all writes.
 
+Use `tasks_add_project` with a 1–200 character nonblank title, optional notes
+(0–2000 characters; empty is allowed), and an optional discovered `area_id`.
+It uses the signed helper headlessly, including while the Mac is locked. The
+new project's destination is its area; omitting it creates an unfiled project.
+The same explicit task policy applies. No areas or tags are created. An open
+project with the exact same name anywhere returns `things_conflict` before
+creation; completed/canceled names may be reused. It returns `project` in the
+same record shape as `tasks_list_projects`. After a timeout inspect projects
+before retrying; never automatically retry a write.
+
 Use `tasks_complete` for one discovered to-do ID only when completion is intended.
 Never mass-complete. This tool refuses project IDs.
 
@@ -49,7 +59,7 @@ unchanged. Empty notes clear notes, `deadline: null` clears the deadline, and
 `tags: []` clears tags. Tags replace the current set; they never create new tags.
 The same supported `when` values apply as for add. Completed and canceled to-dos
 refuse all edits, including title and notes. Projects cannot be edited.
-There is no delete, project creation, or new-tag creation. `tasks_add` is not
+There is no delete or new-tag creation. `tasks_add` is not
 idempotent: a timeout can follow a successful creation or partial setup. Inspect
 Inbox/search before retrying; never automatically retry a write. Edits can also
 partially succeed before a failure; inspect the returned/current record before

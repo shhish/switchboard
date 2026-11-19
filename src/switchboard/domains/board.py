@@ -174,8 +174,8 @@ def register(registry):
         "Things capture into Slate Ideas. Use when importing phone ideas now. "
         "Requires board:write, tasks:write, configured project and Git/Things allowlists. "
         "Returns up to 20 sanitized untrusted imported titles, completed/skipped counts and "
-        "error codes. Saves mappings before completion; retries reuse cards. Unset or unavailable "
-        "Things is a quiet no-op; bounded reads may truncate.",
+        "error codes. Creates a missing project without an area; mappings precede completion. "
+        "Unset or unavailable Things is quiet; bounded reads may truncate.",
         {},
         {
             "imported": {
