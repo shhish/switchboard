@@ -864,3 +864,59 @@ async def test_self_restart_guards_use_components_and_custom_label(svc, monkeypa
 def test_self_restart_guard_matches_whole_label_components(monkeypatch, label):
     monkeypatch.delenv("SWITCHBOARD_LABEL", raising=False)
     assert hostcmd.valid_argv([hostcmd.LAUNCHCTL, "kickstart", "-k", f"gui/{os.getuid()}/{label}"])
+
+
+async def test_service_names_accept_hyphens_case_and_closest_not_found(svc):
+    core, calls, replies = svc
+    core.config.services = validate_services(
+        {
+            "media_api": {
+                "runtime": {"docker": "media-1"},
+                "logs": ["docker"],
+                "restart": True,
+            },
+            "plex_server": {
+                "runtime": {"docker": "plex-1"},
+                "logs": ["docker"],
+                "restart": True,
+            },
+        },
+        PROBES,
+    )
+    # Fake replies for status and docker logs
+    replies[(hostcmd.DOCKER, "logs", "--tail", "200", "media-1")] = (0, "line1\nline2\n", "")
+    replies[(hostcmd.DOCKER, "restart", "media-1")] = (0, "", "")
+
+    # 1. ops_service_status accepts hyphen, uppercase, spaces and returns canonical name
+    for variant in ("media-api", "Media-API", "media api", "MEDIA_API"):
+        res = await core.call("codex", "ops_service_status", {"service": variant})
+        assert res["status"] == "ok"
+        assert len(res["services"]) == 1
+        assert res["services"][0]["name"] == "media_api"
+
+    # 2. ops_service_logs accepts hyphen, uppercase, spaces and returns canonical name
+    for variant in ("media-api", "Media-API", "media api"):
+        res = await core.call("codex", "ops_service_logs", {"service": variant})
+        assert res["status"] == "ok"
+        assert res["service"] == "media_api"
+
+    # 3. ops_service_restart accepts hyphen, uppercase, spaces and returns canonical name
+    core.services.poll_timeout = 0
+    res = await core.call(
+        "codex", "ops_service_restart", {"service": "media-api", "reason": "testing"}
+    )
+    assert res["service"] == "media_api"
+    assert "job_id" in res
+
+    # 4. Unknown service returns not_found with closest configured names for all three tools
+    for tool, args in [
+        ("ops_service_status", {"service": "media_apii"}),
+        ("ops_service_logs", {"service": "media_apii"}),
+        ("ops_service_restart", {"service": "media_apii", "reason": "test"}),
+    ]:
+        res = await core.call("codex", tool, args)
+        assert res["outcome"] == "not_found"
+        msg = res["error"]["message"]
+        assert "Unknown configured service 'media_apii'" in msg
+        assert "closest configured services:" in msg
+        assert "media_api" in msg

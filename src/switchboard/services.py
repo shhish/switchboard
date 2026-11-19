@@ -1,6 +1,7 @@
 """Configured service diagnostics and bounded, automatically silenced restarts."""
 
 import asyncio
+import difflib
 import glob
 import json
 import math
@@ -158,6 +159,12 @@ def disks():
     return rows
 
 
+def normalize_service_name(name):
+    if not isinstance(name, str):
+        return ""
+    return re.sub(r"[\s-]+", "_", name.strip().lower())
+
+
 class Services:
     def __init__(
         self, core, runner=None, *, poll_interval=5, poll_timeout=120, sleep=asyncio.sleep
@@ -168,16 +175,40 @@ class Services:
         self.poll_timeout = poll_timeout
         self.sleep = sleep
 
-    def configured(self, name=None):
-        # Revalidate at the boundary as well as config load (including in-process configs).
+    def resolve_service(self, name):
         services = validate_services(
             self.core.config.services, self.core.config.probes, self.core.config.remote_hosts
         )
+        if name in services:
+            return name, services[name]
+        norm = normalize_service_name(name)
+        if norm in services:
+            return norm, services[norm]
+        for k, v in services.items():
+            if normalize_service_name(k) == norm:
+                return k, v
+        candidates = list(services.keys())
+        matches = (
+            difflib.get_close_matches(norm, candidates, n=5)
+            or difflib.get_close_matches(name, candidates, n=5)
+            or difflib.get_close_matches(norm, candidates, n=5, cutoff=0.1)
+        )
+        if matches:
+            msg = (
+                f"Unknown configured service '{name}'; "
+                f"closest configured services: {', '.join(matches)}"
+            )
+        else:
+            msg = f"Unknown configured service '{name}'"
+        raise CapabilityError("not_found", msg)
+
+    def configured(self, name=None):
         if name is not None:
-            if name not in services:
-                raise CapabilityError("not_found", "Unknown configured service")
-            return services[name]
-        return services
+            _, settings = self.resolve_service(name)
+            return settings
+        return validate_services(
+            self.core.config.services, self.core.config.probes, self.core.config.remote_hosts
+        )
 
     async def command(self, argv):
         try:
@@ -325,7 +356,11 @@ class Services:
         return row
 
     async def status(self, name=None):
-        settings = {name: self.configured(name)} if name is not None else self.configured()
+        if name is not None:
+            canonical_name, setting = self.resolve_service(name)
+            settings = {canonical_name: setting}
+        else:
+            settings = self.configured()
         if not settings:
             return {"status": "ok", "services": []}
         hosts = sorted(
@@ -370,8 +405,8 @@ class Services:
         return {"status": "ok", "services": rows}
 
     async def logs(self, args):
-        name = args["service"]
-        settings = self.configured(name)
+        canonical_name, settings = self.resolve_service(args["service"])
+        name = canonical_name
         index = args.get("source", 0)
         sources = ["remote"] if settings["logs"] == "remote" else settings["logs"]
         if index >= len(sources):
@@ -510,8 +545,8 @@ class Services:
         return result
 
     async def restart(self, client, args):
-        name = args["service"]
-        settings = self.configured(name)
+        canonical_name, settings = self.resolve_service(args["service"])
+        name = canonical_name
         kind, target = next(iter(settings["runtime"].items()))
         if (
             not settings["restart"]

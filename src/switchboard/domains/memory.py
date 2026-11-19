@@ -7,6 +7,7 @@ from .common import array, output
 BOOL = {"type": "boolean"}
 ID = string(40)
 DOMAIN = {"type": "string", "enum": list(DOMAIN_SCOPES)}
+BRIEF_DOMAIN = {**string(40), "pattern": r"^[a-z0-9][a-z0-9_-]{0,39}$"}
 KIND = {"type": "string", "enum": KINDS}
 LINK = obj(
     {"to": ID, "rel": {"type": "string", "enum": ["supports", "contradicts", "relates", "about"]}},
@@ -122,10 +123,11 @@ def register(registry):
         "memory_brief",
         "Shared memory brief",
         "Shared domain facts and owner preferences",
-        "starting work in a domain; at most 6000 characters",
-        obj({"domain": DOMAIN}),
+        "starting work in a domain (known: ops, media, home, tasks, calendar, books, console, dns, "
+        "storage, git, routines, general) or project slug; at most 6000 characters",
+        obj({"domain": BRIEF_DOMAIN}),
         brief,
-        output(brief=string(6000)),
+        output(brief=string(6000), known_domains=string(300)),
     )
 
     async def search(core, client, args):

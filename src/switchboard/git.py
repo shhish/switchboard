@@ -2,6 +2,7 @@
 
 import asyncio
 import re
+import time
 from urllib.parse import quote
 
 from .domains.common import sanitize_text
@@ -51,9 +52,14 @@ async def bounded_map(function, rows):
 
 
 class Git:
-    def __init__(self, core):
+    sleep = staticmethod(asyncio.sleep)
+    clock = staticmethod(time.monotonic)
+
+    def __init__(self, core, *, sleep=None, clock=None):
         self.core = core
         self.api = core.backends.gitea
+        self.sleep = sleep or getattr(core, "git_sleep", None) or self.sleep
+        self.clock = clock or getattr(core, "git_clock", None) or self.clock
 
     def repo(self, value):
         owner = self.core.config.backends["gitea"]["owner"]
@@ -391,6 +397,55 @@ class Git:
             "truncated": len(raw) > 1600
             or len(matches) > limit
             or any(len(line) > 500 for line in tail),
+        }
+
+    async def ci_wait(self, args):
+        from .domains.common import require_one
+
+        require_one(args, "number", "ref")
+        repo = self.repo(args["repo"])
+        timeout_s = args.get("timeout_s", 300)
+        start_time = self.clock()
+        deadline = start_time + timeout_s
+
+        terminal_states = {"success", "failure", "no_checks"}
+
+        async def resolve_head():
+            if "number" in args:
+                path = self.path(repo) + f"/pulls/{args['number']}"
+                data = mapping(await self.api.request(path))
+                row = self.pr_row(repo, data)
+                return row["head_sha"]
+            ref = args["ref"]
+            if SHA.fullmatch(ref):
+                return ref.lower()
+            return await self.branch_sha(repo, ref)
+
+        commit = await resolve_head()
+        ci_info = await self.ci(repo, commit)
+
+        while ci_info["state"] not in terminal_states:
+            now = self.clock()
+            remaining = deadline - now
+            if remaining <= 0:
+                break
+            await self.sleep(min(15, remaining))
+            commit = await resolve_head()
+            ci_info = await self.ci(repo, commit)
+
+        waited_s = int(round(self.clock() - start_time))
+        timed_out = ci_info["state"] not in terminal_states
+
+        return {
+            "status": "ok",
+            "repo": repo,
+            "sha": ci_info["sha"],
+            "state": ci_info["state"],
+            "checks": ci_info["checks"],
+            "runs": ci_info["runs"],
+            "truncated": ci_info["truncated"],
+            "waited_s": waited_s,
+            "timed_out": timed_out,
         }
 
     async def local_status(self, args):

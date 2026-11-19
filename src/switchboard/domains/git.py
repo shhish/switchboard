@@ -6,7 +6,7 @@ from ..errors import CapabilityError
 from ..git import TAG, Git
 from ..memory_subjects import MemorySubject
 from ..schema import obj, string
-from .common import array, output
+from .common import array, output, require_one
 
 S = {"type": "string"}
 B = {"type": "boolean"}
@@ -107,14 +107,18 @@ def register(registry):
         write=False,
         hashes=(),
         max_chars=None,
+        timeout=90,
     ):
         async def handler(core, client, args):
             # The schema pattern is matched with re.search, where "$" also accepts a
             # trailing newline; branch and tag names must match exactly.
-            for key in ("head", "base", "branch", "target"):
+            for key in ("head", "base", "branch", "target", "ref"):
                 if key in args and not REF_EXACT.fullmatch(args[key]):
                     raise CapabilityError("invalid_arguments", f"Invalid {key}")
-            return await getattr(Git(core), name.removeprefix("git_"))(args)
+            if name == "git_ci_wait":
+                require_one(args, "number", "ref")
+            git = getattr(core, "git", None) or Git(core)
+            return await getattr(git, name.removeprefix("git_"))(args)
 
         registry.declare(
             name,
@@ -124,7 +128,7 @@ def register(registry):
             scope="git:write" if write else "git:read",
             tier="write" if write else "read",
             idempotent=not write,
-            timeout_s=90,
+            timeout_s=timeout,
             max_result_chars=max_chars,
             service="local_git" if name == "git_local_status" else "gitea",
             output_schema=result,
@@ -238,6 +242,32 @@ def register(registry):
         ),
         required=("repo", "job_id"),
         max_chars=240_000,  # 400 lines x 500 chars plus JSON framing.
+    )
+    declare(
+        "git_ci_wait",
+        "Wait for CI completion",
+        "Wait for Gitea Actions CI completion on a PR or commit ref. "
+        "Use when waiting for CI checks to complete before merging or tagging. Requires git:read. "
+        "Returns terminal CI state (success, failure, no_checks) or timed-out status with "
+        "waited duration and checks.",
+        {
+            "repo": REPO,
+            "number": ID,
+            "ref": REF,
+            "timeout_s": {"type": "integer", "minimum": 30, "maximum": 600},
+        },
+        output(
+            repo=S,
+            sha=S,
+            state=STATE,
+            checks={**array(CHECK), "maxItems": 50},
+            runs={**array(RUN), "maxItems": 200},
+            truncated=B,
+            waited_s=N,
+            timed_out=B,
+        ),
+        required=("repo",),
+        timeout=660,
     )
     declare(
         "git_local_status",
