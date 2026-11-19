@@ -29,6 +29,7 @@ from .watches import Watches
 
 class Core:
     def __init__(self, config, registry=None, notifier=None):
+        from .board import Board
         from .domains import build_registry
 
         self.config = config
@@ -45,10 +46,13 @@ class Core:
         self.approvals = Approvals(self.storage, config.approval_ttl_s)
         self.jobs = Jobs(self.storage)
         self.backends = Backends(config)
+        self.board = Board(self)
         self.probes = HealthProbes(config)
         self.alerts = AlertDelivery(config, self.storage)
         self.watches = Watches(self)
-        self.monitor = Monitor(config, self.storage, self.probes, self.alerts, self.watches)
+        self.monitor = Monitor(
+            config, self.storage, self.probes, self.alerts, self.watches, self.board
+        )
         self.services = Services(self)
         self.disk_health = DiskHealth(self)
         self.monitor.disk_health = self.disk_health

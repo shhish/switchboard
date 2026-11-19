@@ -1,4 +1,4 @@
-"""Private, bounded Gitea transport. Only the Git domain constructs API paths."""
+"""Private, bounded Gitea transport for typed Git and board workflows."""
 
 import json
 import re
@@ -42,6 +42,28 @@ def validate_settings(settings):
         settings["token_file"] = str(path)
     if settings.get("enabled") and (not token or not owner):
         raise ValueError("Enabled Gitea requires owner and token_file")
+    project = settings.setdefault("board_project", "Slate")
+    if (
+        not isinstance(project, str)
+        or not project.strip()
+        or len(project) > 200
+        or any(ord(c) < 32 or ord(c) == 127 for c in project)
+    ):
+        raise ValueError("Invalid Gitea board_project")
+    general = settings.setdefault("board_general_repo", "workspace")
+    if not isinstance(general, str) or not re.fullmatch(SLUG, general):
+        raise ValueError("Invalid Gitea board_general_repo")
+    things_project = settings.setdefault("board_things_project", "")
+    if (
+        not isinstance(things_project, str)
+        or len(things_project) > 200
+        or (things_project and not things_project.strip())
+        or any(ord(c) < 32 or ord(c) == 127 for c in things_project)
+    ):
+        raise ValueError("Invalid Gitea board_things_project")
+    interval = settings.setdefault("board_things_interval_s", 300)
+    if type(interval) is not int or not 120 <= interval <= 3600:
+        raise ValueError("Invalid Gitea board_things_interval_s")
     return settings
 
 
@@ -56,7 +78,14 @@ class Gitea:
         except (ValueError, KeyError, TypeError):
             raise CapabilityError("backend_invalid", "gitea: invalid configuration") from None
 
-    async def request(self, path, *, params=None, payload=None, missing=False, text=False):
+    async def request(
+        self, path, *, method=None, params=None, payload=None, missing=False, text=False
+    ):
+        # Preserve existing payload-implies-POST callers; explicit POST also supports
+        # endpoints without a JSON body (project attachment, for example).
+        method = method if method is not None else "POST" if payload is not None else "GET"
+        if method not in ("GET", "POST", "PATCH") or (method == "GET" and payload is not None):
+            raise CapabilityError("invalid_arguments", "Unsupported Gitea request method")
         settings = self.settings()
         try:
             token = read_private(Path(settings["token_file"]), max_bytes=4096)
@@ -70,7 +99,7 @@ class Gitea:
             raise RuntimeError("Backend session not started")
         try:
             async with self.backends.session.request(
-                "POST" if payload is not None else "GET",
+                method,
                 settings["url"] + path,
                 params=params,
                 json=payload,
@@ -80,7 +109,7 @@ class Gitea:
                 },
                 allow_redirects=False,
                 timeout=aiohttp.ClientTimeout(
-                    total=WRITE_TIMEOUT_S if payload is not None else READ_TIMEOUT_S
+                    total=READ_TIMEOUT_S if method == "GET" else WRITE_TIMEOUT_S
                 ),
             ) as response:
                 if missing and response.status == 404:

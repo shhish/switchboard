@@ -18,6 +18,14 @@ class Storage:
         self.db.row_factory = sqlite3.Row
         self.db.executescript("""
             PRAGMA journal_mode=WAL;
+            CREATE TABLE IF NOT EXISTS board_cards (
+                issue_id INTEGER PRIMARY KEY, card TEXT NOT NULL,
+                claimed_by TEXT, last_actor TEXT, last_note TEXT, last_at TEXT
+            );
+            -- Several Things captures can resolve to the same duplicate-guarded card.
+            CREATE TABLE IF NOT EXISTS board_things_imports (
+                things_id TEXT PRIMARY KEY, card TEXT NOT NULL, imported_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS storage_samples (
                 label TEXT NOT NULL, bucket INTEGER NOT NULL, sampled_at REAL NOT NULL,
                 used_bytes INTEGER NOT NULL, total_bytes INTEGER NOT NULL,

@@ -37,6 +37,10 @@ clients:
 # Calendar/Reminders: Empty means no writes are allowed. Discover stable IDs with the list tools.
 # These lists do not restrict read visibility. Default IDs apply only when the
 # corresponding list is empty; a populated list takes precedence.
+# Slate needs board:read for reads and board:write for writes. The owner
+# chooses which clients receive these scopes; board writes also use git.write_repos.
+# Things capture also needs tasks:write on manual calls and an allowed Things
+# project/area for completion. Automatic capture uses the same resource allowlists.
 allowlists:
   git:
     # Explicit owner/name or owner/* entries; empty denies all Gitea writes.

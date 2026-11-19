@@ -50,6 +50,10 @@ Use `ops_host_checks {"host": "remotehost"}` for DNS, Tailscale, Kuma and pendin
 private IPv4 addresses and absolute key/known-hosts paths; both files must be
 owned regular 0600 files. No automatic pairing or host-key acceptance is supported.
 
+For shared project work and ideas, use `board_list` / `board_card` and follow
+[switchboard-board](../switchboard-board/SKILL.md) for capture, claiming, progress
+comments, exact owner asks and closing issues from PRs.
+
 ## Storage
 
 Use `storage_status` (`ops:read`, including cortex) for physical disks, mounted
