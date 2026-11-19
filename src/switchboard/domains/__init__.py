@@ -5,6 +5,7 @@ from . import (
     alerts,
     approvals,
     audit,
+    board,
     books,
     calendar,
     console,
@@ -46,5 +47,6 @@ def build_registry():
     routines.register(registry)
     audit.register(registry)
     git.register(registry)
+    board.register(registry)
     memory.register(registry)
     return registry

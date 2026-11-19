@@ -5,6 +5,20 @@ approval/job machinery and three adapters. Phase 3 media/Home writes are impleme
 and fake-backend tested. No real client registration, launchd installation,
 secret provisioning, tunnel switch or backend mutation is part of this build.
 
+## Slate board
+
+- [x] Shared Gitea user-project board: bounded grouped reads, card discussions,
+  duplicate-guarded adds, claims, owner asks and Done/issue-state reconciliation.
+  Board scopes and Git repo allowlists gate writes; local SQLite keeps actor notes.
+  Five-minute discovery cache, workflow skill and bounded Claude session context;
+  fake-Gitea coverage, with no live writes or private policy changes.
+
+- [x] Optional Siri/Things project capture into Ideas: 20-item batches, durable
+  receipts before completion, native-client reads and policy-checked completions.
+  Monitor interval gating survives restarts; system audit and on-demand
+  `board_import_things` cover retries. Existing view reads are bounded at 200 rows
+  each; a future project-filtered backend endpoint would avoid view-limit starvation.
+
 ## Phase 3: everyday writes
 
 - [x] `media_request_movie` / `media_request_show` via Overseerr; preflight details,

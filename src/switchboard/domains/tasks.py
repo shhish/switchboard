@@ -31,10 +31,12 @@ TODO = obj(
 AREA = obj({"id": string(1000), "name": {"type": "string", "maxLength": 2000}}, ("id", "name"))
 
 
-def resource(value, schema=TODO):
+def resource(value, schema=TODO, *, sanitize=True):
     if not isinstance(value, dict):
         raise CapabilityError("backend_invalid", "things: invalid resource")
-    result = sanitize_external({key: value[key] for key in schema["properties"] if key in value})
+    result = {key: value[key] for key in schema["properties"] if key in value}
+    if sanitize:
+        result = sanitize_external(result)
     try:
         validate(result, schema)
     except CapabilityError:
@@ -42,11 +44,11 @@ def resource(value, schema=TODO):
     return result
 
 
-def rows(data, key, limit, schema=TODO):
+def rows(data, key, limit, schema=TODO, *, sanitize=True):
     values = data.get(key)
     if not isinstance(values, list) or len(values) > limit:
         raise CapabilityError("backend_invalid", "things: invalid resource list")
-    return [resource(row, schema) for row in values]
+    return [resource(row, schema, sanitize=sanitize) for row in values]
 
 
 def validate_add(args, *, update=False):

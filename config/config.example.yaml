@@ -198,6 +198,10 @@ backends:
     enabled: false
     url: http://127.0.0.1:3003/api/v1
     owner: example-owner
+    board_project: Slate
+    board_general_repo: workspace
+    board_things_project: ""  # Opt in to Siri captures by naming a Things project, e.g. Slate.
+    board_things_interval_s: 300  # 120-3600; evaluated while monitoring is enabled.
     token_file: ~/.config/gitea/token
     # Owner-provisioned regular 0600 file; never put the token value here.
   health:

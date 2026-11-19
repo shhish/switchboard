@@ -23,6 +23,10 @@ DEFAULT_BACKENDS = {
         "enabled": False,
         "token_file": None,
         "owner": "",
+        "board_project": "Slate",
+        "board_general_repo": "workspace",
+        "board_things_project": "",
+        "board_things_interval_s": 300,
     },
     "health": {"url": "http://127.0.0.1:8050"},
     "media": {"url": "http://127.0.0.1:8010"},
@@ -423,7 +427,16 @@ class Config:
             raise ValueError("Invalid backend names")
         for name, settings in backends.items():
             fields = (
-                {"url", "enabled", "token_file", "owner"}
+                {
+                    "url",
+                    "enabled",
+                    "token_file",
+                    "owner",
+                    "board_project",
+                    "board_general_repo",
+                    "board_things_project",
+                    "board_things_interval_s",
+                }
                 if name == "gitea"
                 else {"enabled", "python", "script", "state_dir", "timeout_s"}
                 if name == "media_compress"
