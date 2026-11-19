@@ -278,7 +278,7 @@ public actor NativeBackend: EventKitBackend {
       }
       result = ["reminder": Self.reminderRow(reminder).json]
     case .thingsStatus, .thingsAccess, .thingsLists, .thingsSearch,
-      .thingsProjects, .thingsAreas, .thingsAdd, .thingsComplete, .thingsUpdate:
+      .thingsProjects, .thingsAreas, .thingsAdd, .thingsAddProject, .thingsComplete, .thingsUpdate:
       throw BridgeError("invalid_arguments")
     }
     result["timezone"] = .string(TimeZone.current.identifier)

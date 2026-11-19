@@ -88,7 +88,10 @@ class EventKit:
                 if not isinstance(error, dict):
                     raise ValueError
                 code = error.get("code")
-                if not isinstance(code, str) or code not in (ERRORS.keys() | {"unsupported"}):
+                extra_codes = (
+                    {"unsupported", "conflict"} if self.backend == "things" else {"unsupported"}
+                )
+                if not isinstance(code, str) or code not in (ERRORS.keys() | extra_codes):
                     raise ValueError
                 message = ERRORS.get(code, "Native helper operation unsupported")
                 if method == "events.update" and code == "resource_denied":
@@ -101,6 +104,7 @@ class EventKit:
                             "Things Automation unavailable; run sb things request-access as owner"
                         ),
                         "unsupported": ("Native checklist/Evening unsupported; nothing created"),
+                        "conflict": "An open Things project with that exact name already exists",
                     }.get(code, "Things operation failed; inspect reads before retrying writes")
                 if self.backend == "notes":
                     message = {

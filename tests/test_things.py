@@ -145,7 +145,11 @@ async def test_discovery_search_and_status_do_not_prompt(core, things_helper):
 
 async def test_scope_and_missing_policy_fail_closed(core, config, things_helper):
     _, calls, _, writes, _ = things_helper
-    for name, args in [("tasks_add", {"title": "Milk"}), ("tasks_complete", {"todo_id": "t1"})]:
+    for name, args in [
+        ("tasks_add", {"title": "Milk"}),
+        ("tasks_add_project", {"title": "Project"}),
+        ("tasks_complete", {"todo_id": "t1"}),
+    ]:
         assert (await core.call("dot", name, args))["error"]["code"] == "resource_denied"
         assert (await core.call("agy", name, args))["error"]["code"] == "scope_denied"
     assert calls == writes == []
@@ -576,3 +580,95 @@ def test_fixed_applescript_compiles_only(tmp_path):
         check=True,
         capture_output=True,
     )
+
+
+@pytest.mark.parametrize("area", [None, "a1"])
+async def test_add_project_success_sanitizes_and_forwards_policy(core, config, things_helper, area):
+    state, calls, _, _, _ = things_helper
+    allow(config, allow_all=False, areas=["a1"])
+    state["things.add_project"] = {
+        "project": {
+            **TODO,
+            "id": "new",
+            "name": "Untrusted\n\x00project",
+            "project_id": None,
+            "area_id": area,
+        },
+        **META,
+    }
+    args = {"title": '雪 "quote" \\ newline\n', "notes": ""}
+    if area:
+        args["area_id"] = area
+    result = await core.call("dot", "tasks_add_project", args)
+    assert result["project"]["id"] == "new"
+    assert result["project"]["name"] == "Untrusted project"
+    assert "NEVER_RETURN" not in json.dumps(result)
+    assert calls[-1] == {
+        "method": "things.add_project",
+        "args": {**args, **core.policy.task_rules()},
+    }
+    cap = core.registry.capabilities["tasks_add_project"]
+    assert cap.scope == "tasks:write" and cap.tier == "write" and not cap.idempotent
+    assert cap.service == "things" and cap.timeout_s == 15 and len(cap.description) <= 400
+    assert cap.input_schema["additionalProperties"] is False
+
+
+@pytest.mark.parametrize("code", ["conflict", "resource_denied", "not_found", "backend_error"])
+async def test_add_project_native_errors_are_clean_and_never_retried(
+    core, config, things_helper, code
+):
+    state, calls, _, _, _ = things_helper
+    allow(config)
+    state["things.add_project"] = {"ok": False, "error": {"code": code, "message": "PRIVATE"}}
+    result = await core.call("dot", "tasks_add_project", {"title": "Project"})
+    assert result["error"]["code"] == "things_" + code
+    assert len(calls) == 1 and "PRIVATE" not in json.dumps(result)
+    if code == "conflict":
+        assert "already exists" in result["error"]["message"]
+
+
+@pytest.mark.parametrize("rules", [{"allow_all": False}, {"deny_areas": ["a1"]}])
+async def test_add_project_destination_denied_before_helper(core, config, things_helper, rules):
+    allow(config, **rules)
+    result = await core.call("dot", "tasks_add_project", {"title": "Project", "area_id": "a1"})
+    assert result["error"]["code"] == "resource_denied"
+    assert not things_helper[1]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {},
+        {"title": ""},
+        {"title": " "},
+        {"title": "x" * 201},
+        {"title": True},
+        {"title": "x", "notes": "x" * 2001},
+        {"title": "x", "notes": None},
+        {"title": "x", "area_id": " "},
+        {"title": "x", "area_id": None},
+        {"title": "x", "project_id": "p1"},
+        {"title": "x", "tags": []},
+        {"title": "x", "allow_all": True},
+    ],
+)
+async def test_add_project_bad_args_do_not_reach_helper(core, things_helper, args):
+    result = await core.call("dot", "tasks_add_project", args)
+    assert result["error"]["code"] == "invalid_arguments" and not things_helper[1]
+
+
+def test_fixed_project_script_guards_before_make():
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "native/SwitchboardEventKit/Sources/EventKitBridge/Resources/Things.applescript"
+    ).read_text()
+    handler = source.split("on addProject(", 1)[1].split("end addProject", 1)[0]
+    first_make = handler.index("make new project")
+    assert handler.index('my checkDestination("", areaID') < first_make
+    assert handler.index("exists area id areaID") < first_make
+    assert handler.index("status of p is open") < handler.index("number -27005") < first_make
+    assert "considering case, diacriticals, hyphens, punctuation, white space" in handler
+    assert "make new area" not in handler and "make new tag" not in handler
+    assert "area:area id areaID" in handler and "my todoRecord(p)" in handler

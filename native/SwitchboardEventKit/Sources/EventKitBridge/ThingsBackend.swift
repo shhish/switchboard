@@ -34,7 +34,7 @@ public enum ThingsDescriptors {
     guard
       [
         "listTodos", "searchTodos", "listProjects", "listAreas", "addTodo", "completeTodo",
-        "updateTodo",
+        "updateTodo", "addProject",
       ].contains(
         handler)
     else {
@@ -132,6 +132,7 @@ public final class AppleScriptThingsRunner: ThingsScriptRunner {
         [
           -1743: "unauthorized", -1744: "unauthorized", -27001: "resource_denied",
           -27002: "not_found", -27003: "invalid_arguments", -27004: "unsupported",
+          -27005: "conflict",
         ][code ?? 0] ?? "backend_error")
     }
     guard case .object(let result) = try ThingsDescriptors.json(response) else {
@@ -201,6 +202,12 @@ public final class ThingsBackend {
         ["title", "notes", "when", "deadline", "project_id", "area_id"].map {
           request.args[$0] ?? .string("")
         } + [request.args["tags"] ?? .array([]), request.args["checklist"] ?? .array([])] + policy
+    case .thingsAddProject:
+      handler = "addProject"
+      parameters =
+        ["title", "notes", "area_id"].map {
+          request.args[$0] ?? .string("")
+        } + policy
     case .thingsComplete:
       handler = "completeTodo"
       parameters = [request.args["todo_id"]!] + policy

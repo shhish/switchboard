@@ -435,6 +435,43 @@ class Board:
                     result_bytes=len(json.dumps(result)) if result is not None else None,
                 )
 
+    async def _create_things_project(self, name):
+        """Owner-configured capture bootstrap, audited even on a manual import."""
+        from .domains.tasks import resource
+
+        started = time.monotonic()
+        decision, outcome, error_code = "allowed", "cancelled", "cancelled"
+        try:
+            rules = self.core.policy.task_rules()
+            self.core.policy.require_task(rules)
+            data = await self.core.backends.things.call(
+                "things.add_project", {"title": name, **rules}
+            )
+            project = resource(data.get("project"), sanitize=False)
+            if project["name"] != name or project["status"] != "open" or project["area_id"]:
+                raise CapabilityError("backend_invalid", "Things project creation unconfirmed")
+            outcome, error_code = "ok", None
+        except CapabilityError as exc:
+            error_code, outcome = exc.code, "error"
+            if exc.code in {"resource_denied", "policy_invalid", "things_resource_denied"}:
+                decision = "denied"
+            raise
+        except Exception:
+            error_code, outcome = "internal_error", "error"
+            raise
+        finally:
+            self.core.audit.append(
+                client=None,
+                capability="tasks_add_project",
+                tier="write",
+                args={"title": name},
+                decision=decision,
+                outcome=outcome,
+                error_code=error_code,
+                duration=time.monotonic() - started,
+                ctx=Execution.new("system"),
+            )
+
     async def _import_things(self):
         from .domains.tasks import resource
 
@@ -452,9 +489,19 @@ class Board:
         self.core.policy.require_git_repo(repo)
         rules = self.core.policy.task_rules()
         try:
-            data = await self.core.backends.things.project_todos(
-                self.api.settings()["board_things_project"]
-            )
+            name = self.api.settings()["board_things_project"]
+            try:
+                data = await self.core.backends.things.project_todos(name)
+            except CapabilityError as exc:
+                if exc.code != "things_project_missing":
+                    raise
+                try:
+                    await self._create_things_project(name)
+                except CapabilityError as create_error:
+                    # Another writer may have won the race; discover once again.
+                    if create_error.code != "things_conflict":
+                        raise
+                data = await self.core.backends.things.project_todos(name)
         except CapabilityError as exc:
             if exc.code not in {
                 "backend_disabled",

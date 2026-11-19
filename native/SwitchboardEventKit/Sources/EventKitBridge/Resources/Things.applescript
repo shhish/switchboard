@@ -192,6 +192,34 @@ on addTodo(taskTitle, taskNotes, whenValue, deadlineValue, projectID, areaID, ta
   end timeout
 end addTodo
 
+on addProject(projectTitle, projectNotes, areaID, allowAll, allowedProjects, allowedAreas, denyProjects, denyAreas)
+  with timeout of 10 seconds
+    -- A new project's destination is its area; it has no project ID yet.
+    my checkDestination("", areaID, allowAll, allowedProjects, allowedAreas, denyProjects, denyAreas)
+    tell application "/Applications/Things3.app"
+      if areaID is not "" then
+        if not (exists area id areaID) then error "Missing" number -27002
+      end if
+      -- Scan all projects, not the bounded discovery list. Match exact names
+      -- across all areas, including unfiled projects; closed names may be reused.
+      set ps to projects
+      repeat with p in ps
+        if status of p is open then
+          considering case, diacriticals, hyphens, punctuation, white space
+            if (name of p as text) is projectTitle then error "Exists" number -27005
+          end considering
+        end if
+      end repeat
+      if areaID is "" then
+        set p to make new project with properties {name:projectTitle, notes:projectNotes}
+      else
+        set p to make new project with properties {name:projectTitle, notes:projectNotes, area:area id areaID}
+      end if
+    end tell
+    return {|project|:my todoRecord(p)}
+  end timeout
+end addProject
+
 on completeTodo(todoID, allowAll, projects, areas, denyProjects, denyAreas)
   with timeout of 10 seconds
     tell application "/Applications/Things3.app"

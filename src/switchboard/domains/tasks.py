@@ -224,6 +224,40 @@ def register(registry):
         return {"status": "ok", "todo": resource(data.get("todo")), **metadata(data)}
 
     @registry.declare(
+        "tasks_add_project",
+        "Add Things project",
+        "Things project creation. Use when creating a project headlessly, including while "
+        "locked. Requires tasks:write, explicit task policy and an allowed area or no area. "
+        "Returns the created project; an exact-name open duplicate returns things_conflict. "
+        "Never creates areas or tags.",
+        obj(
+            {
+                "title": string(200),
+                "notes": {"type": "string", "maxLength": 2000},
+                "area_id": string(1000),
+            },
+            ("title",),
+        ),
+        scope="tasks:write",
+        tier="write",
+        timeout_s=15,
+        idempotent=False,
+        service="things",
+        output_schema=output(project=TODO, **TIME),
+        memory=MemorySubject(
+            "tasks", arg_keys=("title",), result_paths=("project.name", "project.id")
+        ),
+    )
+    async def add_project(core, client, args):
+        for key in ("title", "area_id"):
+            if key in args and not args[key].strip():
+                raise CapabilityError("invalid_arguments", "Things text must not be blank")
+        rules = core.policy.task_rules()
+        core.policy.require_task(rules, area_id=args.get("area_id"))
+        data = await core.backends.things.call("things.add_project", {**args, **rules})
+        return {"status": "ok", "project": resource(data.get("project")), **metadata(data)}
+
+    @registry.declare(
         "tasks_complete",
         "Complete Things to-do",
         "Things to-do completion. Use when completing one Things to-do. Requires a discovered "

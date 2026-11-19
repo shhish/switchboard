@@ -262,3 +262,54 @@ func thingsWhenValuesAreTyped(_ value: String) throws {
     #expect(throws: BridgeError.self) { try thingsRequest("things.update", args) }
   }
 }
+
+@Test @MainActor func thingsAddProjectPassesOnlyTypedArguments() throws {
+  let runner = RecordingScript()
+  let backend = ThingsBackend(runner: runner)
+  let title = "雪 \" & do shell script \"never\" --\n\\"
+  for notes in ["", "a\nb", String(repeating: "x", count: 2000)] {
+    let args = taskPolicy.merging([
+      "title": .string(title), "notes": .string(notes), "area_id": .string("a1"),
+    ]) { _, new in new }
+    _ = try backend.dispatch(thingsRequest("things.add_project", args))
+    let call = try #require(runner.calls.last)
+    #expect(call.0 == "addProject")
+    #expect(
+      call.1 == [
+        .string(title), .string(notes), .string("a1"),
+        .bool(false), .array([.string("p1")]), .array([]), .array([]),
+        .array([.string("blocked")]),
+      ])
+    _ = try ThingsDescriptors.call(call.0, parameters: call.1)
+  }
+  _ = try backend.dispatch(
+    thingsRequest(
+      "things.add_project",
+      taskPolicy.merging(["title": .string(String(repeating: "x", count: 200))]) { _, new in new }))
+  #expect(
+    runner.calls.last?.1.prefix(3) == [
+      .string(String(repeating: "x", count: 200)), .string(""), .string(""),
+    ])
+}
+
+@Test func thingsAddProjectValidationIsClosedAndRequiresPolicy() throws {
+  let base = taskPolicy.merging(["title": .string("Project")]) { _, new in new }
+  for extra: [String: JSONValue] in [
+    ["title": .string("")], ["title": .string(" \n")], ["title": .null],
+    ["title": .string(String(repeating: "x", count: 201))],
+    ["notes": .string(String(repeating: "x", count: 2001))],
+    ["notes": .null], ["notes": .bool(true)], ["area_id": .string(" ")],
+    ["area_id": .string(String(repeating: "x", count: 1001))], ["area_id": .null],
+    ["project_id": .string("p1")], ["tags": .array([])], ["when": .string("today")],
+    ["allow_all": .string("true")], ["areas": .array([.bool(true)])],
+  ] {
+    #expect(throws: BridgeError.self) {
+      try thingsRequest("things.add_project", base.merging(extra) { _, new in new })
+    }
+  }
+  for key in base.keys {
+    var args = base
+    args.removeValue(forKey: key)
+    #expect(throws: BridgeError.self) { try thingsRequest("things.add_project", args) }
+  }
+}

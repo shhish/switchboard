@@ -51,6 +51,7 @@ public enum Operation: String, Codable, Sendable {
   case thingsProjects = "things.projects"
   case thingsAreas = "things.areas"
   case thingsAdd = "things.add"
+  case thingsAddProject = "things.add_project"
   case thingsComplete = "things.complete"
   case thingsUpdate = "things.update"
   case netProbe = "net.probe"
@@ -198,7 +199,7 @@ public struct Request: Sendable {
     case .notesSearch, .notesGet, .netProbe, .netAccess, .remoteSSH, .thingsStatus, .thingsAccess,
       .thingsLists,
       .thingsSearch,
-      .thingsProjects, .thingsAreas, .thingsAdd, .thingsComplete, .thingsUpdate:
+      .thingsProjects, .thingsAreas, .thingsAdd, .thingsAddProject, .thingsComplete, .thingsUpdate:
       throw BridgeError("invalid_arguments")
     }
     guard Set(args.keys).isSubset(of: fields), required.isSubset(of: Set(args.keys)) else {
@@ -282,6 +283,7 @@ public enum Router {
         "invalid_arguments": "Invalid request arguments",
         "unauthorized": "Full access required; use the local owner CLI to request access",
         "not_found": "Resource not found",
+        "conflict": "An open Things project with that exact name already exists",
         "resource_denied": "Resource not allowlisted or not writable",
         "backend_error": "Native operation failed; inspect before retrying a write",
         "unsupported": "Things AppleScript cannot create native checklist or Evening items",

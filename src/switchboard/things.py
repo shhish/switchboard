@@ -10,6 +10,7 @@ METHODS = {
     "things.projects",
     "things.areas",
     "things.add",
+    "things.add_project",
     "things.complete",
     "things.update",
 }
@@ -41,10 +42,10 @@ class Things(EventKit):
         if data.get("truncated", False):
             raise CapabilityError("backend_invalid", "Things project discovery truncated")
         matches = [p for p in projects if p["name"] == name and p["status"] == "open"]
+        if not matches:
+            raise CapabilityError("things_project_missing", "Things capture project missing")
         if len(matches) != 1:
-            raise CapabilityError(
-                "things_project_missing", "Things capture project missing or ambiguous"
-            )
+            raise CapabilityError("things_project_ambiguous", "Things capture project ambiguous")
         project = matches[0]
         todos, seen, truncated = [], set(), False
         for view in ("Anytime", "Today", "Upcoming", "Someday"):

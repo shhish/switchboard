@@ -20,6 +20,9 @@ extension Request {
         "title", "notes", "when", "deadline", "project_id", "area_id", "tags", "checklist",
       ])
       required = policy.union(["title"])
+    case .thingsAddProject:
+      fields = policy.union(["title", "notes", "area_id"])
+      required = policy.union(["title"])
     case .thingsComplete:
       fields = policy.union(["todo_id"])
       required = policy.union(["todo_id"])
@@ -57,6 +60,11 @@ extension Request {
           })
         else { throw BridgeError("invalid_arguments") }
       default:
+        if method == .thingsAddProject && key == "notes",
+          case .string(let notes) = value, notes.count <= 2000
+        {
+          continue
+        }
         if method == .thingsUpdate
           && (key == "deadline" && value == .null || key == "notes" && value == .string(""))
         {

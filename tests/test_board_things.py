@@ -61,6 +61,15 @@ async def capture(board_api, monkeypatch):  # noqa: F811
         state["calls"].append((method, copy.deepcopy(args)))
         if method != "things.complete" and state["read_error"]:
             raise CapabilityError(state["read_error"], "Private backend text")
+        if method == "things.add_project":
+            core.policy.require_task(args)
+            if state.get("create_error"):
+                raise CapabilityError(state["create_error"], "Private creation text")
+            project = todo("capture", name=args["title"], project_id=None)
+            state["projects"].append(project)
+            if state.get("create_race"):
+                raise CapabilityError("things_conflict", "Private duplicate text")
+            return {"project": project}
         if method == "things.projects":
             return {
                 "projects": state["projects"],
@@ -257,13 +266,52 @@ async def test_bad_title_skipped_and_other_capture_continues(capture):
     assert len(board["issues"]) == 2
 
 
-async def test_missing_ambiguous_project_reports_error_without_writes(capture):
+async def test_ambiguous_project_reports_error_without_writes(capture):
     _, _, calls, state = capture
-    state["projects"] = []
-    result = await call(capture, "import_things")
-    assert result["errors"] == [{"things_id": None, "code": "things_project_missing"}] and not calls
     state["projects"] = [todo("p1", name="Board"), todo("p2", name="Board")]
-    assert (await call(capture, "import_things"))["errors"] == result["errors"]
+    result = await call(capture, "import_things")
+    assert result["errors"] == [{"things_id": None, "code": "things_project_ambiguous"}]
+    assert not calls and not any(m == "things.add_project" for m, _ in state["calls"])
+
+
+@pytest.mark.parametrize("automatic", [False, True])
+@pytest.mark.parametrize("race", [False, True])
+async def test_missing_project_created_once_and_audited_as_system(capture, automatic, race):
+    core, _, _, state = capture
+    state.update(projects=[], create_race=race)
+    if automatic:
+        await core.board.evaluate_things(now=1000)
+    else:
+        result = await call(capture, "import_things")
+        assert not result["errors"] and result["completed"] == 1
+    await call(capture, "import_things")
+    assert state["todos"][0]["status"] == "completed"
+    creates = [args for method, args in state["calls"] if method == "things.add_project"]
+    assert creates == [{"title": "Board", **core.policy.task_rules()}]
+    row = core.storage.db.execute(
+        "SELECT * FROM audit_log WHERE capability='tasks_add_project'"
+    ).fetchone()
+    assert row["client"] is None and row["origin"] == "system" and row["tier"] == "write"
+    assert row["outcome"] == ("error" if race else "ok")
+    assert row["error_code"] == ("things_conflict" if race else None)
+
+
+@pytest.mark.parametrize("phase", ["read", "create"])
+@pytest.mark.parametrize(
+    "code", ["backend_down", "things_unauthorized", "things_timeout", "things_backend_error"]
+)
+async def test_unavailable_missing_project_is_quiet(capture, phase, code):
+    core, _, calls, state = capture
+    state["projects"] = []
+    state["read_error" if phase == "read" else "create_error"] = code
+    result = await call(capture, "import_things")
+    assert not result["errors"] and result["completed"] == 0 and not calls
+    assert state["todos"][0]["status"] == "open"
+    if phase == "create":
+        row = core.storage.db.execute(
+            "SELECT * FROM audit_log WHERE capability='tasks_add_project'"
+        ).fetchone()
+        assert row["origin"] == "system" and row["error_code"] == code
 
 
 @pytest.mark.parametrize("interval", [120, 300, 3600])
