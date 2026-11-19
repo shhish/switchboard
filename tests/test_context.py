@@ -442,6 +442,7 @@ async def test_policy_example_cortex_ops_weather_and_git_reads(core, config):
         "dns_stats",
         "git_ci_log",
         "git_ci_runs",
+        "git_ci_wait",
         "git_local_status",
         "git_pr",
         "git_prs",

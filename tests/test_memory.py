@@ -884,3 +884,56 @@ async def test_brief_one_line_per_subject_rules_first_and_no_use_feedback(mem):
     assert "Part 1 text." in big[0]
     used = mem.storage.db.execute("SELECT max(use_count) FROM memory").fetchone()[0]
     assert used == 0
+
+
+async def test_brief_project_slug_unknown_domain_and_validation(mem):
+    from switchboard.memory_subjects import DOMAIN_SCOPES
+
+    # Known domain unchanged
+    ops_brief = await mem.call("codex", "memory_brief", {"domain": "ops"})
+    assert ops_brief["status"] == "ok"
+    assert "brief" in ops_brief
+    assert "domains" not in ops_brief
+
+    # Store general fact, iplex subject match, and iplex text match
+    await remember(
+        mem,
+        "owner",
+        kind="fact",
+        domain="general",
+        subject="baseline",
+        title="General baseline",
+        body="Applies everywhere.",
+    )
+    await remember(
+        mem,
+        "owner",
+        kind="fact",
+        domain="ops",
+        subject="iplex",
+        title="iPlex service port",
+        body="Port 8080 used for iplex.",
+    )
+    await remember(
+        mem,
+        "owner",
+        kind="fact",
+        domain="ops",
+        subject="transcoding",
+        title="Transcoder setup",
+        body="Connects to iplex cluster for media.",
+    )
+
+    # Unknown short slug returns general + matches + domains hint
+    res = await mem.call("codex", "memory_brief", {"domain": "iplex"})
+    assert res["status"] == "ok"
+    assert res["known_domains"] == ", ".join(DOMAIN_SCOPES)
+    brief = res["brief"]
+    assert "General baseline" in brief
+    assert "iPlex service port" in brief
+    assert "Transcoder setup" in brief
+
+    # Invalid characters still rejected
+    for bad_domain in ("iplex!", "UPPERCASE", "with spaces", "-leading", "a" * 41, ""):
+        bad = await mem.call("codex", "memory_brief", {"domain": bad_domain})
+        assert bad["error"]["code"] == "invalid_arguments"

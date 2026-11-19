@@ -30,7 +30,7 @@ SERVICE = obj(
     },
     ("name", "runtime", "status", "running", "pid", "silenced"),
 )
-SERVICE_NAME = {**string(40), "pattern": "^[a-z0-9_-]{1,40}$"}
+SERVICE_NAME = {**string(40), "pattern": "^[a-zA-Z0-9_ -]{1,40}$"}
 
 
 SNAPSHOT = output(

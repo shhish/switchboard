@@ -884,3 +884,180 @@ async def test_refs_must_match_exactly_and_shas_are_case_insensitive(git_api):
     from switchboard.git import sha
 
     assert sha("A" * 40) == "a" * 40
+
+
+async def test_ci_wait_argument_validation(git_api):
+    # Missing both number and ref
+    res = await call(git_api, "ci_wait", repo="project")
+    assert res["error"]["code"] == "invalid_arguments"
+
+    # Passing both number and ref
+    res = await call(git_api, "ci_wait", repo="project", number=1, ref="feature")
+    assert res["error"]["code"] == "invalid_arguments"
+
+    # Invalid ref format
+    res = await call(git_api, "ci_wait", repo="project", ref="feature\n")
+    assert res["error"]["code"] == "invalid_arguments"
+
+    # Invalid timeout (< 30 or > 600)
+    res = await call(git_api, "ci_wait", repo="project", number=1, timeout_s=10)
+    assert res["error"]["code"] == "invalid_arguments"
+    res = await call(git_api, "ci_wait", repo="project", number=1, timeout_s=1000)
+    assert res["error"]["code"] == "invalid_arguments"
+
+
+async def test_ci_wait_success_after_pending_rounds(git_api):
+    core, state, _ = git_api
+    current_time = 1000.0
+
+    async def fake_sleep(seconds):
+        nonlocal current_time
+        current_time += seconds
+        state["combined"]["state"] = "success"
+        state["combined"]["statuses"] = [{"context": "ci", "status": "success"}]
+        state["runs"] = [run(status="completed", conclusion="success")]
+
+    core.git_sleep = fake_sleep
+    core.git_clock = lambda: current_time
+
+    state["runs"] = [run(status="in_progress", conclusion="")]
+    state["combined"] = {
+        "state": "pending",
+        "total_count": 1,
+        "statuses": [{"context": "ci", "status": "pending"}],
+    }
+
+    res = await call(git_api, "ci_wait", repo="project", number=1)
+    assert res["status"] == "ok"
+    assert res["state"] == "success"
+    assert res["timed_out"] is False
+    assert res["waited_s"] == 15
+    assert res["sha"] == A
+    assert len(res["checks"]) == 1
+    assert len(res["runs"]) == 1
+
+
+async def test_ci_wait_failure(git_api):
+    core, state, _ = git_api
+    state["runs"] = [run(status="completed", conclusion="failure")]
+    state["combined"] = {
+        "state": "failure",
+        "total_count": 1,
+        "statuses": [{"context": "ci", "status": "failure"}],
+    }
+    res = await call(git_api, "ci_wait", repo="project", number=1)
+    assert res["status"] == "ok"
+    assert res["state"] == "failure"
+    assert res["timed_out"] is False
+    assert res["waited_s"] == 0
+    assert res["sha"] == A
+
+
+async def test_ci_wait_no_checks(git_api):
+    core, state, _ = git_api
+    state["runs"] = []
+    state["combined"] = {
+        "state": "pending",
+        "total_count": 0,
+        "statuses": [],
+    }
+    res = await call(git_api, "ci_wait", repo="project", number=1)
+    assert res["status"] == "ok"
+    assert res["state"] == "no_checks"
+    assert res["timed_out"] is False
+    assert res["waited_s"] == 0
+    assert res["sha"] == A
+
+
+async def test_ci_wait_timeout(git_api):
+    core, state, _ = git_api
+    current_time = 1000.0
+
+    async def fake_sleep(seconds):
+        nonlocal current_time
+        current_time += seconds
+
+    core.git_sleep = fake_sleep
+    core.git_clock = lambda: current_time
+
+    state["runs"] = [run(status="in_progress", conclusion="")]
+    state["combined"] = {
+        "state": "pending",
+        "total_count": 1,
+        "statuses": [{"context": "ci", "status": "pending"}],
+    }
+
+    res = await call(git_api, "ci_wait", repo="project", number=1, timeout_s=45)
+    assert res["status"] == "ok"
+    assert res["state"] == "pending"
+    assert res["timed_out"] is True
+    assert res["waited_s"] == 45
+    assert res["sha"] == A
+
+
+async def test_ci_wait_head_change(git_api):
+    core, state, _ = git_api
+    current_time = 1000.0
+
+    async def fake_sleep(seconds):
+        nonlocal current_time
+        current_time += seconds
+        state["pr"]["head"]["sha"] = C
+        state["combined"]["state"] = "success"
+        state["combined"]["statuses"] = [{"context": "ci", "status": "success"}]
+        state["runs"] = [run(commit=C, status="completed", conclusion="success")]
+
+    core.git_sleep = fake_sleep
+    core.git_clock = lambda: current_time
+
+    state["runs"] = [run(commit=A, status="in_progress", conclusion="")]
+    state["combined"] = {
+        "state": "pending",
+        "total_count": 1,
+        "statuses": [{"context": "ci", "status": "pending"}],
+    }
+
+    res = await call(git_api, "ci_wait", repo="project", number=1)
+    assert res["status"] == "ok"
+    assert res["sha"] == C
+    assert res["state"] == "success"
+    assert res["timed_out"] is False
+    assert res["waited_s"] == 15
+
+
+async def test_ci_wait_ref_branch_or_sha(git_api):
+    core, state, _ = git_api
+    state["runs"] = [run(status="completed", conclusion="success")]
+    state["combined"] = {
+        "state": "success",
+        "total_count": 1,
+        "statuses": [{"context": "ci", "status": "success"}],
+    }
+    # Branch name
+    by_branch = await call(git_api, "ci_wait", repo="project", ref="feature")
+    assert by_branch["status"] == "ok"
+    assert by_branch["sha"] == A
+    assert by_branch["state"] == "success"
+
+    # Full commit SHA
+    by_sha = await call(git_api, "ci_wait", repo="project", ref=A)
+    assert by_sha["status"] == "ok"
+    assert by_sha["sha"] == A
+    assert by_sha["state"] == "success"
+
+
+async def test_ci_wait_cancellation_propagates(git_api):
+    core, state, _ = git_api
+
+    async def cancel_sleep(seconds):
+        raise asyncio.CancelledError()
+
+    core.git_sleep = cancel_sleep
+    state["runs"] = [run(status="in_progress", conclusion="")]
+    state["combined"] = {
+        "state": "pending",
+        "total_count": 1,
+        "statuses": [{"context": "ci", "status": "pending"}],
+    }
+    with pytest.raises(asyncio.CancelledError):
+        await Git(core).ci_wait({"repo": "project", "number": 1})

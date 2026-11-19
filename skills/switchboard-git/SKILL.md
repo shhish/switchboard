@@ -31,11 +31,12 @@ PR workflow:
    repository's development rules. The head branch must already be pushed before
    `git_pr_create {repo, head, title, body?, base?}`; base defaults to the default
    branch. This capability does not push anything locally.
-2. Watch `git_prs` / `git_pr` and use `git_ci_runs {repo, branch?, status?, limit?}`
-   for job IDs. Call `git_ci_log {repo, job_id, lines?, contains?}` on failure.
-   Logs return at most 400 lines from a bounded 1600-line tail, redacted and ANSI
-   stripped; filters are literal and case-insensitive on the redacted text.
-   Responses above 2 MiB are refused, never silently treated as complete.
+2. Wait with `git_ci_wait {repo, number? | ref?, timeout_s?}` instead of polling
+   `git_ci_runs`. Inspect job IDs with `git_ci_runs {repo, branch?, status?, limit?}`
+   and call `git_ci_log {repo, job_id, lines?, contains?}` on failure. Logs return
+   at most 400 lines from a bounded 1600-line tail, redacted and ANSI stripped;
+   filters are literal and case-insensitive on the redacted text. Responses above
+   2 MiB are refused, never silently treated as complete.
 3. Fix real failures. Rerun a suspected flake once using
    `git_ci_rerun {repo, run_id, failed_only?}` (failed jobs by default), then
    inspect CI again. Acceptance is not success.
