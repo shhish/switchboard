@@ -13,8 +13,25 @@ CARD_REF = string(240)
 NULL_TEXT = {"type": ["string", "null"], "maxLength": 200}
 ASK_ID = {**string(20), "pattern": r"^ask_[0-9a-f]{16}$"}
 LOCAL_ID = {**string(32), "pattern": r"^[a-z0-9][a-z0-9_-]{0,31}$"}
-KIND = {"type": "string", "enum": ["confirm", "choice", "text", "form"]}
-OPTION = obj({"id": LOCAL_ID, "label": string(80), "detail": string(200)}, ("id", "label"))
+KIND = {"type": "string", "enum": ["confirm", "choice", "text", "form", "plan"]}
+# Base64 plus the response envelope must fit the registry's 500,000 character cap.
+ASK_MEDIA_MAX_BYTES = 360 * 1024
+OPTION = obj(
+    {"id": LOCAL_ID, "label": string(80), "detail": string(200), "image": string(4096)},
+    ("id", "label"),
+)
+STEP = obj(
+    {"id": LOCAL_ID, "label": string(120), "detail": string(200), "optional": B},
+    ("id", "label"),
+)
+EVIDENCE = obj(
+    {
+        "label": string(100),
+        "value": string(40),
+        "state": {"type": "string", "enum": ["done", "failed", "pending"]},
+    },
+    ("label",),
+)
 FIELD_OPTION = obj({"id": LOCAL_ID, "label": string(80)}, ("id", "label"))
 FIELD = obj(
     {
@@ -36,6 +53,8 @@ ANSWER = obj(
         "other": string(500),
         "text": string(4000),
         "note": string(1000),
+        "approve": B,
+        "steps": {**array(LOCAL_ID), "maxItems": 10},
         # Field IDs and value types are validated against the stored form in the handler.
         "values": {"type": "object"},
     }
@@ -54,8 +73,9 @@ ASK_PROPERTIES = {
                     "id": LOCAL_ID,
                     "label": string(80),
                     "detail": {"type": ["string", "null"], "maxLength": 200},
+                    "image": B,
                 },
-                ("id", "label", "detail"),
+                ("id", "label", "detail", "image"),
             )
         ),
         "maxItems": 8,
@@ -73,6 +93,19 @@ ASK_PROPERTIES = {
                     "options": {**array(FIELD_OPTION), "maxItems": 8},
                 },
                 FIELD["properties"],
+            )
+        ),
+        "maxItems": 8,
+    },
+    "steps": {
+        **array(obj({**STEP["properties"], "detail": NULL_TEXT}, STEP["properties"])),
+        "maxItems": 10,
+    },
+    "evidence": {
+        **array(
+            obj(
+                {**EVIDENCE["properties"], "value": {"type": ["string", "null"], "maxLength": 40}},
+                EVIDENCE["properties"],
             )
         ),
         "maxItems": 8,
@@ -140,7 +173,8 @@ def register(registry):
             timeout_s=timeout_s,
             service="gitea",
             max_result_chars=500_000
-            if name in {"board_list", "board_card", "board_answer", "board_ask_wait"}
+            if name
+            in {"board_list", "board_card", "board_answer", "board_ask_wait", "board_ask_media"}
             else 150_000,
             output_schema=obj(
                 {"status": S, **fields}, ("status", *(key for key in fields if key != "truncated"))
@@ -154,6 +188,8 @@ def register(registry):
                     "detail",
                     "options",
                     "fields",
+                    "steps",
+                    "evidence",
                     "answer",
                     "yes_label",
                     "no_label",
@@ -292,8 +328,9 @@ def register(registry):
         "Ask the owner on Slate",
         "Slate structured questions. Use when the owner must decide or supply values. "
         "Requires board:write, allowlisted repo and open card; up to five open asks. "
-        "Returns sanitized untrusted summary and confirm, choice, text or form ask; "
-        "moves to Needs you and posts context. Never ask for secrets. Non-idempotent.",
+        "Returns sanitized untrusted summary and confirm, choice, text, form or plan ask; "
+        "supports 8 evidence lines and 4 choice pictures up to 360 KiB from configured roots. "
+        "Moves to Needs you. Never ask for secrets. Non-idempotent.",
         {
             "card": CARD_REF,
             "kind": KIND,
@@ -307,10 +344,29 @@ def register(registry):
             "no_label": string(40),
             "destructive": B,
             "fields": {**array(FIELD), "minItems": 1, "maxItems": 8},
+            "steps": {**array(STEP), "minItems": 1, "maxItems": 10},
+            "evidence": {**array(EVIDENCE), "maxItems": 8},
         },
         {**SUMMARY, "ask": ASK},
         required=("card", "kind", "prompt"),
         write=True,
+    )
+    declare(
+        "board_ask_media",
+        "Slate choice picture",
+        "Slate choice pictures. Use when viewing an ask option's picture. Requires board:read, "
+        "ask_id and option_id. Returns untrusted PNG or JPEG as base64, media type and byte count, "
+        "up to 360 KiB; missing asks, options or pictures are not_found. History pictures "
+        "are pruned after 30 days closed.",
+        {"ask_id": ASK_ID, "option_id": LOCAL_ID},
+        {
+            "ask_id": ASK_ID,
+            "option_id": LOCAL_ID,
+            "media_type": {"type": "string", "enum": ["image/png", "image/jpeg"]},
+            "bytes": {"type": "integer", "minimum": 1, "maximum": ASK_MEDIA_MAX_BYTES},
+            "data_base64": string(4 * ((ASK_MEDIA_MAX_BYTES + 2) // 3)),
+        },
+        required=("ask_id", "option_id"),
     )
     declare(
         "board_ask_wait",

@@ -63,6 +63,14 @@ and logs to `~/Library/Logs/switchboard`, overridable with `SWITCHBOARD_STATE_DI
 and `SWITCHBOARD_LOG_DIR`. Runtime directories must be 0700. No policy file means
 no authorized calls, including for owner.
 
+Choice option pictures are disabled by default. The owner can set
+`board.ask_media_roots` to at most eight absolute directories; symlinks resolve
+inside these roots. Each ask accepts up to four PNG/JPEG pictures, at most 360 KiB
+each so base64 results fit the 500,000-character tool limit. Copies live privately
+under `ask-media/<ask_id>/` in the state directory (0700 directories, 0600 files).
+Answered and withdrawn asks keep pictures for history; periodic maintenance
+prunes them once closed for more than 30 days.
+
 ## Deployment on macOS
 
 Use a reviewed committed revision for deployment. `scripts/deploy.sh` requires a

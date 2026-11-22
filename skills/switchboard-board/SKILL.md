@@ -26,8 +26,12 @@ Up next without being asked. The owner's priorities determine what is next.
 4. Use `board_ask {card, kind, prompt, ...}` for anything the owner must decide
    or supply. Pick the narrowest kind: confirm for go/no-go; choice with 2–5 concrete
    options and a `recommended` one; text for a value only the owner knows; form for
-   several values at once. Write a prompt that can be answered without opening the
-   card, with one decision per ask. Never ask for secrets, passwords, tokens or keys:
+   several values at once; plan to approve a multi-step change, with one step per
+   action the owner might leave out, marking those `optional`. Attach `evidence`
+   for checks already done (files changed, tests, QA): at most 8 short lines, never
+   secrets. Use choice option `image` paths only for things easier to see than describe;
+   configured media roots are required. Write a prompt answerable without opening
+   the card, with one decision per ask. Never ask for secrets, passwords, tokens or keys:
    answers are stored locally and posted as comments. The card moves to Needs you.
    Use `board_ask_wait {ask_id, timeout_s?}` when the session can continue once
    answered (default 120 seconds, maximum 280). Otherwise, the answer appears in the
@@ -91,8 +95,12 @@ recovery after a backend failure; do not blindly repeat creation.
 
 Asks support confirm (custom yes/no labels and optional destructive warning), choice
 (2–8 options, optional multiple selection or other text), text, and form (1–8 typed
-fields). There may be five open asks per card. When the last ask is answered or
-withdrawn, an open card still in Needs you returns to its saved column without
+fields), and plan (1–10 steps, required steps plus any selected optional ones).
+An approved plan always returns the resolved step IDs in order; declining says
+"Not yet". Choice pictures are copied privately (PNG/JPEG, up to 360 KiB each,
+at most 4) and read with `board_ask_media {ask_id, option_id}`; history keeps them
+until pruning after 30 days closed. There may be five open asks per card.
+When the last ask is answered or withdrawn, an open card still in Needs you returns to its saved column without
 changing its claim. Other moves and issue state are respected. `board_list` includes
 up to three oldest open asks per card and ten recent answers from the last 72 hours;
 `board_card` includes the latest ten asks. Large asks can reduce the number of

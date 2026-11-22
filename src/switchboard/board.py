@@ -1,14 +1,20 @@
 """One shared Gitea project, with bounded reads and local actor receipts."""
 
 import asyncio
+import base64
 import json
 import math
+import os
 import re
 import secrets
+import shutil
+import stat
 import time
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 
-from .domains.board import COLUMNS
+from .auth import private_dir
+from .domains.board import ASK_MEDIA_MAX_BYTES, COLUMNS
 from .domains.common import sanitize_text
 from .errors import CapabilityError
 from .execution import Execution
@@ -455,8 +461,9 @@ class Board:
             "choice": {"options", "multiple", "allow_other", "recommended"},
             "text": set(),
             "form": {"fields"},
+            "plan": {"steps", "destructive"},
         }[kind]
-        if (option_args | {"fields"}) & args.keys() - allowed:
+        if (option_args | {"fields", "steps"}) & args.keys() - allowed:
             raise CapabilityError("invalid_arguments", "Arguments do not match the ask kind")
         spec = {
             "prompt": self.nonblank(args["prompt"], 300),
@@ -467,9 +474,18 @@ class Board:
             "recommended": args.get("recommended"),
             "destructive": args.get("destructive", False),
             "fields": [],
+            "steps": [],
+            "evidence": [
+                {
+                    "label": self.nonblank(r["label"], 100),
+                    "value": self.nonblank(r["value"], 40) if "value" in r else None,
+                    "state": r.get("state", "done"),
+                }
+                for r in args.get("evidence", [])
+            ],
         }
 
-        def options(rows, *, detail=False):
+        def options(rows, *, detail=False, label_limit=80):
             ids = [r["id"] for r in rows]
             if len(ids) != len(set(ids)) or any(
                 re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", value) is None for value in ids
@@ -478,7 +494,7 @@ class Board:
             return [
                 {
                     "id": text(r["id"], 32),
-                    "label": self.nonblank(r["label"], 80),
+                    "label": self.nonblank(r["label"], label_limit),
                     **(
                         {"detail": self.nonblank(r["detail"], 200) if "detail" in r else None}
                         if detail
@@ -501,6 +517,17 @@ class Board:
             if "options" not in args:
                 raise CapabilityError("invalid_arguments", "Choice asks require options")
             spec["options"] = options(args["options"], detail=True)
+            if sum("image" in r for r in args["options"]) > 4:
+                raise CapabilityError("invalid_arguments", "At most four option pictures per ask")
+        elif kind == "plan":
+            if "steps" not in args:
+                raise CapabilityError("invalid_arguments", "Plan asks require steps")
+            spec["steps"] = [
+                {**step, "optional": raw.get("optional", False)}
+                for step, raw in zip(
+                    options(args["steps"], detail=True, label_limit=120), args["steps"], strict=True
+                )
+            ]
         elif kind == "form":
             if "fields" not in args:
                 raise CapabilityError("invalid_arguments", "Form asks require fields")
@@ -528,6 +555,8 @@ class Board:
             o["id"] for o in spec["options"]
         }:
             raise CapabilityError("invalid_arguments", "Recommended option must be an option ID")
+        for option in spec["options"]:
+            option["image"] = False
         return spec
 
     def validate_answer(self, kind, spec, answer):
@@ -536,11 +565,37 @@ class Board:
             "choice": {"choice", "other"},
             "text": {"text"},
             "form": {"values"},
+            "plan": {"approve", "steps"},
         }[kind] | {"note"}
         if answer.keys() - allowed:
             raise CapabilityError("invalid_arguments", "Answer does not match the ask kind")
         result = {}
-        if kind in {"confirm", "choice"}:
+        if kind == "plan":
+            approve = answer.get("approve")
+            steps = spec["steps"]
+            ids = [s["id"] for s in steps]
+            selected = answer.get("steps", ids)
+            if (
+                type(approve) is not bool
+                or (not approve and "steps" in answer)
+                or not isinstance(selected, list)
+                or any(not isinstance(s, str) for s in selected)
+                or len(selected) != len(set(selected))
+                or set(selected) - set(ids)
+                or (approve and any(not s["optional"] and s["id"] not in selected for s in steps))
+            ):
+                raise CapabilityError("invalid_arguments", "Approve the required plan steps only")
+            result["approve"] = approve
+            rendered = "Not yet"
+            if approve:
+                result["steps"] = [s for s in ids if s in selected]
+                omitted = [s["label"] for s in steps if s["id"] not in selected]
+                rendered = (
+                    f"Approved {len(selected)} of {len(ids)} steps (left out: {', '.join(omitted)})"
+                    if omitted
+                    else f"Approved all {len(ids)} steps"
+                )
+        elif kind in {"confirm", "choice"}:
             choices = answer.get("choice", [])
             labels = {o["id"]: o["label"] for o in spec["options"]}
             other = answer.get("other")
@@ -627,6 +682,11 @@ class Board:
 
     def ask_object(self, row):
         spec = json.loads(row["spec"])
+        spec.pop("closed_at", None)
+        spec.setdefault("steps", [])
+        spec.setdefault("evidence", [])
+        for option in spec["options"]:
+            option.setdefault("image", False)
         answer, rendered = None, None
         if row["answer"] is not None:
             answer, rendered = self.validate_answer(row["kind"], spec, json.loads(row["answer"]))
@@ -667,11 +727,115 @@ class Board:
             )
         ]
 
+    @staticmethod
+    def read_picture(path):
+        # Walk an already resolved absolute path without following any new symlinks.
+        # O_NONBLOCK also prevents an exchanged FIFO from hanging the service.
+        directory = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            for part in path.parts[1:-1]:
+                child = os.open(
+                    part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory
+                )
+                os.close(directory)
+                directory = child
+            fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+            with os.fdopen(fd, "rb") as source:
+                info = os.fstat(source.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_size > ASK_MEDIA_MAX_BYTES:
+                    raise ValueError("Invalid picture size or file type")
+                data = source.read(ASK_MEDIA_MAX_BYTES + 1)
+        finally:
+            os.close(directory)
+        if len(data) > ASK_MEDIA_MAX_BYTES:
+            raise ValueError("Picture too large")
+        if data.startswith(b"\x89PNG\r\n\x1a\n"):
+            return data, "png", "image/png"
+        if data.startswith(b"\xff\xd8\xff"):
+            return data, "jpg", "image/jpeg"
+        raise ValueError("Picture must be PNG or JPEG")
+
+    def picture_inputs(self, args):
+        pictures = {}
+        roots = [Path(r) for r in self.core.config.board["ask_media_roots"]]
+        for option in args.get("options", []):
+            if "image" not in option:
+                continue
+            try:
+                path = Path(option["image"])
+                if not roots or not path.is_absolute():
+                    raise ValueError("Pictures disabled or path not absolute")
+                path = path.resolve(strict=True)
+                if not any(path.is_relative_to(root) for root in roots):
+                    raise ValueError("Picture outside configured roots")
+                pictures[option["id"]] = self.read_picture(path)
+            except (OSError, ValueError, RuntimeError):
+                raise CapabilityError(
+                    "invalid_arguments",
+                    "Pictures require a regular PNG/JPEG within configured roots, up to 360 KiB",
+                ) from None
+        return pictures
+
+    def media_directory(self, ask_id):
+        return self.core.config.state_dir.resolve() / "ask-media" / ask_id
+
+    def copy_pictures(self, ask_id, pictures):
+        if not pictures:
+            return
+        directory = self.media_directory(ask_id)
+        private_dir(directory.parent)
+        private_dir(directory)
+        for option_id, (data, extension, _) in pictures.items():
+            fd = os.open(
+                directory / f"{option_id}.{extension}",
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+            )
+            with os.fdopen(fd, "wb") as target:
+                os.fchmod(target.fileno(), 0o600)
+                target.write(data)
+
+    async def ask_media(self, client, args):
+        row = self.ask_row(args["ask_id"])
+        option = next(
+            (o for o in json.loads(row["spec"])["options"] if o["id"] == args["option_id"]),
+            None,
+        )
+        if option and option.get("image", False):
+            directory = self.media_directory(row["ask_id"])
+            for extension in ("png", "jpg"):
+                try:
+                    data, _, media_type = self.read_picture(
+                        directory / f"{option['id']}.{extension}"
+                    )
+                except (OSError, ValueError):
+                    continue
+                return {
+                    "status": "ok",
+                    "ask_id": row["ask_id"],
+                    "option_id": option["id"],
+                    "media_type": media_type,
+                    "bytes": len(data),
+                    "data_base64": base64.b64encode(data).decode("ascii"),
+                }
+        raise CapabilityError("not_found", "Ask option picture not found")
+
+    def prune_ask_media(self, now):
+        cutoff = now - timedelta(days=30)
+        for row in self.core.storage.db.execute("SELECT * FROM board_asks WHERE state!='open'"):
+            closed = row["answered_at"] or json.loads(row["spec"]).get("closed_at")
+            # Old withdrawn rows have no closure timestamp and predate picture support.
+            if closed and datetime.fromisoformat(closed) < cutoff:
+                shutil.rmtree(self.media_directory(row["ask_id"]), ignore_errors=True)
+
     async def ask(self, client, args):
         spec = self.ask_spec(args)
         repo, number = self.reference(args["card"])
         async with self._write_lock:
             self.core.policy.require_git_repo(repo)
+            pictures = self.picture_inputs(args)
+            for option in spec["options"]:
+                option["image"] = option["id"] in pictures
             board, issue, column = await self.lookup(repo, number)
             summary = self.summary(issue, repo, column)
             if issue["state"] != "open" or column == "Done":
@@ -691,39 +855,52 @@ class Board:
                     else ("In progress" if summary["claimed_by"] else "Up next")
                 )
             ask_id = "ask_" + secrets.token_hex(8)
-            if column != "Needs you":
-                await self.move_ask_card(board, issue, "Needs you")
-            lines = [f"**{client}** asks: {spec['prompt']}"]
-            if spec["detail"]:
-                lines.extend(["", spec["detail"]])
-            rows = spec["fields"] if args["kind"] == "form" else spec["options"]
-            if rows:
-                lines.append("")
-                lines.extend(
-                    "- " + r["label"] + (" (suggested)" if r["id"] == spec["recommended"] else "")
-                    for r in rows
+            try:
+                self.copy_pictures(ask_id, pictures)
+                if column != "Needs you":
+                    await self.move_ask_card(board, issue, "Needs you")
+                lines = [f"**{client}** asks: {spec['prompt']}"]
+                if spec["detail"]:
+                    lines.extend(["", spec["detail"]])
+                if args["kind"] == "plan":
+                    lines.append("")
+                    lines.extend(
+                        f"{n}. {step['label']}" + (" (optional)" if step["optional"] else "")
+                        for n, step in enumerate(spec["steps"], 1)
+                    )
+                rows = spec["fields"] if args["kind"] == "form" else spec["options"]
+                if rows:
+                    lines.append("")
+                    lines.extend(
+                        "- "
+                        + r["label"]
+                        + (" (suggested)" if r["id"] == spec["recommended"] else "")
+                        for r in rows
+                    )
+                lines.extend(["", f"_Answer in the Server app. Ask {ask_id}._"])
+                await self.api.request(
+                    f"{self.git.path(repo)}/issues/{number}/comments",
+                    method="POST",
+                    payload={"body": "\n".join(lines)},
                 )
-            lines.extend(["", f"_Answer in the Server app. Ask {ask_id}._"])
-            await self.api.request(
-                f"{self.git.path(repo)}/issues/{number}/comments",
-                method="POST",
-                payload={"body": "\n".join(lines)},
-            )
-            with self.core.storage.db as db:
-                db.execute(
-                    "INSERT INTO board_asks (ask_id, issue_id, card, asker, kind, spec, "
-                    "state, return_column, created_at) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?)",
-                    (
-                        ask_id,
-                        issue["id"],
-                        summary["card"],
-                        client,
-                        args["kind"],
-                        json.dumps(spec),
-                        return_column,
-                        datetime.now(UTC).isoformat(),
-                    ),
-                )
+                with self.core.storage.db as db:
+                    db.execute(
+                        "INSERT INTO board_asks (ask_id, issue_id, card, asker, kind, spec, "
+                        "state, return_column, created_at) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?)",
+                        (
+                            ask_id,
+                            issue["id"],
+                            summary["card"],
+                            client,
+                            args["kind"],
+                            json.dumps(spec),
+                            return_column,
+                            datetime.now(UTC).isoformat(),
+                        ),
+                    )
+            except BaseException:
+                shutil.rmtree(self.media_directory(ask_id), ignore_errors=True)
+                raise
             self.record(issue, repo, "Needs you", client, spec["prompt"])
             issue = await self.read_issue(repo, number, issue["id"])
             return {
@@ -779,8 +956,11 @@ class Board:
             board, issue, column = await self.lookup(repo, number)
             with self.core.storage.db as db:
                 if withdraw:
+                    spec = json.loads(row["spec"])
+                    spec["closed_at"] = datetime.now(UTC).isoformat()
                     db.execute(
-                        "UPDATE board_asks SET state='withdrawn' WHERE ask_id=?", (row["ask_id"],)
+                        "UPDATE board_asks SET state='withdrawn', spec=? WHERE ask_id=?",
+                        (json.dumps(spec), row["ask_id"]),
                     )
                 else:
                     db.execute(

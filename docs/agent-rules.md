@@ -36,6 +36,10 @@ before you reach for curl with API keys, osascript, Docker or app databases.
   `board_ask` instead of a prose note. They answer in the Server app with one tap. Pick the
   narrowest kind: `confirm` for go/no-go, `choice` with 2 to 5 concrete options and your
   `recommended` one, `text` for a value only they know, `form` for several values at once.
+  Use `plan` for a multi-step change: one step per action the owner might leave out,
+  marking those `optional`. Attach `evidence` of checks already done (files changed,
+  tests, QA): at most 8 short lines, never secrets. Use choice option pictures only
+  for things easier to see than describe; paths must be in configured media roots.
   One decision per ask, worded so it can be answered without opening the card. Never ask for
   a secret. `board_ask_wait` if you can continue once it is answered; otherwise the answer is
   in the next session's brief and in `board_card`. An answer settles that question only: it

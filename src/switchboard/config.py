@@ -327,6 +327,19 @@ def validate_git(settings):
     return {"roots": list(dict.fromkeys(result))}
 
 
+def validate_board(settings):
+    if not isinstance(settings, dict) or set(settings) - {"ask_media_roots"}:
+        raise ValueError("board accepts only ask_media_roots")
+    # Use the same absolute-directory validation as local Git roots.
+    try:
+        roots = validate_git({"roots": settings.get("ask_media_roots", [])})["roots"]
+    except (ValueError, OSError, RuntimeError):
+        raise ValueError(
+            "board.ask_media_roots must be at most eight absolute directories"
+        ) from None
+    return {"ask_media_roots": roots}
+
+
 @dataclass
 class Config:
     config_dir: Path
@@ -345,6 +358,7 @@ class Config:
     services: dict = field(default_factory=dict)
     remote_hosts: dict = field(default_factory=dict)
     git: dict = field(default_factory=lambda: {"roots": []})
+    board: dict = field(default_factory=dict)
 
     monitor: dict = field(default_factory=dict)
     alerts: dict = field(default_factory=dict)
@@ -357,6 +371,7 @@ class Config:
         self.memory = memory_settings(self.memory)
         self.storage = storage_settings(self.storage)
         self.git = validate_git(self.git)
+        self.board = validate_board(self.board)
         self.monitor = monitor_settings(self.monitor)
         self.alerts = alert_settings(self.alerts)
         self.probes = validate_probes(self.probes)
@@ -391,6 +406,7 @@ class Config:
             "memory",
             "alerts",
             "git",
+            "board",
         }:
             raise ValueError("Invalid config fields")
         result = cls(
@@ -411,6 +427,7 @@ class Config:
         result.storage = storage_settings(data.get("storage", {}))
         result.monitor = monitor_settings(data.get("monitor", {}))
         result.git = validate_git(data.get("git", {"roots": []}))
+        result.board = validate_board(data.get("board", {}))
         result.alerts = alert_settings(data.get("alerts", {}))
         result.weather = validate_weather(data.get("weather", {}))
         if type(result.port) is not int or not 1 <= result.port <= 65535:

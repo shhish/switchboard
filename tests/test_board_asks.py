@@ -2,13 +2,19 @@
 
 # ruff: noqa: F811
 import asyncio
+import base64
 import json
+import stat
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, Mock
 
 import jsonschema
 import pytest
 
 from switchboard.board import Board
+from switchboard.config import Config, validate_board
+from switchboard.domains.board import ASK_MEDIA_MAX_BYTES
+from switchboard.protocol import Protocol
 
 from .conftest import change_policy
 from .test_board import (  # noqa: F401
@@ -103,7 +109,12 @@ async def test_create_kinds_and_comments(asks, kind, extra):
     assert comment.endswith(f"_Answer in the Server app. Ask {ask['id']}._")
     if kind == "confirm":
         assert "- Wait (suggested)" in comment and ask["destructive"]
-        assert ask["options"][0] == {"id": "yes", "label": "Proceed", "detail": None}
+        assert ask["options"][0] == {
+            "id": "yes",
+            "label": "Proceed",
+            "detail": None,
+            "image": False,
+        }
     elif kind == "choice":
         assert "- Full (suggested)" in comment and ask["multiple"] and ask["allow_other"]
     elif kind == "form":
@@ -560,6 +571,14 @@ async def test_audit_hashes_all_free_text_including_nested_and_invalid_calls(ask
     )
     await owner(asks, created["ask"]["id"], {"values": {"name": value}})
     await create(asks, yes_label="PRIVATE_YES", no_label="PRIVATE_NO")
+    await create(
+        asks,
+        "plan",
+        steps=[{"id": "apply", "label": "PRIVATE_STEP", "detail": "PRIVATE_STEP_CONTEXT"}],
+        evidence=[{"label": "PRIVATE_EVIDENCE", "value": "PRIVATE_EVIDENCE_VALUE"}],
+    )
+    private_path = str(core.config.state_dir / "PRIVATE_IMAGE_PATH")
+    await create(asks, "choice", options=[{**OPTIONS[0], "image": private_path}, OPTIONS[1]])
     log = core.audit.path.read_text()
     db_args = " ".join(r[0] for r in core.storage.db.execute("SELECT args_json FROM audit_log"))
     for private in (
@@ -571,6 +590,11 @@ async def test_audit_hashes_all_free_text_including_nested_and_invalid_calls(ask
         "PRIVATE_YES",
         "PRIVATE_NO",
         "PRIVATE_OPTION_CONTEXT",
+        "PRIVATE_STEP",
+        "PRIVATE_STEP_CONTEXT",
+        "PRIVATE_EVIDENCE",
+        "PRIVATE_EVIDENCE_VALUE",
+        private_path,
     ):
         assert private not in log and private not in db_args
     records = core.audit.tail(30)
@@ -578,6 +602,9 @@ async def test_audit_hashes_all_free_text_including_nested_and_invalid_calls(ask
     assert set(choice["args"]["options"]) == {"len", "sha256"}
     form = next(r for r in records if "fields" in (r.get("args") or {}))
     assert set(form["args"]["fields"]) == {"len", "sha256"}
+    for key in ("steps", "evidence"):
+        record = next(r for r in records if key in (r.get("args") or {}))
+        assert set(record["args"][key]) == {"len", "sha256"}
     for record in records:
         if record["capability"] == "board_answer":
             assert set(record["args"]["answer"]) == {"len", "sha256"}
@@ -596,7 +623,7 @@ async def test_allowlist_denials_and_no_hidden_scope_bypass(asks):
         assert result["error"]["code"] == "resource_denied"
     assert (await owner(asks, ask_id, {"choice": ["yes"]}))["error"]["code"] == "resource_denied"
     assert not calls and core.board.ask_row(ask_id)["state"] == "open"
-    for name in ("ask", "ask_withdraw", "ask_wait", "answer"):
+    for name in ("ask", "ask_withdraw", "ask_wait", "ask_media", "answer"):
         result = await core.call("agy", "board_" + name, {})
         assert result["error"]["code"] == "scope_denied"
 
@@ -739,3 +766,529 @@ async def test_large_open_forms_bound_list_with_counts_intact(asks):
     assert 0 < len(needs["cards"]) < 10
     assert all(c["asks_open"] == len(c["open_asks"]) == 3 for c in needs["cards"])
     assert len(json.dumps(result)) <= core.registry.capabilities["board_list"].max_result_chars
+
+
+STEPS = [
+    {"id": "apply", "label": "Apply change", "detail": "Update the files"},
+    {"id": "publish", "label": "Publish", "optional": True},
+    {"id": "notify", "label": "Notify", "optional": True},
+]
+
+
+async def test_plan_create_comment_and_roundtrip(asks):
+    created = await create(asks, "plan", steps=STEPS, destructive=True)
+    ask = created["ask"]
+    assert ask["steps"] == [
+        {**STEPS[0], "optional": False},
+        {**STEPS[1], "detail": None},
+        {**STEPS[2], "detail": None},
+    ]
+    assert ask["destructive"] and ask["options"] == ask["fields"] == ask["evidence"] == []
+    assert (
+        "\n1. Apply change\n2. Publish (optional)\n3. Notify (optional)\n"
+        in (asks[1]["comments"][1][-1]["body"])
+    )
+    assert (await call(asks, "card", card="project#1"))["asks"] == [ask]
+    waited = await call(asks, "ask_wait", ask_id=ask["id"], timeout_s=0)
+    assert waited["ask"] == ask
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {},
+        {"steps": []},
+        {"steps": STEPS * 4},
+        {"steps": STEPS * 2},
+        *[
+            {"steps": [{**STEPS[0], key: value}]}
+            for key, value in [
+                ("id", "Bad"),
+                ("id", "bad space"),
+                ("id", "x" * 33),
+                ("label", " "),
+                ("label", "x" * 121),
+                ("detail", " "),
+                ("detail", "x" * 201),
+                ("optional", "yes"),
+                ("extra", True),
+            ]
+        ],
+        *[
+            {"steps": STEPS, key: value}
+            for key, value in [
+                ("options", OPTIONS),
+                ("fields", FIELDS),
+                ("multiple", False),
+                ("allow_other", False),
+                ("yes_label", "Yes"),
+                ("no_label", "No"),
+                ("recommended", "apply"),
+            ]
+        ],
+    ],
+)
+async def test_plan_invalid_create(asks, extra):
+    result = await create(asks, "plan", **extra)
+    assert result["error"]["code"] == "invalid_arguments" and not writes(asks[2])
+    assert asks[0].storage.db.execute("SELECT COUNT(*) FROM board_asks").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    "kind,extra",
+    [
+        ("confirm", {}),
+        ("choice", {"options": OPTIONS}),
+        ("text", {}),
+        ("form", {"fields": FIELDS}),
+    ],
+)
+async def test_only_plan_accepts_steps(asks, kind, extra):
+    result = await create(asks, kind, steps=STEPS, **extra)
+    assert result["error"]["code"] == "invalid_arguments" and not asks[2]
+
+
+@pytest.mark.parametrize(
+    "answer,expected,rendered",
+    [
+        (
+            {"approve": True},
+            {"approve": True, "steps": ["apply", "publish", "notify"]},
+            "Approved all 3 steps",
+        ),
+        (
+            {"approve": True, "steps": ["notify", "publish", "apply"]},
+            {"approve": True, "steps": ["apply", "publish", "notify"]},
+            "Approved all 3 steps",
+        ),
+        (
+            {"approve": True, "steps": ["apply", "notify"]},
+            {"approve": True, "steps": ["apply", "notify"]},
+            "Approved 2 of 3 steps (left out: Publish)",
+        ),
+        (
+            {"approve": True, "steps": ["apply"]},
+            {"approve": True, "steps": ["apply"]},
+            "Approved 1 of 3 steps (left out: Publish, Notify)",
+        ),
+        ({"approve": False}, {"approve": False}, "Not yet"),
+        (
+            {"approve": False, "note": "Later\nplease"},
+            {"approve": False, "note": "Later please"},
+            "Not yet — Later please",
+        ),
+        (
+            {"approve": True, "note": "Checked"},
+            {"approve": True, "steps": ["apply", "publish", "notify"], "note": "Checked"},
+            "Approved all 3 steps — Checked",
+        ),
+    ],
+)
+async def test_plan_answers(asks, answer, expected, rendered):
+    ask = (await create(asks, "plan", steps=STEPS))["ask"]
+    result = await owner(asks, ask["id"], answer)
+    assert result["ask"]["answer"] == expected and result["ask"]["answer_text"] == rendered
+    stored = asks[0].board.ask_row(ask["id"])
+    assert json.loads(stored["answer"]) == expected
+    assert asks[0].board.ask_object(stored) == result["ask"]
+    assert asks[1]["comments"][1][-1]["body"].endswith(rendered)
+    listing = await call(asks, "list")
+    assert listing["answered"][0]["answer_text"] == rendered
+    data = board_brief_data()
+    data["answered"] = listing["answered"]
+    assert rendered in FORMATTER["format_board"](data)
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {},
+        {"approve": None},
+        {"approve": 1},
+        {"approve": "yes"},
+        {"approve": False, "steps": []},
+        {"approve": False, "steps": ["apply"]},
+        {"approve": True, "steps": []},
+        {"approve": True, "steps": ["publish"]},
+        {"approve": True, "steps": ["apply", "apply"]},
+        {"approve": True, "steps": ["apply", "missing"]},
+        {"approve": True, "steps": "apply"},
+        {"approve": True, "steps": [1]},
+        {"approve": True, "choice": ["apply"]},
+        {"approve": True, "values": {}},
+        {"approve": True, "other": "Later"},
+        {"approve": True, "text": "Yes"},
+        {"approve": True, "note": " "},
+        {"approve": True, "unknown": False},
+    ],
+)
+async def test_invalid_plan_answers(asks, answer):
+    ask = (await create(asks, "plan", steps=STEPS))["ask"]
+    asks[2].clear()
+    result = await owner(asks, ask["id"], answer)
+    assert result["error"]["code"] == "invalid_arguments" and not asks[2]
+    assert asks[0].board.ask_row(ask["id"])["state"] == "open"
+
+
+async def test_plan_optional_only_and_render_cap(asks):
+    steps = [{"id": f"s{n}", "label": "x" * 120, "optional": True} for n in range(10)]
+    ask = (await create(asks, "plan", steps=steps))["ask"]
+    result = await owner(asks, ask["id"], {"approve": True, "steps": [], "note": "Later"})
+    assert result["ask"]["answer"]["steps"] == []
+    assert result["ask"]["answer_text"].startswith("Approved 0 of 10 steps (left out: ")
+    assert len(result["ask"]["answer_text"]) == 600
+
+
+@pytest.mark.parametrize(
+    "kind,extra",
+    [
+        ("confirm", {}),
+        ("choice", {"options": OPTIONS}),
+        ("text", {}),
+        ("form", {"fields": FIELDS}),
+        ("plan", {"steps": STEPS}),
+    ],
+)
+async def test_evidence_roundtrip_and_sanitizing(asks, kind, extra):
+    evidence = [
+        {"label": "Tests\npass", "value": "214\x00 of 214"},
+        {"label": "QA", "state": "pending"},
+        {"label": "Build", "state": "failed", "value": "Retry"},
+    ]
+    ask = (await create(asks, kind, evidence=evidence, **extra))["ask"]
+    assert ask["evidence"] == [
+        {"label": "Tests pass", "value": "214 of 214", "state": "done"},
+        {"label": "QA", "value": None, "state": "pending"},
+        evidence[2],
+    ]
+    assert "214 of 214" not in asks[1]["comments"][1][-1]["body"]
+    assert (await call(asks, "card", card="project#1"))["asks"][0] == ask
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        [{"label": "x"}] * 9,
+        [{}],
+        [{"label": " "}],
+        [{"label": "x" * 101}],
+        [{"label": "x", "value": " "}],
+        [{"label": "x", "value": "x" * 41}],
+        [{"label": "x", "state": "unknown"}],
+        [{"label": "x", "unknown": True}],
+        [{"label": "x", "value": None}],
+        "bad",
+    ],
+)
+async def test_invalid_evidence(asks, evidence):
+    result = await create(asks, evidence=evidence)
+    assert result["error"]["code"] == "invalid_arguments" and not asks[2]
+
+
+async def test_evidence_empty_and_eight_lines(asks):
+    assert (await create(asks, evidence=[]))["ask"]["evidence"] == []
+    rows = [{"label": "x" * 100, "value": "y" * 40, "state": "done"}] * 8
+    assert (await create(asks, evidence=rows))["ask"]["evidence"] == rows
+
+
+@pytest.fixture
+def picture(asks, tmp_path):
+    root = tmp_path / "pictures"
+    root.mkdir()
+    path = root / "preview.data"
+    path.write_bytes(b"\x89PNG\r\n\x1a\nexample")
+    asks[0].config.board = validate_board({"ask_media_roots": [str(root)]})
+    return path
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "off",
+        "outside",
+        "sibling",
+        "symlink",
+        "directory",
+        "large",
+        "magic",
+        "relative",
+        "missing",
+        "five",
+    ],
+)
+async def test_invalid_pictures(asks, picture, tmp_path, case):
+    path = picture
+    options = [{**OPTIONS[0], "image": str(path)}, OPTIONS[1]]
+    if case == "off":
+        asks[0].config.board = validate_board({})
+    elif case in {"outside", "sibling", "symlink"}:
+        outside_dir = tmp_path / "pictures-other"
+        outside_dir.mkdir()
+        outside = outside_dir / "preview.png"
+        outside.write_bytes(picture.read_bytes())
+        if case == "symlink":
+            link = picture.parent / "escape.png"
+            link.symlink_to(outside)
+            options[0]["image"] = str(link)
+        else:
+            options[0]["image"] = str(outside)
+    elif case == "directory":
+        options[0]["image"] = str(path.parent)
+    elif case == "large":
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * ASK_MEDIA_MAX_BYTES)
+    elif case == "magic":
+        path.write_bytes(b"PRIVATE_FILE_CONTENTS")
+    elif case == "relative":
+        options[0]["image"] = path.name
+    elif case == "missing":
+        path.unlink()
+    elif case == "five":
+        options = [{"id": f"p{n}", "label": "Picture", "image": str(path)} for n in range(5)]
+    result = await create(asks, "choice", options=options)
+    assert result["error"]["code"] == "invalid_arguments" and not asks[2]
+    assert "PRIVATE_FILE_CONTENTS" not in json.dumps(result)
+    assert not (asks[0].config.state_dir / "ask-media").exists()
+
+
+@pytest.mark.parametrize(
+    "extension,magic,media_type",
+    [
+        ("png", b"\x89PNG\r\n\x1a\n", "image/png"),
+        ("jpg", b"\xff\xd8\xff", "image/jpeg"),
+    ],
+)
+async def test_picture_copy_and_media_roundtrip(asks, picture, extension, magic, media_type):
+    # A maximum-size response must fit the registry budget, irrespective of file extension.
+    payload = magic + b"x" * (ASK_MEDIA_MAX_BYTES - len(magic))
+    picture.write_bytes(payload)
+    link = picture.parent / "alias"
+    link.symlink_to(picture)
+    ask = (await create(asks, "choice", options=[{**OPTIONS[0], "image": str(link)}, OPTIONS[1]]))[
+        "ask"
+    ]
+    assert [o["image"] for o in ask["options"]] == [True, False]
+    assert str(picture) not in json.dumps(ask)
+    directory = asks[0].board.media_directory(ask["id"])
+    copied = directory / f"fast.{extension}"
+    assert copied.read_bytes() == payload
+    assert stat.S_IMODE(copied.stat().st_mode) == 0o600
+    assert all(stat.S_IMODE(p.stat().st_mode) == 0o700 for p in (directory, directory.parent))
+    picture.unlink()
+    result = await call(asks, "ask_media", ask_id=ask["id"], option_id="fast")
+    assert result["bytes"] == ASK_MEDIA_MAX_BYTES and result["media_type"] == media_type
+    assert base64.b64decode(result["data_base64"]) == payload
+    assert (
+        len(json.dumps(result)) < asks[0].registry.capabilities["board_ask_media"].max_result_chars
+    )
+    transported = await Protocol(asks[0]).dispatch(
+        "tools/call",
+        {"name": "board_ask_media", "arguments": {"ask_id": ask["id"], "option_id": "fast"}},
+        "codex",
+        False,
+    )
+    assert not transported["isError"]
+    assert transported["structuredContent"]["data_base64"] == result["data_base64"]
+    assert len(transported["content"][0]["text"]) < 500_000
+    await owner(asks, ask["id"], {"choice": ["fast"]})
+    retained = await call(asks, "ask_media", ask_id=ask["id"], option_id="fast")
+    assert retained["data_base64"] == result["data_base64"]
+    for ask_id, option in [
+        (ask["id"], "full"),
+        (ask["id"], "unknown"),
+        ("ask_" + "0" * 16, "fast"),
+    ]:
+        missing = await call(asks, "ask_media", ask_id=ask_id, option_id=option)
+        assert missing["error"]["code"] == "not_found"
+    copied.unlink()
+    assert (await call(asks, "ask_media", ask_id=ask["id"], option_id="fast"))["error"][
+        "code"
+    ] == "not_found"
+
+
+async def test_four_pictures(asks, picture):
+    options = [{"id": f"p{n}", "label": "Picture", "image": str(picture)} for n in range(4)]
+    ask = (await create(asks, "choice", options=options))["ask"]
+    assert all(o["image"] for o in ask["options"])
+    assert len(list(asks[0].board.media_directory(ask["id"]).iterdir())) == 4
+
+
+@pytest.mark.parametrize("failure", ["copy", "comment", "move", "insert", "cancel"])
+async def test_picture_failure_cleans_copies_and_creates_no_ask(
+    asks, picture, monkeypatch, failure
+):
+    board = asks[0].board
+    if failure in {"copy", "cancel"}:
+        original = board.copy_pictures
+
+        def broken(ask_id, pictures):
+            original(ask_id, pictures)
+            if failure == "cancel":
+                raise asyncio.CancelledError
+            raise OSError("Copy failed")
+
+        monkeypatch.setattr(board, "copy_pictures", broken)
+    elif failure in {"comment", "move"}:
+        path = (
+            "/repos/example/project/issues/1/comments"
+            if failure == "comment"
+            else "/user/projects/19/issues/1001/move"
+        )
+        asks[1]["overrides"][path] = 503
+    else:
+        asks[0].storage.db.execute(
+            "CREATE TRIGGER fail_ask BEFORE INSERT ON board_asks "
+            "BEGIN SELECT RAISE(ABORT, 'fail'); END"
+        )
+    options = [{**OPTIONS[0], "image": str(picture)}, OPTIONS[1]]
+    if failure == "cancel":
+        with pytest.raises(asyncio.CancelledError):
+            await create(asks, "choice", options=options)
+    else:
+        result = await create(asks, "choice", options=options)
+        assert result["status"] == "error"
+    assert asks[0].storage.db.execute("SELECT COUNT(*) FROM board_asks").fetchone()[0] == 0
+    assert not list((asks[0].config.state_dir / "ask-media").glob("*"))
+
+
+async def test_media_prune_closed_after_thirty_days(asks, picture):
+    board = asks[0].board
+    now = datetime.now(UTC)
+    ids = []
+    for action in ("answer", "withdraw", "open", "recent", "boundary"):
+        ask = (
+            await create(
+                asks, "choice", options=[{**OPTIONS[0], "image": str(picture)}, OPTIONS[1]]
+            )
+        )["ask"]
+        ids.append(ask["id"])
+        if action == "open":
+            continue
+        if action == "withdraw":
+            await call(asks, "ask_withdraw", ask_id=ask["id"])
+        else:
+            await owner(asks, ask["id"], {"choice": ["fast"]})
+        assert (await call(asks, "ask_media", ask_id=ask["id"], option_id="fast"))["status"] == "ok"
+        closed = now - timedelta(
+            days={"answer": 31, "withdraw": 31, "recent": 29, "boundary": 30}[action]
+        )
+        with asks[0].storage.db as db:
+            if action == "withdraw":
+                spec = json.loads(board.ask_row(ask["id"])["spec"])
+                spec["closed_at"] = closed.isoformat()
+                db.execute(
+                    "UPDATE board_asks SET spec=? WHERE ask_id=?", (json.dumps(spec), ask["id"])
+                )
+            else:
+                db.execute(
+                    "UPDATE board_asks SET answered_at=? WHERE ask_id=?",
+                    (closed.isoformat(), ask["id"]),
+                )
+    board.prune_ask_media(now)
+    board.prune_ask_media(now)  # Idempotent; history and option flags remain.
+    assert [board.media_directory(i).exists() for i in ids] == [False, False, True, True, True]
+    assert board.ask_object(board.ask_row(ids[0]))["options"][0]["image"]
+    assert (await call(asks, "ask_media", ask_id=ids[0], option_id="fast"))["error"][
+        "code"
+    ] == "not_found"
+
+
+async def test_old_specs_default_new_keys(asks):
+    ask = (await create(asks))["ask"]
+    board = asks[0].board
+    spec = json.loads(board.ask_row(ask["id"])["spec"])
+    spec.pop("steps")
+    spec.pop("evidence")
+    for option in spec["options"]:
+        option.pop("image")
+    with asks[0].storage.db as db:
+        db.execute("UPDATE board_asks SET spec=? WHERE ask_id=?", (json.dumps(spec), ask["id"]))
+    assert (await call(asks, "card", card="project#1"))["asks"] == [ask]
+    assert (await owner(asks, ask["id"], {"choice": ["yes"]}))["ask"]["answer_text"] == "Yes"
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        None,
+        [],
+        {"unknown": []},
+        {"ask_media_roots": "bad"},
+        {"ask_media_roots": ["relative"]},
+        {"ask_media_roots": [3]},
+        "too_many",
+    ],
+)
+def test_invalid_board_media_config(settings, tmp_path):
+    if settings == "too_many":
+        settings = {"ask_media_roots": [str(tmp_path)] * 9}
+    with pytest.raises(ValueError):
+        validate_board(settings)
+
+
+def test_board_media_config_loading(config, tmp_path):
+    assert Config.load().board == {"ask_media_roots": []}
+    root = tmp_path / "pictures"
+    root.mkdir()
+    (config.config_dir / "config.yaml").write_text(
+        json.dumps({"board": {"ask_media_roots": [str(root)]}})
+    )
+    assert Config.load().board == {"ask_media_roots": [str(root.resolve())]}
+    file = root / "file"
+    file.touch()
+    with pytest.raises(ValueError):
+        validate_board({"ask_media_roots": [str(file)]})
+    (config.config_dir / "config.yaml").write_text("board: {unknown: []}")
+    with pytest.raises(ValueError):
+        Config.load()
+
+
+async def test_periodic_maintenance_prunes_media(asks, monkeypatch):
+    core = asks[0]
+    prune = Mock()
+    with monkeypatch.context() as patch:
+        patch.setattr(core.board, "prune_ask_media", prune)
+        patch.setattr(core.audit, "maintain", Mock())
+        patch.setattr(core.memory, "maintain", Mock())
+        patch.setattr(core.disk_health, "maintain", AsyncMock())
+        patch.setattr(
+            "switchboard.core.asyncio.sleep", AsyncMock(side_effect=asyncio.CancelledError)
+        )
+        with pytest.raises(asyncio.CancelledError):
+            await core.maintain()
+    prune.assert_called_once()
+    assert prune.call_args.args[0].tzinfo == UTC
+
+
+async def test_media_state_parent_alias_and_repository_denial(asks, picture, tmp_path, monkeypatch):
+    core = asks[0]
+    original = core.config.state_dir
+    alias = tmp_path / "state-parent"
+    alias.symlink_to(original.parent, target_is_directory=True)
+    core.config.state_dir = alias / original.name
+    ask = (
+        await create(asks, "choice", options=[{**OPTIONS[0], "image": str(picture)}, OPTIONS[1]])
+    )["ask"]
+    assert (await call(asks, "ask_media", ask_id=ask["id"], option_id="fast"))["status"] == "ok"
+    assert str(picture) not in core.audit.path.read_text()
+    change_policy(core.config, lambda p: p["allowlists"]["git"].update(write_repos=[]))
+    reader = Mock(side_effect=AssertionError("Denied repositories must not read pictures"))
+    monkeypatch.setattr(core.board, "picture_inputs", reader)
+    result = await create(
+        asks, "choice", options=[{**OPTIONS[0], "image": str(picture)}, OPTIONS[1]]
+    )
+    assert result["error"]["code"] == "resource_denied"
+    reader.assert_not_called()
+
+
+async def test_media_tool_contract_and_schema_denials(asks):
+    cap = asks[0].registry.capabilities["board_ask_media"]
+    assert cap.scope == "board:read" and cap.tier == "read" and cap.idempotent
+    assert cap.max_result_chars == 500_000 and len(cap.description) <= 400
+    assert all(term in cap.description for term in ("Use when", "Requires", "Returns"))
+    for args in (
+        {},
+        {"ask_id": "../bad", "option_id": "fast"},
+        {"ask_id": "ask_" + "0" * 16, "option_id": "../bad"},
+        {"ask_id": "ask_" + "0" * 16, "option_id": "fast", "path": "ignored"},
+    ):
+        assert (await call(asks, "ask_media", **args))["error"]["code"] == "invalid_arguments"

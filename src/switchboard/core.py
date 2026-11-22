@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import time
+from datetime import UTC, datetime
 
 from .alerts import AlertDelivery
 from .approvals import Approvals
@@ -98,6 +99,10 @@ class Core:
                 self.memory.maintain()
             except Exception:
                 pass  # Optional memory housekeeping must not interrupt serving.
+            try:
+                self.board.prune_ask_media(datetime.now(UTC))
+            except Exception:
+                pass  # Media retention must not interrupt serving.
             await asyncio.sleep(600)
 
     async def close(self):

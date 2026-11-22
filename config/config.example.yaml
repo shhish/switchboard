@@ -193,6 +193,11 @@ upstreams:
       dot: ~/.local/share/orb-hub/mcp/tokens/dot.token
       claude: ~/.local/share/orb-hub/mcp/tokens/claude.token
       codex: ~/.local/share/orb-hub/mcp/tokens/codex.token
+# Choice option pictures are off by default. Roots must be absolute directories.
+# Pictures are PNG/JPEG, up to 360 KiB each, at most 4 per ask.
+board:
+  ask_media_roots: []  # e.g. [/absolute/path/to/previews]
+
 backends:
   gitea:
     enabled: false

@@ -5,15 +5,15 @@
 **One set of hands in your house for every AI agent you use.**
 
 Ask Claude to wake the PS5. Ask Codex why Sonarr restarted at 3am. Ask ChatGPT to dim the bedroom lights.<br/>
-They all go through the same 141 tools, one rulebook and one audit log, running on your own Mac.
+They all go through the same 142 tools, one rulebook and one audit log, running on your own Mac.
 
 [![MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.13+-3776AB?style=flat-square&logo=python&logoColor=white)
 ![macOS](https://img.shields.io/badge/macOS-host-000000?style=flat-square&logo=apple&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-server-8A2BE2?style=flat-square)
-![141 tools](https://img.shields.io/badge/tools-141-success?style=flat-square)
+![142 tools](https://img.shields.io/badge/tools-142-success?style=flat-square)
 
-[What it does](#what-it-can-do) · [See it](#a-day-with-switchboard) · [Guard rails](#guard-rails) · [Quick start](#quick-start) · [All 141 tools](docs/CAPABILITIES.md)
+[What it does](#what-it-can-do) · [See it](#a-day-with-switchboard) · [Guard rails](#guard-rails) · [Quick start](#quick-start) · [All 142 tools](docs/CAPABILITIES.md)
 
 </div>
 
@@ -55,7 +55,7 @@ More things you can ask:
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/readme/how-it-fits-dark.svg">
-    <img src="docs/readme/how-it-fits-light.svg" alt="Claude Code, Codex, Antigravity, ChatGPT and your own scripts call Switchboard on your Mac, which applies policy and approvals, runs 141 typed tools, keeps an audit log and shared names, and reaches Plex, Apple Home, PlayStation 5, Things 3, notes and recipes, and the Mac mini and Raspberry Pi." width="100%">
+    <img src="docs/readme/how-it-fits-light.svg" alt="Claude Code, Codex, Antigravity, ChatGPT and your own scripts call Switchboard on your Mac, which applies policy and approvals, runs 142 typed tools, keeps an audit log and shared names, and reaches Plex, Apple Home, PlayStation 5, Things 3, notes and recipes, and the Mac mini and Raspberry Pi." width="100%">
   </picture>
 </p>
 
@@ -71,8 +71,8 @@ Every integration is optional. Turn on the ones you run. The [full tour](#the-fu
 | 💾 **Watch disk health**<br/><sub>`storage_*` · 2 tools</sub> | Disk space, fill trends and SMART warnings for NVMe and USB drives; fill history for the Raspberry Pi. |
 | 🎬 **Watch things**<br/><sub>`media_*` · 17 tools</sub> | Request movies and shows through Seerr, "what should I watch?", continue watching, who watched what, downloads. |
 | 🔀 **Ship code**<br/><sub>`git_*` · 11 tools</sub> | Gitea PRs, CI jobs and redacted logs; shared checkout status; allowlisted PR creation, comments, green merges, reruns and annotated release tags. |
-| 📋 **Share the work**<br/><sub>`board_*` · 10 tools</sub> | One Gitea Slate board for ideas, claimed work and structured questions for you; Siri ideas in Things become Ideas cards, and merged PRs close cards. |
-| **Answer on Slate**<br/><sub>`board_ask` · `board_answer`</sub> | Yes/no, choice, text and small forms for the Server app to answer; agents can wait or read answers in their next brief. |
+| 📋 **Share the work**<br/><sub>`board_*` · 11 tools</sub> | One Gitea Slate board for ideas, claimed work and structured questions for you; Siri ideas in Things become Ideas cards, and merged PRs close cards. |
+| **Answer on Slate**<br/><sub>`board_ask` · `board_answer`</sub> | Yes/no, choice, text, forms and plans in the Server app, with evidence and picture choices; agents can wait or read answers in their next brief. |
 | 🎮 **Play**<br/><sub>`console_*` · 6 tools</sub> | PS5 on, off, temperature and storage; list your games, launch or close one. |
 | 🛡️ **Home network**<br/><sub>`dns_*` · 3 tools</sub> | AdGuard Home on the Pi: what it answered and blocked, for which devices; pause blocking for a few minutes. |
 | 💡 **Run the house**<br/><sub>`home_*` `routines_*` · 15 tools</sub> | Lights, accessories and scenes in Apple Home, and routines that run on their own: motion, held-open, time and sunset triggers. Locks and garage doors need your approval. |
