@@ -20,3 +20,19 @@
 - The owner controls policy, tokens and deployed binaries. A process with that
   user's filesystem access can bypass this boundary. Routine clients should get
   only their own credential and the public adapters.
+
+## Slate answers
+
+`board:read` reads cards and asks; `board:write` creates and withdraws asks.
+`board:answer` is a separate write scope intended only for the owner's own surface,
+such as the Server app's `cortex` client. Never grant `board:answer` to an agent
+client. The repository write allowlist still applies, and a client cannot answer
+its own ask. No live policy is changed by declaring this scope.
+
+An answer records the owner's decision on that question only. It grants no
+Switchboard permission, never widens scopes or allowlists, and never resolves an
+approval. Approvals keep their separate exact-argument, expiring, single-use flow.
+Ask and answer text is stored in SQLite and posted to the card as comments: never
+ask for secrets, passwords, tokens or keys. Audit arguments hash entire `answer`,
+`options` and `fields` objects/arrays as well as prompts, details and custom labels;
+their nested text is not copied to SQLite audit arguments or JSONL in clear.

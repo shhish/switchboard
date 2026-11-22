@@ -2,9 +2,11 @@
 
 import asyncio
 import json
+import math
 import re
+import secrets
 import time
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from .domains.board import COLUMNS
 from .domains.common import sanitize_text
@@ -30,7 +32,12 @@ def title_key(value):
 
 
 class Board:
-    def __init__(self, core):
+    sleep = staticmethod(asyncio.sleep)
+    clock = staticmethod(time.monotonic)
+
+    def __init__(self, core, *, sleep=None, clock=None):
+        self.sleep = sleep or self.sleep
+        self.clock = clock or self.clock
         self.core = core
         self.api = core.backends.gitea
         self.git = Git(core)
@@ -139,6 +146,9 @@ class Board:
             "state": issue["state"],
             "updated": text(issue.get("updated_at"), 80),
             "url": text(issue.get("html_url"), 600),
+            "asks_open": self.core.storage.db.execute(
+                "SELECT COUNT(*) FROM board_asks WHERE issue_id=? AND state='open'", (issue_id,)
+            ).fetchone()[0],
             "labels": [text(mapping(label).get("name"), 80) for label in labels[:20]],
             **{
                 key: receipt[key] if receipt else None
@@ -153,6 +163,7 @@ class Board:
         for issue, repo, column in rows:
             if project is None or repo == project:
                 card = self.summary(issue, repo, column)
+                card["open_asks"] = self.open_asks(issue["id"])
                 groups[card["column"]].append(card)
         needs_you = sum(c["state"] == "open" for c in groups["Needs you"])
         remaining = args.get("limit", 60)
@@ -171,14 +182,55 @@ class Board:
             remaining -= len(selected)
             truncated |= len(selected) < count
             result.append({"title": name, "count": count, "cards": selected})
-        return {
+        open_cards = {
+            issue["id"]
+            for issue, repo, _ in rows
+            if issue["state"] == "open" and (project is None or repo == project)
+        }
+        answered = []
+        if open_cards:
+            placeholders = ",".join("?" for _ in open_cards)
+            recent = self.core.storage.db.execute(
+                "SELECT * FROM board_asks WHERE state='answered' "
+                f"AND issue_id IN ({placeholders}) AND julianday(answered_at)>=julianday(?) "
+                "ORDER BY julianday(answered_at) DESC, rowid DESC LIMIT 10",
+                (*sorted(open_cards), (datetime.now(UTC) - timedelta(hours=72)).isoformat()),
+            )
+            for row in recent:
+                ask = self.ask_object(row)
+                answered.append(
+                    {
+                        "ask_id": ask["id"],
+                        **{
+                            k: ask[k]
+                            for k in (
+                                "card",
+                                "from",
+                                "prompt",
+                                "answer_text",
+                                "answered",
+                                "answered_by",
+                            )
+                        },
+                    }
+                )
+        result = {
             "status": "ok",
             "board": board["board"],
             "columns": result,
             "needs_you": needs_you,
+            "answered": answered,
             "limit": args.get("limit", 60),
             "truncated": truncated,
         }
+        # Whole asks can be large. Keep the advertised 500k result budget without
+        # cutting an ask or answer in half; counts still describe the full scan.
+        overflow = len(json.dumps(result)) - 475_000
+        for column in reversed(result["columns"]):
+            while overflow > 0 and column["cards"]:
+                overflow -= len(json.dumps(column["cards"].pop()))
+                result["truncated"] = True
+        return result
 
     async def lookup(self, repo, number):
         board, rows, partial = await self.snapshot()
@@ -225,9 +277,17 @@ class Board:
                 invalid()
             comments.extend(rows)
         comments.sort(key=lambda r: (text(r.get("created_at"), 80), positive(r.get("id"))))
-        return {
+        result = {
             "status": "ok",
             **self.summary(issue, repo, column),
+            "asks": [
+                self.ask_object(r)
+                for r in self.core.storage.db.execute(
+                    "SELECT * FROM board_asks WHERE issue_id=? "
+                    "ORDER BY created_at DESC, rowid DESC LIMIT 10",
+                    (issue["id"],),
+                )
+            ],
             "body": text(issue.get("body"), 6000),
             "created": text(issue.get("created_at"), 80),
             "comments": [
@@ -240,6 +300,14 @@ class Board:
             ],
             "truncated": count > 30,
         }
+        overflow = len(json.dumps(result)) - 475_000
+        while overflow > 0 and result["asks"]:
+            overflow -= len(json.dumps(result["asks"].pop()))
+            result["truncated"] = True
+        while overflow > 0 and result["comments"]:
+            overflow -= len(json.dumps(result["comments"].pop(0)))
+            result["truncated"] = True
+        return result
 
     def record(self, issue, repo, column, client, note=None, *, claim=False):
         summary = self.summary(issue, repo, column)
@@ -363,6 +431,395 @@ class Board:
                 "comment_id": comment_id,
                 **self.summary(issue, repo, column),
             }
+
+    @staticmethod
+    def nonblank(value, limit):
+        value = text(value, limit)
+        if not value:
+            raise CapabilityError("invalid_arguments", "Ask text must not be blank")
+        return value
+
+    def ask_spec(self, args):
+        kind = args["kind"]
+        option_args = {
+            "options",
+            "multiple",
+            "allow_other",
+            "recommended",
+            "yes_label",
+            "no_label",
+            "destructive",
+        }
+        allowed = {
+            "confirm": {"yes_label", "no_label", "recommended", "destructive"},
+            "choice": {"options", "multiple", "allow_other", "recommended"},
+            "text": set(),
+            "form": {"fields"},
+        }[kind]
+        if (option_args | {"fields"}) & args.keys() - allowed:
+            raise CapabilityError("invalid_arguments", "Arguments do not match the ask kind")
+        spec = {
+            "prompt": self.nonblank(args["prompt"], 300),
+            "detail": self.nonblank(args["detail"], 2000) if "detail" in args else None,
+            "options": [],
+            "multiple": args.get("multiple", False),
+            "allow_other": args.get("allow_other", False),
+            "recommended": args.get("recommended"),
+            "destructive": args.get("destructive", False),
+            "fields": [],
+        }
+
+        def options(rows, *, detail=False):
+            ids = [r["id"] for r in rows]
+            if len(ids) != len(set(ids)) or any(
+                re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", value) is None for value in ids
+            ):
+                raise CapabilityError("invalid_arguments", "Option IDs must be unique")
+            return [
+                {
+                    "id": text(r["id"], 32),
+                    "label": self.nonblank(r["label"], 80),
+                    **(
+                        {"detail": self.nonblank(r["detail"], 200) if "detail" in r else None}
+                        if detail
+                        else {}
+                    ),
+                }
+                for r in rows
+            ]
+
+        if kind == "confirm":
+            spec["options"] = [
+                {
+                    "id": key,
+                    "label": self.nonblank(args.get(key + "_label", label), 40),
+                    "detail": None,
+                }
+                for key, label in (("yes", "Yes"), ("no", "No"))
+            ]
+        elif kind == "choice":
+            if "options" not in args:
+                raise CapabilityError("invalid_arguments", "Choice asks require options")
+            spec["options"] = options(args["options"], detail=True)
+        elif kind == "form":
+            if "fields" not in args:
+                raise CapabilityError("invalid_arguments", "Form asks require fields")
+            ids = [f["id"] for f in args["fields"]]
+            if len(ids) != len(set(ids)) or any(
+                re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", value) is None for value in ids
+            ):
+                raise CapabilityError("invalid_arguments", "Field IDs must be unique")
+            for field in args["fields"]:
+                if (field["type"] == "choice") != ("options" in field):
+                    raise CapabilityError("invalid_arguments", "Only choice fields require options")
+                spec["fields"].append(
+                    {
+                        "id": text(field["id"], 32),
+                        "label": self.nonblank(field["label"], 80),
+                        "type": field["type"],
+                        "required": field["required"],
+                        "placeholder": self.nonblank(field["placeholder"], 80)
+                        if "placeholder" in field
+                        else None,
+                        "options": options(field.get("options", [])),
+                    }
+                )
+        if spec["recommended"] is not None and spec["recommended"] not in {
+            o["id"] for o in spec["options"]
+        }:
+            raise CapabilityError("invalid_arguments", "Recommended option must be an option ID")
+        return spec
+
+    def validate_answer(self, kind, spec, answer):
+        allowed = {
+            "confirm": {"choice"},
+            "choice": {"choice", "other"},
+            "text": {"text"},
+            "form": {"values"},
+        }[kind] | {"note"}
+        if answer.keys() - allowed:
+            raise CapabilityError("invalid_arguments", "Answer does not match the ask kind")
+        result = {}
+        if kind in {"confirm", "choice"}:
+            choices = answer.get("choice", [])
+            labels = {o["id"]: o["label"] for o in spec["options"]}
+            other = answer.get("other")
+            if (
+                len(choices) != len(set(choices))
+                or set(choices) - labels.keys()
+                or (not spec["multiple"] and len(choices) > 1)
+                or (not choices and other is None)
+                or (other is not None and not spec["allow_other"])
+            ):
+                raise CapabilityError("invalid_arguments", "Choose the permitted option IDs")
+            if "choice" in answer:
+                result["choice"] = choices
+            parts = [labels[c] for c in choices]
+            if other is not None:
+                result["other"] = self.nonblank(other, 500)
+                parts.append(result["other"])
+            rendered = ", ".join(parts)
+        elif kind == "text":
+            if "text" not in answer:
+                raise CapabilityError("invalid_arguments", "Text answer is required")
+            result["text"] = rendered = self.nonblank(answer["text"], 4000)
+        else:
+            fields = {f["id"]: f for f in spec["fields"]}
+            values = answer.get("values")
+            if (
+                values is None
+                or values.keys() - fields.keys()
+                or any(f["required"] and key not in values for key, f in fields.items())
+            ):
+                raise CapabilityError("invalid_arguments", "Supply the required form fields only")
+            result["values"] = {}
+            parts = []
+            for key, field in fields.items():
+                if key not in values:
+                    continue
+                value = values[key]
+                field_type = field["type"]
+                valid = True
+                label = value
+                if field_type in {"text", "multiline"}:
+                    valid = isinstance(value, str) and 1 <= len(value) <= 2000
+                    if valid:
+                        value = label = self.nonblank(value, 2000)
+                elif field_type == "number":
+                    valid = type(value) in (int, float) and (
+                        not isinstance(value, float) or math.isfinite(value)
+                    )
+                elif field_type == "toggle":
+                    valid = type(value) is bool
+                    label = "Yes" if value else "No"
+                elif field_type == "choice":
+                    labels = {o["id"]: o["label"] for o in field["options"]}
+                    valid = isinstance(value, str) and value in labels
+                    if valid:
+                        label = labels[value]
+                elif field_type == "date":
+                    valid = (
+                        isinstance(value, str)
+                        and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value) is not None
+                    )
+                    if valid:
+                        try:
+                            date.fromisoformat(value)
+                        except ValueError:
+                            valid = False
+                if not valid:
+                    raise CapabilityError("invalid_arguments", "Invalid form field value")
+                result["values"][key] = value
+                parts.append(f"{field['label']}: {label}")
+            rendered = "; ".join(parts)
+        if "note" in answer:
+            result["note"] = self.nonblank(answer["note"], 1000)
+            rendered += " — " + result["note"]
+        return result, text(rendered, 600)
+
+    def ask_row(self, ask_id):
+        row = self.core.storage.db.execute(
+            "SELECT * FROM board_asks WHERE ask_id=?", (ask_id,)
+        ).fetchone()
+        if row is None:
+            raise CapabilityError("not_found", "Ask not found")
+        return row
+
+    def ask_object(self, row):
+        spec = json.loads(row["spec"])
+        answer, rendered = None, None
+        if row["answer"] is not None:
+            answer, rendered = self.validate_answer(row["kind"], spec, json.loads(row["answer"]))
+
+        # Sanitize every persisted string, including nested answer values and identities.
+        def clean(value):
+            if isinstance(value, str):
+                return text(value, 4000)
+            if isinstance(value, dict):
+                return {text(k, 80): clean(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [clean(v) for v in value]
+            return value
+
+        return clean(
+            {
+                "id": row["ask_id"],
+                "card": row["card"],
+                "from": row["asker"],
+                "kind": row["kind"],
+                **spec,
+                "state": row["state"],
+                "created": row["created_at"],
+                "answered": row["answered_at"],
+                "answered_by": row["answered_by"],
+                "answer": answer,
+                "answer_text": rendered,
+            }
+        )
+
+    def open_asks(self, issue_id, limit=3):
+        return [
+            self.ask_object(r)
+            for r in self.core.storage.db.execute(
+                "SELECT * FROM board_asks WHERE issue_id=? AND state='open' "
+                "ORDER BY created_at, rowid LIMIT ?",
+                (issue_id, limit),
+            )
+        ]
+
+    async def ask(self, client, args):
+        spec = self.ask_spec(args)
+        repo, number = self.reference(args["card"])
+        async with self._write_lock:
+            self.core.policy.require_git_repo(repo)
+            board, issue, column = await self.lookup(repo, number)
+            summary = self.summary(issue, repo, column)
+            if issue["state"] != "open" or column == "Done":
+                raise CapabilityError("invalid_arguments", "reopen the card first")
+            if summary["asks_open"] >= 5:
+                raise CapabilityError("invalid_arguments", "At most five open asks per card")
+            return_column = column
+            if column == "Needs you":
+                previous = self.core.storage.db.execute(
+                    "SELECT return_column FROM board_asks WHERE issue_id=? AND state='open' "
+                    "ORDER BY created_at, rowid LIMIT 1",
+                    (issue["id"],),
+                ).fetchone()
+                return_column = (
+                    previous["return_column"]
+                    if previous
+                    else ("In progress" if summary["claimed_by"] else "Up next")
+                )
+            ask_id = "ask_" + secrets.token_hex(8)
+            if column != "Needs you":
+                await self.move_ask_card(board, issue, "Needs you")
+            lines = [f"**{client}** asks: {spec['prompt']}"]
+            if spec["detail"]:
+                lines.extend(["", spec["detail"]])
+            rows = spec["fields"] if args["kind"] == "form" else spec["options"]
+            if rows:
+                lines.append("")
+                lines.extend(
+                    "- " + r["label"] + (" (suggested)" if r["id"] == spec["recommended"] else "")
+                    for r in rows
+                )
+            lines.extend(["", f"_Answer in the Server app. Ask {ask_id}._"])
+            await self.api.request(
+                f"{self.git.path(repo)}/issues/{number}/comments",
+                method="POST",
+                payload={"body": "\n".join(lines)},
+            )
+            with self.core.storage.db as db:
+                db.execute(
+                    "INSERT INTO board_asks (ask_id, issue_id, card, asker, kind, spec, "
+                    "state, return_column, created_at) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?)",
+                    (
+                        ask_id,
+                        issue["id"],
+                        summary["card"],
+                        client,
+                        args["kind"],
+                        json.dumps(spec),
+                        return_column,
+                        datetime.now(UTC).isoformat(),
+                    ),
+                )
+            self.record(issue, repo, "Needs you", client, spec["prompt"])
+            issue = await self.read_issue(repo, number, issue["id"])
+            return {
+                "status": "ok",
+                **self.summary(issue, repo, "Needs you"),
+                "ask": self.ask_object(self.ask_row(ask_id)),
+            }
+
+    async def ask_wait(self, client, args):
+        start = self.clock()
+        deadline = start + args.get("timeout_s", 120)
+        row = self.ask_row(args["ask_id"])
+        while row["state"] == "open":
+            remaining = deadline - self.clock()
+            if remaining <= 0:
+                break
+            await self.sleep(min(2, remaining))
+            row = self.ask_row(args["ask_id"])
+        return {
+            "status": "ok",
+            "ask": self.ask_object(row),
+            "waited_s": max(0, self.clock() - start),
+            "timed_out": row["state"] == "open",
+        }
+
+    async def move_ask_card(self, board, issue, column):
+        await self.api.request(
+            f"{board['prefix']}/issues/{issue['id']}/move",
+            method="POST",
+            payload={"column_id": board["columns"][column]},
+        )
+
+    async def finish_ask(self, client, args, *, withdraw=False):
+        async with self._write_lock:
+            row = self.ask_row(args["ask_id"])
+            if withdraw and row["asker"] != client or not withdraw and row["asker"] == client:
+                raise CapabilityError(
+                    "resource_denied",
+                    "Only the asker may withdraw; clients cannot answer their own asks",
+                )
+            if row["state"] != "open":
+                raise CapabilityError(
+                    "invalid_arguments",
+                    "Ask already answered" if row["state"] == "answered" else "Ask withdrawn",
+                )
+            answer, rendered = (
+                (None, None)
+                if withdraw
+                else self.validate_answer(row["kind"], json.loads(row["spec"]), args["answer"])
+            )
+            repo, number = self.reference(row["card"])
+            self.core.policy.require_git_repo(repo)
+            board, issue, column = await self.lookup(repo, number)
+            with self.core.storage.db as db:
+                if withdraw:
+                    db.execute(
+                        "UPDATE board_asks SET state='withdrawn' WHERE ask_id=?", (row["ask_id"],)
+                    )
+                else:
+                    db.execute(
+                        "UPDATE board_asks SET state='answered', answer=?, answered_by=?, "
+                        "answered_at=? WHERE ask_id=?",
+                        (json.dumps(answer), client, datetime.now(UTC).isoformat(), row["ask_id"]),
+                    )
+            prompt = json.loads(row["spec"])["prompt"]
+            body = (
+                f"**{client}** withdrew the ask: {prompt}"
+                if withdraw
+                else f"**{client}** answered **{row['asker']}**: {rendered}"
+            )
+            await self.api.request(
+                f"{self.git.path(repo)}/issues/{number}/comments",
+                method="POST",
+                payload={"body": body},
+            )
+            self.record(issue, repo, column, client, prompt if withdraw else rendered)
+            if (
+                not self.open_asks(issue["id"], 1)
+                and column == "Needs you"
+                and issue["state"] == "open"
+                and row["return_column"] != "Needs you"
+            ):
+                await self.move_ask_card(board, issue, row["return_column"])
+                column = row["return_column"]
+            issue = await self.read_issue(repo, number, issue["id"])
+            return {
+                "status": "ok",
+                **self.summary(issue, repo, column),
+                "ask": self.ask_object(self.ask_row(row["ask_id"])),
+            }
+
+    async def ask_withdraw(self, client, args):
+        return await self.finish_ask(client, args, withdraw=True)
+
+    async def answer(self, client, args):
+        return await self.finish_ask(client, args)
 
     def things_enabled(self):
         settings = self.core.config.backends

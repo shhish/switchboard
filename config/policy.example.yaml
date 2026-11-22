@@ -39,6 +39,10 @@ clients:
 # corresponding list is empty; a populated list takes precedence.
 # Slate needs board:read for reads and board:write for writes. The owner
 # chooses which clients receive these scopes; board writes also use git.write_repos.
+# board:answer is only for the owner's own surface (for example cortex in the
+# Server app). Never grant it to an agent client. It also requires git.write_repos.
+# An answer grants no permission; approvals keep their separate flow. Provision
+# board:read and board:answer explicitly on the intended owner client only.
 # Things capture also needs tasks:write on manual calls and an allowed Things
 # project/area for completion. Automatic capture uses the same resource allowlists.
 allowlists:

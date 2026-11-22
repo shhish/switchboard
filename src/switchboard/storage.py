@@ -22,6 +22,13 @@ class Storage:
                 issue_id INTEGER PRIMARY KEY, card TEXT NOT NULL,
                 claimed_by TEXT, last_actor TEXT, last_note TEXT, last_at TEXT
             );
+            CREATE TABLE IF NOT EXISTS board_asks (
+                ask_id TEXT PRIMARY KEY, issue_id INTEGER NOT NULL, card TEXT NOT NULL,
+                asker TEXT NOT NULL, kind TEXT NOT NULL, spec TEXT NOT NULL,
+                state TEXT NOT NULL, return_column TEXT NOT NULL, created_at TEXT NOT NULL,
+                answered_at TEXT, answered_by TEXT, answer TEXT
+            );
+            CREATE INDEX IF NOT EXISTS board_asks_issue_state ON board_asks(issue_id, state);
             -- Several Things captures can resolve to the same duplicate-guarded card.
             CREATE TABLE IF NOT EXISTS board_things_imports (
                 things_id TEXT PRIMARY KEY, card TEXT NOT NULL, imported_at TEXT NOT NULL

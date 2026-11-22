@@ -8,7 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 RULES = (
     "Board rules: claim a card (board_move → In progress) before working on it; "
-    "comment progress; when blocked on the owner move it to Needs you with the exact ask; "
+    "comment progress; for physical owner actions move to Needs you with an exact note; "
+    "to ask the owner a question use board_ask (yes/no, choice, text or form), not a prose note; "
     'PRs say "Closes <repo>#<n>".'
 )
 
@@ -36,7 +37,27 @@ def format_board(data):
     ]
     # Reserve space for Ideas, the truncation notice and the workflow rules.
     budget = 1500 - len(RULES) - 130
-    for name in ("Needs you", "In progress", "Up next"):
+    answers = []
+    for entry in (data.get("answered") or [])[:10]:
+        if not isinstance(entry, dict):
+            continue
+        if not entry.get("answered_by") or entry["answered_by"] == entry.get("from"):
+            continue
+        answers.append(
+            f"  {clean(entry.get('card'), 120)}  {clean(entry.get('prompt'), 80)}"
+            f" → {clean(entry.get('answer_text'), 120)} · asked by {clean(entry.get('from'), 50)}"
+        )
+    heading = "Answered by the owner (act on these; board_card for the full answer)"
+    reserve = len(heading) + len(answers[0]) + 2 if answers else 0
+    for name in ("Needs you", "Answered", "In progress", "Up next"):
+        if name == "Answered":
+            if answers and len("\n".join(lines)) + len(heading) + len(answers[0]) + 2 <= budget:
+                lines.append(heading)
+                for line in answers:
+                    if len("\n".join(lines)) + len(line) + 1 > budget:
+                        break
+                    lines.append(line)
+            continue
         cards = columns.get(name, {}).get("cards", [])
         if not cards:
             continue
@@ -45,7 +66,9 @@ def format_board(data):
             line = f"  {clean(card['card'], 120)}  {clean(card['title'], 150)}"
             if card.get("claimed_by"):
                 line += " · " + clean(card["claimed_by"], 50)
-            if len("\n".join(lines)) + len(line) + 1 > budget:
+            if len("\n".join(lines)) + len(line) + 1 > budget - (
+                reserve if name == "Needs you" else 0
+            ):
                 break
             lines.append(line)
     lines.append(f"Ideas: {counts['Ideas']} (board_list for the rest)")

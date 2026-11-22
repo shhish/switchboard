@@ -13,6 +13,12 @@ secret provisioning, tunnel switch or backend mutation is part of this build.
   Five-minute discovery cache, workflow skill and bounded Claude session context;
   fake-Gitea coverage, with no live writes or private policy changes.
 
+- [x] Structured Slate asks: confirm, choice, text and typed forms; local waits,
+  withdrawal, bounded open/recent-answer reads and session briefs. Owner-surface
+  answers use the separate `board:answer` scope and never grant permissions.
+  Fake-Gitea tests only; enabling the Server app surface and private scope remains
+  owner work, outside this change.
+
 - [x] Optional Siri/Things project capture into Ideas: 20-item batches, durable
   receipts before completion, native-client reads and policy-checked completions.
   Monitor interval gating survives restarts; system audit and on-demand

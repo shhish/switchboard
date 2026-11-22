@@ -517,7 +517,17 @@ def test_config_load_board_settings(config):
 
 async def test_board_capability_contracts(board_api):
     core = board_api[0]
-    for name in ("list", "card", "add", "move", "comment"):
+    for name in (
+        "list",
+        "card",
+        "add",
+        "move",
+        "comment",
+        "ask",
+        "ask_wait",
+        "ask_withdraw",
+        "answer",
+    ):
         cap = core.registry.capabilities["board_" + name]
         assert len(cap.description) <= 400
         assert all(
