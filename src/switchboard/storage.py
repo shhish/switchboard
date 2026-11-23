@@ -57,6 +57,18 @@ class Storage:
                 name TEXT PRIMARY KEY, until REAL NOT NULL, reason TEXT NOT NULL,
                 client TEXT NOT NULL, created_at REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS monitor_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, at REAL NOT NULL,
+                status TEXT NOT NULL, previous TEXT NOT NULL,
+                latency_ms REAL, incident_id TEXT
+            );
+            CREATE INDEX IF NOT EXISTS monitor_events_at ON monitor_events(at);
+            CREATE INDEX IF NOT EXISTS monitor_events_name_at ON monitor_events(name, at);
+            CREATE TABLE IF NOT EXISTS monitor_hours (
+                hour REAL NOT NULL, name TEXT NOT NULL, worst TEXT NOT NULL,
+                checks INTEGER NOT NULL, failures INTEGER NOT NULL,
+                PRIMARY KEY(hour, name)
+            );
             CREATE TABLE IF NOT EXISTS monitor_meta (key TEXT PRIMARY KEY, value REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS service_restarts (
                 name TEXT PRIMARY KEY, restarted_at REAL NOT NULL
@@ -161,6 +173,15 @@ class Storage:
         """)
 
         # Existing releases predate supersession; migrate without losing retry/dedupe state.
+        for table, additions in {
+            "monitor_state": {"latency_ms": "REAL"},
+            "board_cards": {"title": "TEXT", "column_name": "TEXT"},
+        }.items():
+            columns = {row["name"] for row in self.db.execute(f"PRAGMA table_info({table})")}
+            for column, kind in additions.items():
+                if column not in columns:
+                    self.db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+        self.db.commit()
         state_columns = {row["name"] for row in self.db.execute("PRAGMA table_info(monitor_state)")}
         if "notified" not in state_columns:
             self.db.execute(

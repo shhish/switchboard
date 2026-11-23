@@ -351,7 +351,7 @@ async def test_cortex_auth_discovery_and_denials(server, config):
     core, url, session = server
     policy = Policy(Path("config/policy.example.yaml"))
     assert policy.client("cortex") == {
-        "scopes": ["memory:read", "ops:read", "weather:read", "git:read"]
+        "scopes": ["memory:read", "ops:read", "activity:read", "weather:read", "git:read"]
     }
     core.policy = policy
     assert (
@@ -359,7 +359,15 @@ async def test_cortex_auth_discovery_and_denials(server, config):
     )
     response = await session.get(url + "/v1/tools", headers=bearer(config, "cortex"))
     catalog = await response.json()
-    cortex_tools = {"ops_health", "ops_switchboard_status", "ops_alerts_status", "dns_stats"} | {
+    cortex_tools = {
+        "activity_feed",
+        "ops_pulse",
+        "ops_service_history",
+        "ops_health",
+        "ops_switchboard_status",
+        "ops_alerts_status",
+        "dns_stats",
+    } | {
         name
         for name in core.registry.capabilities
         if name.startswith(("weather_", "storage_"))
@@ -373,7 +381,13 @@ async def test_cortex_auth_discovery_and_denials(server, config):
     result = await core.call("cortex", "ops_health", {})
     assert result["status"] == "ok"
     for name, cap in core.registry.capabilities.items():
-        if cap.scope not in ("ops:read", "weather:read", "git:read", "memory:read"):
+        if cap.scope not in (
+            "ops:read",
+            "activity:read",
+            "weather:read",
+            "git:read",
+            "memory:read",
+        ):
             assert (await core.call("cortex", name, {}))["error"]["code"] == "scope_denied"
 
 

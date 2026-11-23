@@ -21,6 +21,14 @@
   user's filesystem access can bypass this boundary. Routine clients should get
   only their own credential and the public adapters.
 
+## Owner activity
+
+`activity:read` exposes an owner timeline of every agent's successful writes,
+owner answers and service incidents. Grant it only to the owner's own clients
+(the example grants it to `cortex`). It does not grant `audit:read` or expose raw
+audit arguments. `ops_pulse` and `ops_service_history` share `ops:read`; service
+history includes restart attribution but no board work. No live policy is changed.
+
 ## Slate answers
 
 `board:read` reads cards and asks; `board:write` creates and withdraws asks.

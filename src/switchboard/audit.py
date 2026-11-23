@@ -138,6 +138,35 @@ def timestamp(ms=None):
     return datetime.fromtimestamp(ms / 1000, UTC).isoformat()
 
 
+def activity_refs(capability, args, result):
+    """Allowlisted result identifiers only; no titles, prompts, notes or answers.
+
+    Kept in args_json so these receipts share the existing hash chain, including
+    on databases created before activity history. Caller arguments cannot supply
+    this reserved field. Old rows can still use their safe scalar arguments.
+    """
+    if not isinstance(result, dict) or result.get("status") not in {"ok", "queued", "approved"}:
+        return {}
+    args = args if isinstance(args, dict) else {}
+    fields = {}
+    if capability in {"board_add", "board_move", "board_ask", "board_answer", "board_comment"}:
+        fields["card"] = result.get("card")
+        if capability == "board_move":
+            fields["column"] = args.get("column")
+        if capability in {"board_ask", "board_answer"}:
+            fields["ask_id"] = (result.get("ask") or {}).get("id")
+    patterns = {
+        "card": r"[A-Za-z0-9_.-]+#[1-9][0-9]*",
+        "column": r"Ideas|Up next|In progress|Needs you|Done",
+        "ask_id": r"ask_[0-9a-f]{16}",
+    }
+    return {
+        key: value
+        for key, value in fields.items()
+        if isinstance(value, str) and re.fullmatch(patterns[key], value) and not looks_secret(value)
+    }
+
+
 class Audit:
     def __init__(self, storage, log_dir, catalog_hash=None):
         self.storage = storage
@@ -167,9 +196,12 @@ class Audit:
         error_code=None,
         hash_fields=frozenset(),
         result_bytes=None,
+        result=None,
     ):
         ctx = ctx or Execution.new("system" if client in (None, "anonymous") else "agent")
         stored = args if args == "[REDACTED]" else safe_args(args, hash_fields)
+        if refs := activity_refs(capability, args, result):
+            stored = {**(stored if isinstance(stored, dict) else {}), "_activity": refs}
         args_json = canonical(stored)
         if len(args_json) > MAX_ARGS_BYTES:
             args_json = canonical({"oversize": len(args_json), "sha256": digest(args_json)[:16]})

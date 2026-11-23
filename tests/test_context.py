@@ -439,6 +439,7 @@ async def test_policy_example_cortex_ops_weather_and_git_reads(core, config):
         await asyncio.to_thread(Path("config/policy.example.yaml").read_text)
     )
     assert [t["name"] for t in core.tools("cortex")] == [
+        "activity_feed",
         "dns_stats",
         "git_ci_log",
         "git_ci_runs",
@@ -452,6 +453,8 @@ async def test_policy_example_cortex_ops_weather_and_git_reads(core, config):
         "memory_search",
         "ops_alerts_status",
         "ops_health",
+        "ops_pulse",
+        "ops_service_history",
         "ops_switchboard_status",
         "storage_history",
         "storage_status",

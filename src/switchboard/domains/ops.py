@@ -5,6 +5,7 @@ from ..config import DEFAULT_BACKENDS
 from ..doctor import diagnose
 from ..memory_subjects import MemorySubject
 from ..schema import obj, string
+from .activity import EVENT, STATE
 from .common import array, output
 
 CHECK = obj({"status": string(), "reason": string()})
@@ -280,3 +281,77 @@ def register(registry):
     )
     async def alerts_unsilence(core, client, args):
         return core.monitor.unsilence(args["probe"])
+
+    @registry.declare(
+        "ops_pulse",
+        "Hourly health pulse",
+        "Service health pulse: one worst-state bar per UTC hour. Use when showing a health "
+        "strip or summarizing recent availability. Requires ops:read; hours 1-168, default 24, "
+        "optional probe name. Returns exactly that many oldest-first buckets, bounded incident "
+        "notes and a summary in the host's local time; missing hours are unknown.",
+        obj({"hours": {"type": "integer", "minimum": 1, "maximum": 168}, "name": string(100)}),
+        scope="ops:read",
+        tier="read",
+        max_result_chars=60_000,
+        output_schema=obj(
+            {
+                "status": string(),
+                "hours": {"type": "integer", "minimum": 1, "maximum": 168},
+                "buckets": {
+                    **array(
+                        obj(
+                            {
+                                "start": string(80),
+                                "state": STATE,
+                                "note": {"type": ["string", "null"], "maxLength": 80},
+                            },
+                            ("start", "state", "note"),
+                        )
+                    ),
+                    "maxItems": 168,
+                },
+                "summary": string(200),
+            },
+            ("status", "hours", "buckets", "summary"),
+        ),
+        memory=None,
+        memory_optout="Aggregate local monitor history",
+    )
+    async def pulse(core, client, args):
+        from ..activity import pulse
+
+        return pulse(core, args)
+
+    @registry.declare(
+        "ops_service_history",
+        "Recent service history",
+        "Service history: current probe state, incidents and requested restarts. Use when "
+        "opening a service page. Requires ops:read, probe name and days 1-14, default 7. "
+        "Returns last change, latency, up to 30 newest events and sampled uptime percentage "
+        "over known-status hours (zero if unmeasured); unknown probes are not_found.",
+        obj(
+            {"name": string(100), "days": {"type": "integer", "minimum": 1, "maximum": 14}},
+            ("name",),
+        ),
+        scope="ops:read",
+        tier="read",
+        max_result_chars=60_000,
+        output_schema=obj(
+            {
+                "status": string(),
+                "name": string(100),
+                "state": STATE,
+                "since": {"type": ["string", "null"], "maxLength": 80},
+                "latency_ms": {"type": ["number", "null"]},
+                "events": {**array(EVENT), "maxItems": 30},
+                "uptime_percent": {"type": "number", "minimum": 0, "maximum": 100},
+            },
+            ("status", "name", "state", "since", "latency_ms", "events", "uptime_percent"),
+        ),
+        memory=None,
+        memory_optout="Local monitor and restart history",
+    )
+    async def history(core, client, args):
+        from ..activity import service_history
+
+        return service_history(core, args)

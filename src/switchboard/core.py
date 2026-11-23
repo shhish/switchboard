@@ -92,6 +92,10 @@ class Core:
             except Exception:
                 pass  # Doctor reports audit chain and retention state; serving continues.
             try:
+                self.monitor.maintain()
+            except Exception:
+                pass  # History retention must run even when monitoring is disabled.
+            try:
                 await self.disk_health.maintain()
             except Exception:
                 pass  # Storage discovery must not stop audit housekeeping.
@@ -332,6 +336,7 @@ class Core:
                 result_bytes=len(json.dumps(result, allow_nan=False, default=str))
                 if result
                 else None,
+                result=result,
             )
 
     @staticmethod

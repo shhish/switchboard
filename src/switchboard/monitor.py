@@ -16,6 +16,7 @@ from .eventkit import EventKit
 
 SYSTEM_PROBE = "@monitor"
 MAX_AGENT_SILENCES = 3
+STATE_RANK = {"up": 0, "unknown": 1, "degraded": 2, "down": 3}
 
 
 def duration(seconds):
@@ -149,15 +150,20 @@ class Monitor:
                 )
             )
             self.transition(system, system_status, now)
-            if not all_failed or self.silenced(SYSTEM_PROBE, now):
-                for row in services:
-                    probe = configs.get(row["name"])
-                    if probe and probe.get("alert", True):
-                        self.transition(probe, row["status"], now, row.get("reason"))
-            # Retire removed/opted-out states without issuing stale recovery notices.
-            active = {name for name, row in configs.items() if row.get("alert", True)} | {
-                SYSTEM_PROBE
-            }
+            for row in services:
+                probe = configs.get(row["name"])
+                if probe:
+                    self.transition(
+                        probe,
+                        row["status"],
+                        now,
+                        row.get("reason"),
+                        row.get("latency_ms"),
+                        observe_only=not probe.get("alert", True)
+                        or (all_failed and not self.silenced(SYSTEM_PROBE, now)),
+                    )
+            # Retire removed probes without issuing stale recovery notices.
+            active = set(configs) | {SYSTEM_PROBE}
             active |= self.storage_probes()
             for row in self.db.execute("SELECT name FROM monitor_state").fetchall():
                 if row["name"] not in active:
@@ -177,7 +183,7 @@ class Monitor:
         key = "storage_reminder_hours" if "storage_detail" in probe else "reminder_hours"
         return self.config.monitor[key] * 3600
 
-    def transition(self, probe, status, now, reason=None):
+    def transition(self, probe, status, now, reason=None, latency_ms=None, *, observe_only=False):
         name = probe["name"]
         row = self.db.execute("SELECT * FROM monitor_state WHERE name=?", (name,)).fetchone()
         state = (
@@ -195,6 +201,8 @@ class Monitor:
                 "incident_id": None,
             }
         )
+        previous = row["status"] if row else "unknown"
+        incident_id = state["incident_id"]
         # A storage warning that turns critical is news even mid-incident.
         escalated = (
             "storage_detail" in probe
@@ -204,9 +212,18 @@ class Monitor:
         )
         if state["status"] != status:
             state.update(status=status, last_change_at=now)
-        if status == "unknown":
+        if status == "unknown" or observe_only:
             # Preserve all incident counters/times. A permission issue is not recovery.
-            pass
+            if observe_only and not probe.get("alert", True):
+                # Opting out retires the alert incident, but preserves health history.
+                state.update(
+                    consecutive_failures=0,
+                    down_since=None,
+                    alerted=0,
+                    notified=0,
+                    last_alert_at=None,
+                    incident_id=None,
+                )
         elif status in ("down", "degraded"):
             if state["down_since"] is None:
                 state.update(down_since=now, incident_id=uuid4().hex)
@@ -244,11 +261,35 @@ class Monitor:
         self.db.execute(
             "INSERT OR REPLACE INTO monitor_state "
             "(name, status, consecutive_failures, down_since, alerted, notified, last_alert_at, "
-            "last_change_at, incident_id) "
+            "last_change_at, incident_id, latency_ms) "
             "VALUES (:name, :status, :consecutive_failures, :down_since, :alerted, :notified, "
-            ":last_alert_at, :last_change_at, :incident_id)",
-            state,
+            ":last_alert_at, :last_change_at, :incident_id, :latency_ms)",
+            {**state, "latency_ms": latency_ms},
         )
+        if previous != status or row is None:
+            self.db.execute(
+                "INSERT INTO monitor_events(name, at, status, previous, latency_ms, incident_id) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (name, now, status, previous, latency_ms, state["incident_id"] or incident_id),
+            )
+        # Unknown is worse than healthy but must not hide an observed degradation/outage.
+        hour = now // 3600 * 3600
+        sample = self.db.execute(
+            "SELECT worst FROM monitor_hours WHERE hour=? AND name=?", (hour, name)
+        ).fetchone()
+        worst = max((sample[0], status), key=STATE_RANK.__getitem__) if sample else status
+        self.db.execute(
+            "INSERT INTO monitor_hours VALUES (?, ?, ?, 1, ?) "
+            "ON CONFLICT(hour, name) DO UPDATE SET worst=excluded.worst, "
+            "checks=checks+1, failures=failures+excluded.failures",
+            (hour, name, worst, int(status in {"degraded", "down"})),
+        )
+
+    def maintain(self, now=None):
+        cutoff = (time.time() if now is None else now) - 35 * 86400
+        with self.db:
+            self.db.execute("DELETE FROM monitor_events WHERE at<?", (cutoff,))
+            self.db.execute("DELETE FROM monitor_hours WHERE hour<?", (cutoff // 3600 * 3600,))
 
     def on_event(self, listener):
         """`listener(event, service)` hears confirmed outages and recoveries

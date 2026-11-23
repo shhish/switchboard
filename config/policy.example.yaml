@@ -27,7 +27,8 @@ clients:
   dream:
     scopes: [memory:read, memory:reflect, memory:write, ops:read, media:read, home:read, routines:read]
   cortex:
-    scopes: [memory:read, ops:read, weather:read, git:read]
+    # activity:read reveals what every agent did; grant only to the owner's own clients.
+    scopes: [memory:read, ops:read, activity:read, weather:read, git:read]
 # Resource lists use stable IDs and do not restrict read visibility.
 # Orb: explicit action names bound federation writes; the hub enforces card ownership.
 # No upstream token mapping means no Orb access, including for owner.

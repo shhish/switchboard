@@ -143,6 +143,19 @@ class Board:
         labels = issue.get("labels") or []
         if not isinstance(labels, list) or issue.get("state") not in ("open", "closed"):
             invalid()
+        # Local presentation cache for offline activity reads; preserve actor receipts.
+        with self.core.storage.db:
+            self.core.storage.db.execute(
+                "INSERT INTO board_cards(issue_id, card, title, column_name) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(issue_id) DO UPDATE SET card=excluded.card, "
+                "title=excluded.title, column_name=excluded.column_name",
+                (
+                    issue_id,
+                    f"{repo.split('/', 1)[1]}#{number}",
+                    text(issue.get("title")),
+                    "Done" if issue["state"] == "closed" else column,
+                ),
+            )
         return {
             "card": f"{repo.split('/', 1)[1]}#{number}",
             "repo": repo.split("/", 1)[1],

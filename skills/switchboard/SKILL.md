@@ -22,6 +22,18 @@ Probes that only time out need `monitor.slow_failures_before_alert` cycles (defa
 counts, check time and latency, without URLs. This measures service reachability;
 use doctor for Switchboard's backend credentials and contracts.
 
+Use `ops_pulse` (`ops:read`, `hours` 1–168, default 24, optional probe `name`)
+for oldest-first hourly up/slow/down/unknown bars and a local-time summary.
+`ops_service_history` (`ops:read`, probe `name`, `days` 1–14, default 7) returns
+last change, latency, at most 30 incidents/restart requests and sampled uptime.
+Uptime counts non-failing checks in known-status hours; zero means no measured
+uptime when those samples are absent. An unobserved probe has unknown state and
+null last-change time. Both tables retain 35 days; missing hours stay unknown.
+`activity_feed` (`activity:read`, optional ISO `since` within 14 days, `limit`
+1–200, `kinds` agent/owner/server) returns sanitized owner timeline events,
+newest first; default window 24 hours. Grant activity:read only to the owner's
+own clients: it reveals every agent's work without granting diagnostic audit access.
+
 For configured services, use `ops_service_status` (one `service` or all),
 `ops_service_logs` (`service`, optional `lines` 1–200, literal `contains`, source
 index), and `ops_host_snapshot`. These require `ops:diagnose`; logs are bounded

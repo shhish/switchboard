@@ -2,6 +2,7 @@
 
 from ..registry import Registry
 from . import (
+    activity,
     alerts,
     approvals,
     audit,
@@ -46,6 +47,7 @@ def build_registry():
     dns.register(registry)
     routines.register(registry)
     audit.register(registry)
+    activity.register(registry)
     git.register(registry)
     board.register(registry)
     memory.register(registry)
