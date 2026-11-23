@@ -69,7 +69,7 @@ Every integration is optional. Turn on the ones you run. The [full tour](#the-fu
 | --- | --- |
 | 🖥️ **Keep the servers alive**<br/><sub>`ops_*` · 14 tools</sub> | Health checks every minute, alerts to your phone and email, logs and restarts, plus a Raspberry Pi as a second host. |
 | **See what happened**<br/><sub>`activity_feed` · `ops_pulse` · `ops_service_history`</sub> | An owner timeline of agent work, your answers and service incidents, plus hourly health bars and recent service history. |
-| 💾 **Watch disk health**<br/><sub>`storage_*` · 2 tools</sub> | Disk space, fill trends and SMART warnings for NVMe and USB drives; fill history for the Raspberry Pi. |
+| 💾 **Watch disk health**<br/><sub>`storage_*` · 2 tools</sub> | Disk space, fill trends and SMART warnings for NVMe and USB drives, answered at once from the last sample; fill history for the Raspberry Pi. |
 | 🎬 **Watch things**<br/><sub>`media_*` · 17 tools</sub> | Request movies and shows through Seerr, "what should I watch?", continue watching, who watched what, downloads. |
 | 🔀 **Ship code**<br/><sub>`git_*` · 11 tools</sub> | Gitea PRs, CI jobs and redacted logs; shared checkout status; allowlisted PR creation, comments, green merges, reruns and annotated release tags. |
 | 📋 **Share the work**<br/><sub>`board_*` · 11 tools</sub> | One Gitea Slate board for ideas, claimed work and structured questions for you; Siri ideas in Things become Ideas cards, and merged PRs close cards. |
