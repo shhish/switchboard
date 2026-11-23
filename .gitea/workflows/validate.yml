@@ -1,0 +1,39 @@
+# Pull-request gate: the same checks AGENTS.md asks for before a merge.
+# Runs on the owner-scoped host runner `mac-mini-ci` (homelab-ops runs it).
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: mac-mini-ci
+    timeout-minutes: 25
+    steps:
+      - uses: https://gitea.com/actions/checkout@v4
+
+      - name: Install
+        run: |
+          /opt/homebrew/bin/python3 -m venv .venv
+          .venv/bin/pip install -q -e '.[dev]'
+
+      - name: Lint
+        run: |
+          .venv/bin/ruff check .
+          .venv/bin/ruff format --check .
+
+      - name: Capability catalog is current
+        run: |
+          .venv/bin/sb manifest --markdown > /tmp/switchboard-capabilities-$$.md
+          diff -q docs/CAPABILITIES.md /tmp/switchboard-capabilities-$$.md
+          rm -f /tmp/switchboard-capabilities-$$.md
+
+      - name: Tests
+        run: .venv/bin/pytest -q
