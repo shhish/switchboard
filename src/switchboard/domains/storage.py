@@ -95,9 +95,9 @@ def register(registry):
         "Disk space, trends and drive health",
         "Disk space, fill trends and SMART drive health for the Mac and remote hosts. "
         "Use when checking disk space, fill trends or SMART health. Requires ops:read "
-        "and enabled storage config. Returns disks, shared APFS usage, mounted volumes, "
-        "trends and alerts; remote hosts return fill only. SMART caches six hours; "
-        "refresh forces a standby-safe read.",
+        "and enabled storage config. Returns disks, APFS usage, volumes, trends and alerts "
+        "from the last sample under an hour old (see sampled_at); refresh forces a live, "
+        "standby-safe read.",
         obj(
             {
                 "host": {**string(40), "pattern": "^[a-z0-9_-]{1,40}$"},
@@ -133,7 +133,10 @@ def register(registry):
         ),
     )
     async def status(core, client, args):
-        return await core.disk_health.status(args.get("host", "mac"), args.get("refresh", False))
+        host = args.get("host", "mac")
+        if args.get("refresh", False):
+            return await core.disk_health.status(host, True)
+        return await core.disk_health.recent_status(host)
 
     @registry.declare(
         "storage_history",

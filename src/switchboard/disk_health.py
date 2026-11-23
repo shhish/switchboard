@@ -19,6 +19,7 @@ from .errors import CapabilityError
 from .mounts import important_free, mounted_volumes
 
 HOUR = 3600
+RECENT_S = 10 * 60  # A sample this old is still served, then refreshed.
 DAY = 24 * HOUR
 MAX_POINTS = 35 * 24
 MAX_ROWS = 200_000
@@ -184,6 +185,7 @@ class DiskHealth:
         self.important_free = important_free
         self.mounts = mounted_volumes
         self.lock = asyncio.Lock()
+        self.refreshing = set()
 
     def enabled(self):
         if not self.core.config.storage["enabled"]:
@@ -596,6 +598,38 @@ class DiskHealth:
                 **payload,
                 "alerts": self.alerts(host),
             }
+
+    async def recent_status(self, host="mac", now=None):
+        """The last sample when it is under an hour old, so readers never wait on diskutil
+        and SMART (a live read of USB disks took 30 s under load on 2026-11-23). A sample
+        older than ten minutes is refreshed in the background for the next reader."""
+        self.enabled()
+        if host != "mac" and host not in self.core.config.remote_hosts:
+            raise CapabilityError("invalid_arguments", "Unknown configured host")
+        now = time.time() if now is None else now
+        row = self.db.execute(
+            "SELECT sampled_at, payload FROM storage_inventory WHERE host=?", (host,)
+        ).fetchone()
+        if not row or not 0 <= now - row[0] < HOUR:
+            return await self.status(host, now=now)
+        if now - row[0] >= RECENT_S and host not in self.refreshing and not self.lock.locked():
+            self.refreshing.add(host)
+            task = asyncio.create_task(self.background_refresh(host))
+            task.add_done_callback(lambda _: self.refreshing.discard(host))
+        return {
+            "status": "ok",
+            "host": host,
+            "sampled_at": row[0],
+            **json.loads(row[1]),
+            "alerts": self.alerts(host),
+        }
+
+    async def background_refresh(self, host):
+        try:
+            async with asyncio.timeout(180):
+                await self.status(host)
+        except Exception:  # noqa: BLE001 - the next reader still gets the last good sample
+            return
 
     async def maintain(self):
         if not self.core.config.storage["enabled"]:

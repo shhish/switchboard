@@ -1,5 +1,6 @@
 """Storage contracts use synthetic diskutil/SMART fixtures and fake mounts only."""
 
+import asyncio
 import copy
 import json
 import plistlib
@@ -597,3 +598,46 @@ def test_important_free_reads_this_mac_or_returns_none():
     value = important_free("/")
     assert value is None or value > 0
     assert important_free("/no/such/volume\0") is None
+
+
+async def test_recent_status_answers_from_the_last_sample(disks):
+    core, health, calls, _, _ = disks
+    first = await health.recent_status(now=100000)  # Nothing sampled yet: a live read.
+    live_calls = len(calls)
+    assert live_calls
+    again = await health.recent_status(now=100000 + 60)
+    assert len(calls) == live_calls, "a recent sample is served without touching the disks"
+    assert again["sampled_at"] == first["sampled_at"] == 100000
+    assert again["containers"] == first["containers"]
+    assert again["alerts"] == first["alerts"]
+
+    # Older than ten minutes: still served at once, re-sampled in the background.
+    stale = await health.recent_status(now=100000 + 11 * 60)
+    assert stale["sampled_at"] == 100000
+    assert "mac" in health.refreshing
+    for _ in range(50):
+        if "mac" not in health.refreshing:
+            break
+        await asyncio.sleep(0.01)
+    assert "mac" not in health.refreshing
+    assert len(calls) > live_calls
+    newer = health.db.execute(
+        "SELECT sampled_at FROM storage_inventory WHERE host='mac'"
+    ).fetchone()[0]
+    assert newer > 100000
+
+    # Over an hour old: a live read, as before.
+    count = len(calls)
+    await health.recent_status(now=newer + 2 * HOUR)
+    assert len(calls) > count
+
+
+async def test_recent_status_keeps_host_checks_and_refresh_stays_live(disks):
+    core, health, calls, _, _ = disks
+    with pytest.raises(CapabilityError) as raised:
+        await health.recent_status("nowhere", now=100000)
+    assert raised.value.code == "invalid_arguments"
+    core.config.storage = storage_settings({"enabled": False})
+    with pytest.raises(CapabilityError) as raised:
+        await health.recent_status(now=100000)
+    assert raised.value.code == "backend_disabled"
