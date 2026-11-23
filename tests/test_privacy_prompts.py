@@ -106,7 +106,7 @@ async def test_prompts_page_after_fifteen_minutes_then_recover(config, monkeypat
         payload = json.loads(rows[0]["payload"])
         message = json.dumps(payload)
         assert "Needs you" in message and "external drives (1)" in message
-        assert "Photos (1)" in message and "ScreenLink" in message
+        assert "Photos (1)" in message and "sudo killall -9 tccd sandboxd" in message
         # The log is read at most once per sampling period, not every cycle.
         assert all(b - a >= PRIVACY_SAMPLE_S for a, b in zip(samples, samples[1:], strict=False))
         text[0] = log_text()

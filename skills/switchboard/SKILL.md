@@ -90,11 +90,13 @@ recovery notices. It appears in `ops_alerts_status` incidents and accepts
 `ops_alerts_silence {"probe": "host-pressure", "minutes": 15, "reason": "build maintenance"}`.
 
 The built-in `privacy-prompts` probe reads the last minute of the unified log every
-five minutes for macOS privacy prompts that nobody answered (kernel "watchdog expired
-for approval entry"). Any waits make it degraded; after fifteen minutes it pages the
-owner with the stuck permissions (external drives, Full Disk Access, Photos...).
+five minutes for macOS permission (TCC) checks that timed out (kernel "watchdog expired
+for approval entry"). Any timeouts make it degraded; after fifteen minutes it pages the
+owner with the blocked permissions (external drives, Full Disk Access, Photos...).
 When drives return EINTR, Docker hangs starting, or CI steps stall for seconds per
-process, check this probe first: only the owner can answer the prompts on screen.
+process, check this probe first. Usually no prompt is on screen: the system tccd has
+wedged and needs `sudo killall -9 tccd sandboxd` (owner-only; launchd relaunches it). Don't tell
+the owner to "answer prompts" without seeing one.
 
 Use `ops_service_restart` with `service` and a short `reason` for explicitly
 restartable launchd/docker/remote entries (`ops:restart`). It silences the linked probe

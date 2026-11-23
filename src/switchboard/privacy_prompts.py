@@ -1,10 +1,13 @@
-"""Unanswered macOS privacy (TCC) prompts, read from the unified log.
+"""macOS privacy (TCC) checks that time out, read from the unified log.
 
-When a privacy prompt sits unanswered on the Mac's screen, every process that needs
-that permission blocks until the kernel's approval watchdog gives up (~1 s at a time,
-repeatedly). Symptoms elsewhere look unrelated: EINTR reading external drives, Docker
-stuck starting, hung reads of ~/Documents, CI jobs timing out. Only the owner can
-answer the prompts, so the monitor's job is to say so early and plainly.
+When the kernel asks tccd whether a process may use a protected resource and gets no
+answer, it waits for its approval watchdog and then fails the call (EINTR). Symptoms
+elsewhere look unrelated: external drives unreadable, Docker stuck starting, hung reads
+of ~/Documents, CI steps stalling seconds per process. The usual cause is not a visible
+prompt: on 2026-11-23 the system tccd itself had wedged (constant CPU, no answers, no
+prompt on screen) and only a restart (`sudo killall -9 tccd sandboxd`; launchd relaunches it)
+cleared it. Occasional timeouts from background system daemons are normal, so the
+monitor pages only on a sustained run.
 """
 
 import re

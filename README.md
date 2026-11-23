@@ -143,7 +143,7 @@ Local Git reads stay under configured roots; merges and release tags pin the SHA
 - **Disk health:** shared APFS container space, hourly fill charts and seven-day forecasts. Optional free-space floors keep a 90%-full 14 TB disk with a terabyte left from paging you, and a warning that turns critical sends a fresh alert. SMART warnings cover failing health, new bad sectors, NVMe wear and hot HDDs; sleeping drives stay asleep during SMART reads.
 - **Restarts** of allowlisted services, which silence their own alerts and respect a cooldown.
 - **Mac pressure alerts** when the kernel reports critical memory pressure or load per core passes 10 for ten minutes (a busy Mac shows in status without paging you), with recovery notices and maintenance silences. Check pressure before builds or QA; swap usage is informational.
-- **Unanswered macOS privacy prompts** page you after fifteen minutes, naming what is stuck (external drives, Full Disk Access, Photos...), because a forgotten prompt quietly hangs drives, Docker and builds.
+- **Stuck macOS permission checks** page you after fifteen minutes, naming what is blocked (external drives, Full Disk Access, Photos...) and how to clear it, because a wedged permission service or a forgotten prompt quietly hangs drives, Docker and builds.
 - **A Raspberry Pi as a second host** over SSH, with a key that can only run a fixed set of commands: status, logs, DNS / Tailscale / uptime checks, allowlisted restarts. No shell, no reboot.
 </details>
 

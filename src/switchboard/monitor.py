@@ -368,13 +368,13 @@ class Monitor:
         elif "privacy_detail" in probe:
             title = f"[{name}] [{'Recovered' if kind == 'recovery' else 'Needs you'}]"
             body = (
-                f"No macOS privacy prompts are waiting any more ({elapsed} after the first)."
+                f"macOS permission checks are answering again after {elapsed}."
                 if kind == "recovery"
-                else f"macOS privacy prompts have been waiting on the Mac's screen for {elapsed}, "
-                f"since {since}. Apps are stuck waiting for: "
-                f"{privacy_prompts.describe(probe['privacy_detail'])}. Until they are answered, "
-                "external drives, Docker and file reads can hang. Answer them on the Mac "
-                "(ScreenLink works)."
+                else f"macOS permission checks have been timing out for {elapsed}, since {since}, "
+                f"so apps can't use: {privacy_prompts.describe(probe['privacy_detail'])}. "
+                "External drives, Docker and file reads hang until this clears. If a privacy "
+                "prompt is on the Mac's screen, answer it; if none is, the permission service "
+                "is stuck: run `sudo killall -9 tccd sandboxd` (macOS restarts both at once)."
             )
         elif "storage_detail" in probe:
             severity = "Critical" if state["status"] == "down" else "Warning"
