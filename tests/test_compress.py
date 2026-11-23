@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -121,6 +122,42 @@ async def admit(core, args=None, client="dot"):
     return await core.call(
         client, "media_compress", {**args, "approval_id": pending["approval_id"]}
     )
+
+
+@pytest.mark.parametrize("cache_state", ["fresh", "expired", "missing"])
+@pytest.mark.parametrize("lookup", ["tmdb_id", "file", "folder", "show"])
+async def test_compress_approval_detail(
+    compression, fake_backends, cache_state, lookup, monkeypatch
+):
+    core, state, _ = compression
+    path = str(state / "library/Movie.mkv")
+    row = {
+        "id": 12,
+        "title": "A\n title\x00",
+        "tmdb_id": 123,
+        "path": str(Path(path).parent) if lookup in {"folder", "show"} else path,
+    }
+    fake_backends[0]["/movies/list"] = {"movies": [] if lookup == "show" else [row]}
+    fake_backends[0]["/shows/list"] = {"shows": [row] if lookup == "show" else []}
+    if cache_state != "missing":
+        await core.backends.start()
+        assert (await core.context.inventory("media"))["status"] == "ok"
+        if cache_state == "expired":
+            core.context.cache["media"] = (time.monotonic() - 1, core.context.cache["media"][1])
+
+    async def no_lookup(*args, **kwargs):
+        raise AssertionError("Approval details must never fetch backend metadata")
+
+    monkeypatch.setattr(core.backends, "get", no_lookup)
+    args = {"tmdb_id": 123} if lookup == "tmdb_id" else {"path": path}
+    requested = await core.call("dot", "media_compress", args)
+    assert requested["status"] == "approval_required", requested
+    fallback = "TMDB movie 123" if lookup == "tmdb_id" else "Movie.mkv"
+    assert core.approvals.get(requested["approval_id"])["detail"] == [
+        {"label": "Title", "value": "A title" if cache_state == "fresh" else fallback}
+    ]
+    assert str(state) not in json.dumps(core.approvals.get(requested["approval_id"])["detail"])
+    assert not calls(state)
 
 
 async def test_approval_argv_environment_and_status(compression, monkeypatch):

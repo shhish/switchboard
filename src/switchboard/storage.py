@@ -106,7 +106,7 @@ class Storage:
             );
             CREATE TABLE IF NOT EXISTS approvals (
                 id TEXT PRIMARY KEY, client TEXT NOT NULL, capability TEXT NOT NULL,
-                args_hash TEXT NOT NULL, status TEXT NOT NULL, summary TEXT NOT NULL,
+                args_hash TEXT NOT NULL, status TEXT NOT NULL, summary TEXT NOT NULL, detail TEXT,
                 created_at REAL NOT NULL, expires_at REAL NOT NULL, resolved_at REAL
             );
             CREATE TABLE IF NOT EXISTS jobs (
@@ -174,6 +174,7 @@ class Storage:
 
         # Existing releases predate supersession; migrate without losing retry/dedupe state.
         for table, additions in {
+            "approvals": {"detail": "TEXT"},
             "monitor_state": {"latency_ms": "REAL"},
             "board_cards": {"title": "TEXT", "column_name": "TEXT"},
         }.items():

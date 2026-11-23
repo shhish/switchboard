@@ -3,6 +3,7 @@
 import asyncio
 import time
 from datetime import date, datetime
+from pathlib import PurePath
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
@@ -321,6 +322,32 @@ async def active_downloads(core):
     return data
 
 
+def compress_approval_detail(core, args):
+    path = PurePath(args["path"]) if "path" in args else None
+    title = next(
+        (
+            row["name"]
+            for row in core.context.cached_entities("media")
+            if (
+                (
+                    "tmdb_id" in args
+                    and row["kind"] == "movie"
+                    and row.get("tmdb_id") == args["tmdb_id"]
+                )
+                or (
+                    path is not None
+                    and isinstance(row.get("path"), str)
+                    and PurePath(row["path"]).is_absolute()
+                    and path.is_relative_to(row["path"])
+                )
+            )
+        ),
+        None,
+    )
+    fallback = path.name if path is not None else f"TMDB movie {args['tmdb_id']}"
+    return [{"label": "Title", "value": title or fallback}]
+
+
 def compress_preflight(core, client, args):
     require_one(args, "tmdb_id", "path")
     core.backends.media_compress.settings()
@@ -459,6 +486,7 @@ def register(registry):
         service="media_compress",
         timeout_s=65,
         preflight=compress_preflight,
+        approval_detail=compress_approval_detail,
         output_schema=obj(
             {
                 "status": {"type": "string", "enum": ["requested", "not_found"]},

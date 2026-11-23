@@ -262,12 +262,13 @@ class Core:
             if cap.preflight:
                 # Availability and resource checks precede approval notifications and execution.
                 cap.preflight(self, client, args)
-            if cap.name == "approvals_confirm":
+            if cap.name in {"approvals_confirm", "approvals_answer"}:
                 approval_id = args["approval_id"]
             if cap.tier == "approval" and cap.name != "approvals_confirm":
                 approval_id = args.pop("approval_id", None)
                 if approval_id is None:
-                    result = self.approvals.request(client, name, args)
+                    detail = cap.approval_detail(self, args) if cap.approval_detail else None
+                    result = self.approvals.request(client, name, args, detail=detail)
                     approval_id = result["approval_id"]
                     decision = "approval_required"
                     if self.notifier:
@@ -275,7 +276,9 @@ class Core:
                             async with asyncio.timeout(min(5, cap.timeout_s)):
                                 await self.notifier.notify(result)
                         except Exception:
-                            result["notification_status"] = "failed; use sb approve or sb deny"
+                            result["notification_status"] = (
+                                "failed; use the Server app, sb approve or sb deny"
+                            )
                     result = result_envelope(result)
                     return result
                 self.approvals.consume(approval_id, client, name, args)

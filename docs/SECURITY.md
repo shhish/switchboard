@@ -6,8 +6,9 @@
   Unknown or missing policy fails closed. Scopes and resource rules both apply.
 - Approval grants bind the exact client, capability and canonical arguments,
   expire, and are atomically consumed before execution, including failures.
-  Notification answers alone grant nothing. Only owner CLI resolution or an
-  explicitly trusted client's confirmation path resolves a grant.
+  Notification answers alone grant nothing. Owner CLI resolution, the owner's
+  `board:answer` surface, or an explicitly trusted client's confirmation path
+  resolves a grant.
 - Every capability call is audited in SQLite and redacted JSONL. Credentials,
   request headers, backend bodies and arbitrary exception text must not be logged.
 - The server rejects non-loopback peers/Host and Origin headers. Local backend
@@ -41,6 +42,15 @@ An answer records the owner's decision on that question only. Only an attached
 confirm action can change the narrow settings described below; other answers
 change no permissions or allowlists. Answers never resolve an approval.
 Approvals keep their separate exact-argument, expiring, single-use flow.
+
+`approvals_pending` and `approvals_answer` let `board:answer` holders list and
+answer other clients' pending one-time approvals on the owner's behalf, never
+their own. Each answer audits the answering client and approval ID. Safe detail
+rows come only from explicit capability adapters; other tools retain the summary.
+The Server app handles Face ID; Switchboard trusts the authenticated scope and
+does not independently verify biometrics. Owner CLI and trusted confirmation
+rules are unchanged.
+
 Ask and answer text is stored in SQLite and posted to the card as comments: never
 ask for secrets, passwords, tokens or keys. Audit arguments hash entire `answer`,
 `options` and `fields` objects/arrays as well as prompts, details and custom labels;

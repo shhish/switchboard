@@ -245,12 +245,13 @@ The owner-only tunnel migration and rollback are documented in `docs/DOT.md`.
 
 Read tier runs under scope. Write tier requires its scope and any resource
 allowlist. Approval tier returns `approval_required`, `approval_id`, `expires_at`
-and a summary. Tell the owner what needs approval; never try to bypass it.
-The owner can inspect `sb approvals` / `sb audit tail` and run `sb approve <id>`
+and a summary. Tell the owner what needs approval and that it is waiting in the
+Server app under Needs you; never try to bypass it. Once approved, retry the same
+call with identical arguments plus `approval_id` before expiry.
+The owner can also inspect `sb approvals` / `sb audit tail` and run `sb approve <id>`
 or `sb deny <id>`. A policy-trusted client's `approvals_confirm` is only for an
 actual human confirmation collected by its harness, and only its own grant.
-Retry the original tool with identical arguments plus `approval_id` before
-expiry. Changed args, denied/expired grants and reused grants are rejected.
+Changed args, denied/expired grants and reused grants are rejected.
 Orb cards currently notify only; a card answer is not an implemented grant.
 
 When a result contains `job_id`, poll `jobs_get` until succeeded, failed or

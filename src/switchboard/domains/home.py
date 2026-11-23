@@ -60,6 +60,36 @@ def path_id(identifier):
     return quote(identifier, safe="")
 
 
+def approval_name(core, args, kind, key):
+    # The id is what acts, so the owner sees the cached name for that id, or the id
+    # itself. A caller-supplied name is never shown: it could describe another device.
+    return next(
+        (
+            row["name"]
+            for row in core.context.cached_entities("home")
+            if row["kind"] == kind and row["id"] == args[key]
+        ),
+        args[key],
+    )
+
+
+def accessory_approval_detail(core, args):
+    change = args["action"]
+    if change == "set":
+        change = f"{args['characteristic']} → {args['value']}"
+    return [
+        {"label": "Accessory", "value": approval_name(core, args, "accessory", "accessory_id")},
+        {"label": "Change", "value": change},
+    ]
+
+
+def scene_approval_detail(core, args):
+    return [
+        {"label": "Scene", "value": approval_name(core, args, "scene", "scene_id")},
+        {"label": "Change", "value": "Run scene"},
+    ]
+
+
 def classify(row):
     services = row.get("services")
     if (
@@ -371,6 +401,7 @@ def register(registry):
         service="home",
         idempotent=False,
         preflight=set_preflight,
+        approval_detail=accessory_approval_detail,
         output_schema=set_output,
         memory=MemorySubject(
             "home",
@@ -418,6 +449,7 @@ def register(registry):
         tier="approval",
         service="home",
         idempotent=False,
+        approval_detail=scene_approval_detail,
         output_schema=scene_output,
         memory=MemorySubject(
             "home", arg_keys=("scene_id",), result_paths=("scene.id", "scene.name")

@@ -28,13 +28,21 @@ class Approvals:
         self.ttl_s = ttl_s
         self.now = now
 
-    def request(self, client, capability, arguments):
+    def request(self, client, capability, arguments, *, detail=None):
         capability = canonical_name(capability)
         now = self.now()
         # Summaries identify the exact grant without embedding user/backend prose.
         # Full arguments remain bound by hash and are shown only through safe adapters.
         from .domains.common import sanitize_text
 
+        safe_detail = (
+            [
+                {"label": sanitize_text(row["label"], 80), "value": sanitize_text(row["value"], 80)}
+                for row in detail[:4]
+            ]
+            if detail is not None
+            else None
+        )
         preview = (
             sanitize_text(arguments["title"], 80)
             if isinstance(arguments.get("title"), str)
@@ -47,14 +55,18 @@ class Approvals:
             "args_hash": args_hash(arguments),
             "status": "pending",
             "summary": f"Approve {capability} for {client}: {preview}",
+            "detail": json.dumps(safe_detail, ensure_ascii=False)
+            if safe_detail is not None
+            else None,
             "created_at": now,
             "expires_at": now + self.ttl_s,
         }
         with self.db:
             self.db.execute(
                 """INSERT INTO approvals
-                (id,client,capability,args_hash,status,summary,created_at,expires_at)
-                VALUES (:id,:client,:capability,:args_hash,:status,:summary,:created_at,:expires_at)
+                (id,client,capability,args_hash,status,summary,detail,created_at,expires_at)
+                VALUES (:id,:client,:capability,:args_hash,:status,:summary,:detail,
+                        :created_at,:expires_at)
             """,
                 record,
             )
@@ -76,6 +88,7 @@ class Approvals:
     @staticmethod
     def canonical_record(row):
         old = row["capability"]
+        row["detail"] = json.loads(row["detail"]) if row.get("detail") is not None else None
         row["capability"] = canonical_name(old)
         if old != row["capability"]:
             # Old previews could contain arbitrary argument prose. Do not replay it.
@@ -84,9 +97,16 @@ class Approvals:
             )
         return row
 
-    def resolve(self, approval_id, *, actor, approve=True, trusted=False):
+    def resolve(
+        self, approval_id, *, actor, approve=True, trusted=False, owner_surface_answer=False
+    ):
         row = self.get(approval_id)
-        if (trusted and row["client"] != actor) or (not trusted and actor != "owner"):
+        if owner_surface_answer:
+            # Only the board:answer handler opts in after Core's policy check.
+            # This delegates answers for other clients, never trusted self-confirmation.
+            if row["client"] == actor:
+                raise CapabilityError("approval_forbidden", "Cannot resolve your own approval")
+        elif (trusted and row["client"] != actor) or (not trusted and actor != "owner"):
             raise CapabilityError("approval_forbidden", "Cannot resolve another client's approval")
         if row["expires_at"] <= self.now():
             raise CapabilityError("approval_expired", "Approval expired; request a new one")
@@ -123,6 +143,16 @@ class Approvals:
                 raise CapabilityError(
                     "approval_invalid", "Approval is not approved or was already used"
                 )
+
+    def pending(self, caller):
+        return [
+            self.canonical_record(dict(row))
+            for row in self.db.execute(
+                "SELECT * FROM approvals WHERE status='pending' AND expires_at>? AND client<>? "
+                "ORDER BY created_at DESC, rowid DESC LIMIT 20",
+                (self.now(), caller),
+            )
+        ]
 
     def list(self):
         return [

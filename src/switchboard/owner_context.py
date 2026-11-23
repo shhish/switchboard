@@ -84,6 +84,11 @@ class OwnerContext:
         self.cache = {}
         self.locks = {}
 
+    def cached_entities(self, domain):
+        """Fresh display metadata only; never fetch or authorize an action."""
+        saved = self.cache.get(domain)
+        return saved[1]["entities"] if saved and saved[0] > time.monotonic() else []
+
     async def inventory(self, domain, *, fresh=False):
         source = {
             "home": "HomeRelay",
@@ -196,7 +201,7 @@ class OwnerContext:
         )
         return {
             "entities": [
-                entity("media", kind, r)
+                entity("media", kind, r, tmdb_id=r.get("tmdb_id"), path=r.get("path"))
                 for kind, data, key in (("movie", movies, "movies"), ("show", shows, "shows"))
                 for r in records(data, key)
             ]

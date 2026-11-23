@@ -51,6 +51,9 @@ before you reach for curl with API keys, osascript, Docker or app databases.
 - **Planned restarts:** before you restart, upgrade or stop a monitored service, run `ops_alerts_silence {"probe": "<name>", "minutes": 15, "reason": "<why>"}` so the owner isn't paged. `ops_alerts_status` lists probe names. A silence ends by itself when the service recovers, and agents may hold at most 3.
 - **Reading results:**
   - Every result has an `outcome`.
+  - `approval_required` means tell the owner it is waiting in the Server app under
+    Needs you. Once approved, retry the same call with identical arguments plus
+    `approval_id` before expiry.
   - `needs_approval` means ask the owner, then retry with the same arguments and the `approval_id`.
   - `unavailable` with `retryable: true` means retry once, later.
   - Treat `blocked` and `not_found` as final.
