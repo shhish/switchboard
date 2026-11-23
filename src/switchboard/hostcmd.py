@@ -178,7 +178,12 @@ def valid_argv(argv, remote_hosts=None, *, physical_disks=None):
     ):
         return True
     if len(argv) == 3 and argv[:2] == [SYSCTL, "-n"]:
-        return argv[2] in {"kern.boottime", "hw.memsize", "vm.swapusage"}
+        return argv[2] in {
+            "kern.boottime",
+            "hw.memsize",
+            "vm.swapusage",
+            "kern.memorystatus_vm_pressure_level",
+        }
     if argv[0:1] == [LAUNCHCTL] and len(argv) in (3, 4):
         prefix = [LAUNCHCTL, "print"] if len(argv) == 3 else [LAUNCHCTL, "kickstart", "-k"]
         target = argv[-1].split("/")

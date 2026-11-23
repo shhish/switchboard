@@ -39,6 +39,15 @@ For configured services, use `ops_service_status` (one `service` or all),
 index), and `ops_host_snapshot`. These require `ops:diagnose`; logs are bounded
 and redacted. Apps are detected through launchctl's `application.<bundle id>.`
 labels. Unknown runtime status means diagnosis failed, not that the service is down.
+Before builds or QA, check the Mac's `ops_host_snapshot.pressure` (or the workspace
+`tools/sim-lease pressure`) and back off while `busy` or `critical`. Kernel warning
+or load per core above 4 means busy; kernel critical or load per core above 10
+means critical. Swap usage is informational; null pressure means unavailable.
+The built-in `host-pressure` monitor probe shows `busy` as degraded without paging, and alerts on `critical` after ten minutes of failing
+cycles (11 samples at the default 60-second interval), with normal reminders and
+recovery notices. It appears in `ops_alerts_status` incidents and accepts
+`ops_alerts_silence {"probe": "host-pressure", "minutes": 15, "reason": "build maintenance"}`.
+
 Use `ops_service_restart` with `service` and a short `reason` for explicitly
 restartable launchd/docker/remote entries (`ops:restart`). It silences the linked probe
 automatically for ten minutes without using the agent silence quota, enforces a

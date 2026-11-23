@@ -320,6 +320,7 @@ async def test_snapshot(svc, monkeypatch):
     )
     replies[(hostcmd.SYSCTL, "-n", "kern.boottime")] = (0, "{ sec = 1000, usec = 0 }", "")
     replies[(hostcmd.SYSCTL, "-n", "hw.memsize")] = (0, str(1024**3), "")
+    replies[(hostcmd.SYSCTL, "-n", "kern.memorystatus_vm_pressure_level")] = (0, "1", "")
     replies[(hostcmd.SYSCTL, "-n", "vm.swapusage")] = (
         0,
         "total = 2.00G used = 512.00M free = 1.50G",
@@ -342,6 +343,12 @@ async def test_snapshot(svc, monkeypatch):
     result = await core.call("codex", "ops_host_snapshot", {})
     assert result["uptime_s"] == 1000 and result["cpu_count"] == 8
     assert result["load_averages"] == [1, 2, 3]
+    assert result["pressure"] == {
+        "level": "ok",
+        "kernel_level": 1,
+        "load_per_core": 0.125,
+        "swap_used_pct": 25.0,
+    }
     assert result["memory"] == {
         "total_mb": 1024,
         "free_mb": 1.56,
@@ -367,7 +374,8 @@ async def test_snapshot_unavailable(svc):
 
     core.services.runner = fail
     result = await core.call("codex", "ops_host_snapshot", {})
-    assert result["status"] == "ok" and len(result["unavailable"]) == 5
+    assert result["status"] == "ok" and len(result["unavailable"]) == 6
+    assert result["pressure"]["level"] is None
     assert result["memory"] == {} and result["top_cpu"] == []
     assert "SECRET" not in json.dumps(result)
 

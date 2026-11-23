@@ -53,6 +53,16 @@ def block_live_services(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def fake_host_pressure(monkeypatch):
+    from switchboard import host_pressure
+
+    async def sample():
+        return host_pressure.reading("1", (0.0, 0.0, 0.0), 8, "total = 0M used = 0M")
+
+    monkeypatch.setattr(host_pressure, "sample", sample)
+
+
+@pytest.fixture(autouse=True)
 def block_real_host_commands(monkeypatch):
     import asyncio
 

@@ -11,7 +11,7 @@ import stat
 import time
 from pathlib import Path
 
-from . import hostcmd, remote
+from . import host_pressure, hostcmd, remote
 from .audit import redact
 from .config import allowed_log_path, validate_services
 from .errors import CapabilityError
@@ -495,15 +495,19 @@ class Services:
             [hostcmd.SYSCTL, "-n", "vm.swapusage"],
             [hostcmd.VM_STAT],
             [hostcmd.PS, "-Axo", "pid,pcpu,rss,comm"],
+            [hostcmd.SYSCTL, "-n", host_pressure.KERNEL_PRESSURE],
         ]
         results = await asyncio.gather(*(self.command(argv) for argv in commands))
         values = [text if not code else "" for code, text, _ in results]
-        boot, total, swap, vm, ps = values
+        boot, total, swap, vm, ps, kernel = values
         result = {"status": "ok", "cpu_count": os.cpu_count(), "memory": {}, "swap": {}}
         try:
             result["load_averages"] = list(os.getloadavg())
         except OSError:
             result["load_averages"] = []
+        result["pressure"] = host_pressure.reading(
+            kernel, result["load_averages"], result["cpu_count"], swap
+        )
         if match := re.search(r"sec\s*=\s*(\d+)", boot):
             result["uptime_s"] = max(0, time.time() - int(match[1]))
         if total.strip().isdigit():

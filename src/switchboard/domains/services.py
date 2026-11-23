@@ -53,6 +53,15 @@ SNAPSHOT = output(
         }
     ),
     swap=obj({key + "_mb": NUMBER for key in ("total", "used", "free")}),
+    pressure=obj(
+        {
+            "level": {"type": ["string", "null"], "enum": ["ok", "busy", "critical", None]},
+            "kernel_level": {"type": ["integer", "null"], "enum": [1, 2, 4, None]},
+            "load_per_core": {"type": ["number", "null"], "minimum": 0},
+            "swap_used_pct": {"type": ["number", "null"], "minimum": 0},
+        },
+        ("level", "kernel_level", "load_per_core", "swap_used_pct"),
+    ),
     disks=array(
         obj(
             {
@@ -201,9 +210,10 @@ def register(registry):
     @registry.declare(
         "ops_host_snapshot",
         "Host resource snapshot",
-        "Mac and remote host CPU, memory, swap and disk resources. Use when diagnosing Mac or "
-        "configured remote host CPU, memory, swap or disks. Requires ops:diagnose. Returns "
-        "load, uptime and top eight processes by CPU/RSS; command basenames only.",
+        "Mac and remote host resources and Mac pressure. Use when diagnosing resources or "
+        "checking before builds/QA. Requires ops:diagnose. Returns load, uptime, top eight "
+        "CPU/RSS processes (basenames only) and Mac pressure: busy at kernel 2 or load/core >4, "
+        "critical at kernel 4 or load/core >10; swap is informational, missing readings null.",
         obj({"host": SERVICE_NAME}),
         scope="ops:diagnose",
         timeout_s=25,

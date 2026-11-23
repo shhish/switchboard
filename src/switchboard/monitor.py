@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import math
 import sqlite3
 import time
 from datetime import UTC, datetime
@@ -9,12 +10,14 @@ from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from . import host_pressure
 from .alert_config import heartbeat_url
 from .auth import read_private
 from .errors import CapabilityError
 from .eventkit import EventKit
 
 SYSTEM_PROBE = "@monitor"
+HOST_PRESSURE_PROBE = "host-pressure"
 MAX_AGENT_SILENCES = 3
 STATE_RANK = {"up": 0, "unknown": 1, "degraded": 2, "down": 3}
 
@@ -79,7 +82,8 @@ class Monitor:
         async with self.lock:
             # Intentionally bypass the health TTL, but refresh its cache.
             result = await self.probes.run()
-            self.process(result["services"], time.time())
+            pressure = await host_pressure.sample()
+            self.process(result["services"], time.time(), pressure=pressure)
             await self.heartbeat()
             if self.watches:
                 try:
@@ -122,7 +126,7 @@ class Monitor:
         health = getattr(self, "disk_health", None)
         return health.probe_names() if health else set()
 
-    def process(self, services, now):
+    def process(self, services, now, *, pressure=None):
         configs = {row["name"]: row for row in self.config.probes}
         failing = {"down", "degraded"}
         # Include opted-out probes in host detection. Require a loopback witness.
@@ -150,6 +154,19 @@ class Monitor:
                 )
             )
             self.transition(system, system_status, now)
+            if pressure is not None:
+                level, reason = host_pressure.severity(
+                    pressure["kernel_level"], pressure["load_per_core"]
+                )
+                self.transition(
+                    {"name": HOST_PRESSURE_PROBE, "group": "host", "pressure_detail": pressure},
+                    {"ok": "up", "busy": "degraded", "critical": "down", None: "unknown"}[level],
+                    now,
+                    reason,
+                    # This Mac often sits at the kernel's warning level while healthy:
+                    # show "busy" in status, page the owner only for critical.
+                    observe_only=level == "busy",
+                )
             for row in services:
                 probe = configs.get(row["name"])
                 if probe:
@@ -163,7 +180,7 @@ class Monitor:
                         or (all_failed and not self.silenced(SYSTEM_PROBE, now)),
                     )
             # Retire removed probes without issuing stale recovery notices.
-            active = set(configs) | {SYSTEM_PROBE}
+            active = set(configs) | {SYSTEM_PROBE, HOST_PRESSURE_PROBE}
             active |= self.storage_probes()
             for row in self.db.execute("SELECT name FROM monitor_state").fetchall():
                 if row["name"] not in active:
@@ -173,6 +190,9 @@ class Monitor:
             )
 
     def failure_threshold(self, probe, reason):
+        if probe["name"] == HOST_PRESSURE_PROBE:
+            # N samples span N-1 intervals: never page before ten minutes at this cadence.
+            return math.ceil(600 / self.config.monitor["interval_s"]) + 1
         threshold = probe.get("failures_before_alert", self.config.monitor["failures_before_alert"])
         if reason == "timeout":
             # Refused/5xx means the service is gone; a slow answer needs a longer streak.
@@ -308,7 +328,18 @@ class Monitor:
         name = display_name(probe)
         since = local_time(state["down_since"])
         elapsed = duration(now - state["down_since"])
-        if "storage_detail" in probe:
+        if "pressure_detail" in probe:
+            severity = "Critical" if state["status"] == "down" else "Warning"
+            title = f"[{name}] [{'Recovered' if kind == 'recovery' else severity}]"
+            body = (
+                f"Host pressure recovered after {elapsed}."
+                if kind == "recovery"
+                else f"Host pressure has been elevated for {elapsed}, since {since}. "
+                f"Kernel level: {probe['pressure_detail']['kernel_level']}; "
+                f"load per core: {probe['pressure_detail']['load_per_core']}; "
+                f"swap used: {probe['pressure_detail']['swap_used_pct']}%."
+            )
+        elif "storage_detail" in probe:
             severity = "Critical" if state["status"] == "down" else "Warning"
             title = f"[{name}] [{'Recovered' if kind == 'recovery' else severity}]"
             body = (
@@ -342,7 +373,9 @@ class Monitor:
 
     def validate_probe(self, name):
         if name != "all" and name not in (
-            {probe["name"] for probe in self.config.probes} | self.storage_probes()
+            {probe["name"] for probe in self.config.probes}
+            | self.storage_probes()
+            | {HOST_PRESSURE_PROBE}
         ):
             raise CapabilityError("invalid_arguments", "Unknown configured probe")
 
@@ -417,7 +450,8 @@ class Monitor:
     def status(self):
         row = self.db.execute("SELECT value FROM monitor_meta WHERE key='last_cycle_at'").fetchone()
         active = {row["name"] for row in self.config.probes if row.get("alert", True)} | {
-            SYSTEM_PROBE
+            SYSTEM_PROBE,
+            HOST_PRESSURE_PROBE,
         }
         active |= self.storage_probes()
         incidents = [
