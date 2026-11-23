@@ -29,7 +29,7 @@ def parser():
     manifest = sub.add_parser("manifest")
     manifest.add_argument("--markdown", action="store_true")
     sub.add_parser("doctor")
-    for name in ("eventkit", "things", "notes"):
+    for name in ("eventkit", "things", "notes", "apple-notes"):
         native = sub.add_parser(name).add_subparsers(dest="action", required=True)
         native.add_parser("status")
         native.add_parser("request-access")
@@ -125,7 +125,8 @@ async def execute(args, config):
         from .memory_cli import execute as memory_execute
 
         return await memory_execute(args, config)
-    if args.command in ("eventkit", "things", "net", "notes"):
+    if args.command in ("eventkit", "things", "net", "notes", "apple-notes"):
+        from .apple_notes import AppleNotes
         from .eventkit import EventKit
         from .notes import Notes
         from .things import Things
@@ -136,7 +137,9 @@ async def execute(args, config):
         token = read_token(config.token_dir / f"{client}.token")
         if client != "owner" or Tokens(config.token_dir).authenticate("Bearer " + token) != "owner":
             raise CapabilityError("owner_required", "Local owner credential required")
-        helper = {"things": Things, "notes": Notes}.get(args.command, EventKit)(config)
+        helper = {"things": Things, "notes": Notes, "apple-notes": AppleNotes}.get(
+            args.command, EventKit
+        )(config)
         if args.command == "net":
             result = await helper.net_request_access()
             return {**result, "status": "ok" if "http_status" in result else "degraded"}
@@ -145,7 +148,7 @@ async def execute(args, config):
         result = await helper.request_access()
         if args.command == "notes":
             return {"status": "ok"}
-        if args.command == "things":
+        if args.command in ("things", "apple-notes"):
             return {
                 **result,
                 "status": "ok" if result.get("automation") == "authorized" else "degraded",

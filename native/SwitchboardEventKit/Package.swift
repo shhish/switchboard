@@ -6,7 +6,9 @@ let package = Package(
   platforms: [.macOS(.v15)],
   products: [.executable(name: "SwitchboardEventKit", targets: ["SwitchboardEventKit"])],
   targets: [
-    .target(name: "EventKitBridge", resources: [.copy("Resources/Things.applescript")]),
+    .target(
+      name: "EventKitBridge",
+      resources: [.copy("Resources/Things.applescript"), .copy("Resources/AppleNotes.applescript")]),
     .executableTarget(name: "SwitchboardEventKit", dependencies: ["EventKitBridge"]),
     .testTarget(name: "EventKitBridgeTests", dependencies: ["EventKitBridge"]),
   ],

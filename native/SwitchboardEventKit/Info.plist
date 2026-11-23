@@ -11,7 +11,7 @@
   <key>LSUIElement</key><true/>
   <key>NSCalendarsFullAccessUsageDescription</key><string>Switchboard reads your upcoming events and creates events only in calendars you allow.</string>
   <key>NSRemindersFullAccessUsageDescription</key><string>Switchboard reads reminders and adds or completes reminders only in lists you allow.</string>
-  <key>NSAppleEventsUsageDescription</key><string>Switchboard uses Things to read and manage your to-dos and projects.</string>
+  <key>NSAppleEventsUsageDescription</key><string>Switchboard uses Things to manage your to-dos and reads Apple Notes you ask agents to look up.</string>
   <key>NSLocalNetworkUsageDescription</key><string>Switchboard checks that home devices on your network are up.</string>
   <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>

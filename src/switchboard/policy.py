@@ -56,7 +56,8 @@ class Policy:
                 if (
                     not isinstance(scopes, list)
                     or not all(
-                        isinstance(s, str) and re.fullmatch(r"[a-z]+:[a-z_]+", s) for s in scopes
+                        isinstance(s, str) and re.fullmatch(r"(?:[a-z]+|apple_notes):[a-z_]+", s)
+                        for s in scopes
                     )
                     or type(rule.get("trust_client_confirmation", False)) is not bool
                 ):

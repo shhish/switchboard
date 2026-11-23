@@ -19,6 +19,7 @@ BIN=$(swift build --package-path "$PACKAGE" --cache-path "$REPO/native/build/cac
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 # Package a fixed compiled script. Never generate source from request data.
 /usr/bin/osacompile -o "$APP/Contents/Resources/Things.scpt" "$PACKAGE/Sources/EventKitBridge/Resources/Things.applescript"
+/usr/bin/osacompile -o "$APP/Contents/Resources/AppleNotes.scpt" "$PACKAGE/Sources/EventKitBridge/Resources/AppleNotes.applescript"
 cp -R "$BIN/SwitchboardEventKit_EventKitBridge.bundle" "$APP/Contents/Resources/"
 cp "$BIN/SwitchboardEventKit" "$APP/Contents/MacOS/SwitchboardEventKit"
 cp "$PACKAGE/Info.plist" "$APP/Contents/Info.plist"

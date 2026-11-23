@@ -281,6 +281,10 @@ backends:
     enabled: false
     root: null  # Absolute vault directory under the owner home; no symlinks.
     exclude: []  # Relative folder prefixes, e.g. personal/.
+  # Apple Notes has a separate, sensitive apple_notes:read scope. Owner setup:
+  # scripts/owner-enable-apple-notes.sh (after enabling this backend).
+  apple_notes:
+    enabled: false
   # Things shares the eventkit socket; may be enabled independently.
   things:
     enabled: false

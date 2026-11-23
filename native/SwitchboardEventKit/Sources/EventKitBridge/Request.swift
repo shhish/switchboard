@@ -44,6 +44,10 @@ public struct BridgeError: Error, Sendable {
 }
 
 public enum Operation: String, Codable, Sendable {
+  case appleNotesStatus = "apple_notes.status"
+  case appleNotesAccess = "apple_notes.request_access"
+  case appleNotesSearch = "apple_notes.search"
+  case appleNotesGet = "apple_notes.get"
   case thingsStatus = "things.status"
   case thingsAccess = "things.request_access"
   case thingsLists = "things.lists"
@@ -146,6 +150,10 @@ public struct Request: Sendable {
   }
 
   private func validate() throws {
+    if method.rawValue.hasPrefix("apple_notes.") {
+      try validateAppleNotes()
+      return
+    }
     if method == .notesSearch || method == .notesGet {
       try Notes.validate(self)
       return
@@ -196,7 +204,8 @@ public struct Request: Sendable {
     case .updateReminder:
       fields = ["reminder_id", "list_ids", "title", "due", "notes", "priority"]
       required = ["reminder_id", "list_ids"]
-    case .notesSearch, .notesGet, .netProbe, .netAccess, .remoteSSH, .thingsStatus, .thingsAccess,
+    case .appleNotesStatus, .appleNotesAccess, .appleNotesSearch, .appleNotesGet,
+      .notesSearch, .notesGet, .netProbe, .netAccess, .remoteSSH, .thingsStatus, .thingsAccess,
       .thingsLists,
       .thingsSearch,
       .thingsProjects, .thingsAreas, .thingsAdd, .thingsAddProject, .thingsComplete, .thingsUpdate:

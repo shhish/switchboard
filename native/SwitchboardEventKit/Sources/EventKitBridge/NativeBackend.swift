@@ -6,6 +6,7 @@ import Foundation
 public actor NativeBackend: EventKitBackend {
   private let store = EKEventStore()
   private let things = ThingsBackend()
+  private let appleNotes = AppleNotesBackend()
   private var reminderFetches: [UUID: Any] = [:]
   public init() {}
 
@@ -114,6 +115,9 @@ public actor NativeBackend: EventKitBackend {
 
   public func execute(_ request: Request) async throws -> [String: JSONValue] {
     try Task.checkCancellation()
+    if request.method.rawValue.hasPrefix("apple_notes.") {
+      return try await appleNotes.execute(request)
+    }
     if request.method.rawValue.hasPrefix("things.") {
       return try await things.execute(request)
     }
@@ -277,7 +281,8 @@ public actor NativeBackend: EventKitBackend {
         try store.save(reminder, commit: true)
       }
       result = ["reminder": Self.reminderRow(reminder).json]
-    case .thingsStatus, .thingsAccess, .thingsLists, .thingsSearch,
+    case .appleNotesStatus, .appleNotesAccess, .appleNotesSearch, .appleNotesGet,
+      .thingsStatus, .thingsAccess, .thingsLists, .thingsSearch,
       .thingsProjects, .thingsAreas, .thingsAdd, .thingsAddProject, .thingsComplete, .thingsUpdate:
       throw BridgeError("invalid_arguments")
     }

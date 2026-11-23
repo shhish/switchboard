@@ -67,6 +67,7 @@ DEFAULT_BACKENDS = {
     "ps5upload": {"url": "http://127.0.0.1:19113", "enabled": False},
     "notes": {"enabled": False, "root": None, "exclude": []},
     "things": {"enabled": False},
+    "apple_notes": {"enabled": False},
     "eventkit": {
         "socket": "~/Library/Application Support/switchboard/eventkit.sock",
         "enabled": False,
@@ -460,7 +461,7 @@ class Config:
                 else {"enabled", "root", "exclude"}
                 if name == "notes"
                 else {"enabled"}
-                if name == "things"
+                if name in ("things", "apple_notes")
                 else {"socket" if name == "eventkit" else "path", "enabled"}
                 if name in ("eventkit", "maintenance")
                 else {
@@ -515,7 +516,7 @@ class Config:
 
                 validate_settings(settings)
                 continue
-            if name == "things":
+            if name in ("things", "apple_notes"):
                 continue
             if name == "eventkit":
                 path = settings["socket"]

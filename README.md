@@ -5,15 +5,15 @@
 **One set of hands in your house for every AI agent you use.**
 
 Ask Claude to wake the PS5. Ask Codex why Sonarr restarted at 3am. Ask ChatGPT to dim the bedroom lights.<br/>
-They all go through the same 145 tools, one rulebook and one audit log, running on your own Mac.
+They all go through the same 147 tools, one rulebook and one audit log, running on your own Mac.
 
 [![MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.13+-3776AB?style=flat-square&logo=python&logoColor=white)
 ![macOS](https://img.shields.io/badge/macOS-host-000000?style=flat-square&logo=apple&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-server-8A2BE2?style=flat-square)
-![145 tools](https://img.shields.io/badge/tools-145-success?style=flat-square)
+![147 tools](https://img.shields.io/badge/tools-147-success?style=flat-square)
 
-[What it does](#what-it-can-do) · [See it](#a-day-with-switchboard) · [Guard rails](#guard-rails) · [Quick start](#quick-start) · [All 145 tools](docs/CAPABILITIES.md)
+[What it does](#what-it-can-do) · [See it](#a-day-with-switchboard) · [Guard rails](#guard-rails) · [Quick start](#quick-start) · [All 147 tools](docs/CAPABILITIES.md)
 
 </div>
 
@@ -55,7 +55,7 @@ More things you can ask:
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/readme/how-it-fits-dark.svg">
-    <img src="docs/readme/how-it-fits-light.svg" alt="Claude Code, Codex, Antigravity, ChatGPT and your own scripts call Switchboard on your Mac, which applies policy and approvals, runs 145 typed tools, keeps an audit log and shared names, and reaches Plex, Apple Home, PlayStation 5, Things 3, notes and recipes, and the Mac mini and Raspberry Pi." width="100%">
+    <img src="docs/readme/how-it-fits-light.svg" alt="Claude Code, Codex, Antigravity, ChatGPT and your own scripts call Switchboard on your Mac, which applies policy and approvals, runs 147 typed tools, keeps an audit log and shared names, and reaches Plex, Apple Home, PlayStation 5, Things 3, notes and recipes, and the Mac mini and Raspberry Pi." width="100%">
   </picture>
 </p>
 
@@ -78,7 +78,7 @@ Every integration is optional. Turn on the ones you run. The [full tour](#the-fu
 | 🛡️ **Home network**<br/><sub>`dns_*` · 3 tools</sub> | AdGuard Home on the Pi: what it answered and blocked, for which devices; pause blocking for a few minutes. |
 | 💡 **Run the house**<br/><sub>`home_*` `routines_*` · 15 tools</sub> | Lights, accessories and scenes in Apple Home, and routines that run on their own: motion, held-open, time and sunset triggers. Locks and garage doors need your approval. |
 | ✅ **Get things done**<br/><sub>`tasks_*` `reminders_*` `calendar_*` · 20 tools</sub> | Things 3, Apple Reminders and Calendar: read, add, edit, complete; create Things projects while the Mac is locked. |
-| 📚 **Remember things**<br/><sub>`notes_*` `recipes_*` `books_*` `context_*` · 13 tools</sub> | Search your Obsidian notes and recipes, request books, and learn your names for things. |
+| 📚 **Remember things**<br/><sub>`notes_*` `recipes_*` `books_*` `context_*` · 15 tools</sub> | Search Apple Notes, your Obsidian vault and recipes, request books, and learn your names for things. |
 | 🧠 **Share what agents learn**<br/><sub>`memory_*` · 11 tools</sub> | Durable facts and preferences for Claude, Codex and ChatGPT; source history, scoped search and Markdown import/export, kept current with daily review findings and owner digests. |
 | 🕵️ **Keep an eye on the agents**<br/><sub>`audit_*` `alerts_*` `jobs_*` · 12 tools</sub> | A tamper-evident log of every call, "why did that happen?", and "tell me when". |
 | 🌦️ **Weather**<br/><sub>`weather_*` · 4 tools</sub> | Now, hourly, 7-day and alerts from the US National Weather Service. |
@@ -107,8 +107,8 @@ Every integration is optional. Turn on the ones you run. The [full tour](#the-fu
 - **Approvals are exact.** A yes covers one agent, one tool and one set of arguments, once, then expires.
 - **The policy is a file you own.** Anything it doesn't mention is refused.
 - **No `exec`.** No shell, no raw HTTP passthrough, no Docker socket, no reboot, and nothing to do with money, ever.
-- **Secrets stay in owner-only files.** Agents never see them and they're never logged.
-- **One signed macOS helper** holds the Calendar, Reminders, Things and network permissions, so terminals and agents don't need them.
+- **Service credentials stay in owner-only files.** Note contents never enter the audit log; agents must move any secrets they find straight into secure configuration.
+- **One signed macOS helper** holds the Calendar, Reminders, Things, Apple Notes and network permissions, so terminals and agents don't need them.
 
 More in the [security model](docs/SECURITY.md).
 
@@ -191,7 +191,8 @@ Local Git reads stay under configured roots; merges and release tags pin the SHA
 <details>
 <summary><b>Remember things</b> · <code>notes_*</code> <code>recipes_*</code> <code>books_*</code> <code>context_*</code></summary>
 
-- **Notes:** read-only search over an Obsidian-style vault, even one in iCloud Drive. Folders you exclude (a journal, say) stay invisible.
+- **Apple Notes:** read-only plaintext search and reads with separate permissions; locked and Recently Deleted notes stay excluded.
+- **Notes vault:** read-only search over an Obsidian-style vault, even one in iCloud Drive. Folders you exclude (a journal, say) stay invisible.
 - **Recipes:** search by ingredient, cuisine, tag or total time; read servings, ingredients and steps.
 - **Books:** search and request ebooks and audiobooks through LazyLibrarian.
 - **Context:** your names for things ("the bedroom TV"), stored once and used by every agent.

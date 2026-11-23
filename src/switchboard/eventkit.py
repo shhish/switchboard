@@ -106,6 +106,17 @@ class EventKit:
                         "unsupported": ("Native checklist/Evening unsupported; nothing created"),
                         "conflict": "An open Things project with that exact name already exists",
                     }.get(code, "Things operation failed; inspect reads before retrying writes")
+                if self.backend == "apple_notes":
+                    message = {
+                        "unauthorized": (
+                            "Apple Notes Automation unavailable; owner must run "
+                            "sb apple-notes request-access"
+                        ),
+                        "not_found": "Apple Note not found",
+                        "resource_denied": "Apple Note is protected or in Recently Deleted",
+                        "invalid_arguments": "Invalid Apple Notes request",
+                        "timeout": "Apple Notes operation timed out",
+                    }.get(code, "Apple Notes helper operation failed")
                 if self.backend == "notes":
                     message = {
                         "unauthorized": (
@@ -123,7 +134,7 @@ class EventKit:
             raise CapabilityError(
                 "backend_down",
                 f"{self.backend}: missing or timed out; "
-                f"run sb {self.backend} status before retrying writes",
+                f"run sb {self.backend.replace('_', '-')} status before retrying writes",
             ) from None
         except (ValueError, UnicodeError, RecursionError):
             raise CapabilityError("backend_invalid", f"{self.backend}: invalid response") from None

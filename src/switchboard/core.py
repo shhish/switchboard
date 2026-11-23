@@ -356,6 +356,7 @@ class Core:
             "tautulli": "tautulli",
             "lazylibrarian": "lazylibrarian",
             "things": "things",
+            "apple_notes": "apple_notes",
             "recipes": "recipes",
             "eventkit": "eventkit",
             "console": "ps5",

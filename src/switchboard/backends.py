@@ -6,6 +6,7 @@ from pathlib import Path
 
 import aiohttp
 
+from .apple_notes import AppleNotes
 from .auth import read_private
 from .errors import CapabilityError
 from .eventkit import EventKit
@@ -26,6 +27,7 @@ class Backends:
         self.eventkit = EventKit(config)
         self.media_compress = MediaCompress(config)
         self.things = Things(config)
+        self.apple_notes = AppleNotes(config)
         self.notes = Notes(config)
         self.weather = NWS(config)
         self.gitea = Gitea(self)
@@ -146,6 +148,8 @@ class Backends:
             return self.media_compress.probe()
         if name == "eventkit":
             return await self.eventkit.probe()
+        if name == "apple_notes":
+            return await self.apple_notes.probe()
         if name == "things":
             return await self.things.probe()
         if name == "notes":

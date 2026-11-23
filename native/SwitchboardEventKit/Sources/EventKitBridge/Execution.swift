@@ -56,11 +56,12 @@ public final class CompletionGate<Value: Sendable>: Sendable {
 
 public enum ExecutionDeadline {
   public static func seconds(for request: Request) -> Double {
+    if [.appleNotesSearch, .appleNotesGet].contains(request.method) { return 60 }
     if request.method == .notesSearch || request.method == .notesGet { return 20 }
     if request.method == .remoteSSH {
       return RemoteSSH.deadline(for: request.text("request") ?? "") + 5
     }
-    return [.requestAccess, .thingsAccess, .netAccess].contains(request.method) ? 180 : 10
+    return [.requestAccess, .thingsAccess, .appleNotesAccess, .netAccess].contains(request.method) ? 180 : 10
   }
 
   public static func run<Value: Sendable>(
