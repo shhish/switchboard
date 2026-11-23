@@ -317,9 +317,9 @@ def register(registry):
         "Merge green Gitea pull request",
         "Merge a Gitea pull request when CI is green. "
         "Use when merging an open, non-draft, mergeable pull request. Requires git:write and "
-        "an allowlisted repo. Returns verified merged SHA; pins head_commit_id and requires "
-        "successful CI, or explicit allow_no_checks when no checks/runs exist. Deletes branch "
-        "by default.",
+        "an allowlisted repo. Returns verified merged SHA; pins head_commit_id. Requires green "
+        "CI or explicit allow_no_checks with no checks/runs; refused for repos with "
+        "pull-request CI. Deletes branch by default.",
         {
             "repo": REPO,
             "number": ID,

@@ -1,9 +1,12 @@
 """Typed Git workflows: bounded reads and allowlisted, commit-pinned Gitea writes."""
 
 import asyncio
+import base64
 import re
 import time
 from urllib.parse import quote
+
+import yaml
 
 from .domains.common import sanitize_text
 from .errors import CapabilityError
@@ -13,6 +16,8 @@ from .services import redact_line
 
 SHA = re.compile(r"[0-9a-fA-F]{40,64}")
 REPO_BUDGET = 25
+WORKFLOW_BUDGET = 30
+WORKFLOW_BYTES = 64 * 1024
 TAG = r"v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?"
 ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))")
 
@@ -206,6 +211,62 @@ class Git:
                 "CI must succeed for the exact commit; absent, incomplete or pending checks "
                 "do not pass",
             )
+
+    async def has_pr_workflows(self, repo, base):
+        """Inspect base-branch workflows; incomplete or invalid files fail closed."""
+        if not isinstance(base, str) or not base:
+            invalid()
+        remaining = WORKFLOW_BUDGET
+        for directory in (".gitea/workflows", ".github/workflows"):
+            path = self.path(repo) + "/contents/" + directory
+            rows = await self.api.request(path, params={"ref": base}, missing=True)
+            if rows is None:
+                continue
+            if not isinstance(rows, list):
+                invalid()
+            for row in rows:
+                row = mapping(row)
+                name = row.get("name")
+                if not isinstance(name, str) or "/" in name or "\\" in name:
+                    invalid()
+                if not name.lower().endswith((".yml", ".yaml")):
+                    continue
+                if row.get("type") != "file" or remaining == 0:
+                    return True
+                remaining -= 1
+                size = row.get("size")
+                if type(size) is not int or not 0 <= size <= WORKFLOW_BYTES:
+                    return True
+                file = mapping(
+                    await self.api.request(path + "/" + quote(name, safe=""), params={"ref": base})
+                )
+                content = file.get("content")
+                if (
+                    file.get("encoding") != "base64"
+                    or not isinstance(content, str)
+                    or len(content) > 2 * WORKFLOW_BYTES
+                ):
+                    return True
+                try:
+                    raw = base64.b64decode("".join(content.split()), validate=True)
+                    if len(raw) > WORKFLOW_BYTES:
+                        return True
+                    workflow = yaml.safe_load(raw)
+                except (ValueError, yaml.YAMLError, UnicodeError, RecursionError):
+                    return True
+                if not isinstance(workflow, dict):
+                    return True
+                # PyYAML's YAML 1.1 resolver treats an unquoted `on` as True.
+                for key in ("on", True):
+                    if key not in workflow:
+                        continue
+                    events = workflow[key]
+                    if not isinstance(events, (str, list, dict)):
+                        return True
+                    triggers = [events] if isinstance(events, str) else events
+                    if "pull_request" in triggers or "pull_request_target" in triggers:
+                        return True
+        return False
 
     def pr_row(self, repo, data):
         data = mapping(data)
@@ -501,7 +562,19 @@ class Git:
             or not row["mergeable"]
         ):
             raise CapabilityError("git_merge_denied", "PR must be open, not draft, and mergeable")
-        self.gate(await self.ci(repo, row["head_sha"]), args.get("allow_no_checks", False))
+        ci = await self.ci(repo, row["head_sha"])
+        allow_no_checks = args.get("allow_no_checks", False)
+        self.gate(ci, allow_no_checks)
+        if (
+            ci["state"] == "no_checks"
+            and allow_no_checks
+            and await self.has_pr_workflows(repo, data["base"].get("ref"))
+        ):
+            raise CapabilityError(
+                "git_ci_denied",
+                "This repository runs CI on pull requests; wait for its checks instead of "
+                "allow_no_checks",
+            )
         await self.api.request(
             path + "/merge",
             payload={

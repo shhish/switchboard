@@ -48,7 +48,9 @@ PR workflow:
    Open, non-draft, mergeable PRs only; combined statuses and current Actions
    runs must succeed. The checked head SHA is pinned in the merge request.
    `allow_no_checks: true` is only for an explicitly intended no-checks merge,
-   never for pending, failed, unknown or truncated CI.
+   never for pending, failed, unknown or truncated CI. It is refused when the
+   base branch has pull-request CI in `.gitea/workflows` or `.github/workflows`;
+   wait for checks to appear and pass. Unparseable workflows also block it.
 
 For snapshot-published repositories, merging alone does not publish. Follow the
 repo's privacy/README/release checks, then `git_tag_create {repo, tag, message,

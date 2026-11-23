@@ -1,6 +1,7 @@
 """Git tools use only fake Gitea HTTP and temporary real Git repositories."""
 
 import asyncio
+import base64
 import json
 import subprocess
 from pathlib import Path
@@ -84,6 +85,7 @@ async def git_api(core, config):
         "branch_sha": A,
         "tags": {},
         "overrides": {},
+        "workflows": {},
     }
     calls = []
 
@@ -155,6 +157,22 @@ async def git_api(core, config):
             return web.json_response(paged(request, state["prs"]))
         if suffix == "/pulls/1":
             return web.json_response(state["pr"])
+        if suffix.startswith("/contents/"):
+            assert request.query == {"ref": state["pr"]["base"]["ref"]}
+            location = suffix.removeprefix("/contents/")
+            if location in (".gitea/workflows", ".github/workflows"):
+                files = [
+                    {"name": path.rsplit("/", 1)[1], "type": "file", "size": len(body.encode())}
+                    for path, body in state["workflows"].items()
+                    if path.startswith(location + "/")
+                ]
+                return web.json_response(files) if files else web.Response(status=404)
+            if location in state["workflows"]:
+                raw = state["workflows"][location].encode()
+                return web.json_response(
+                    {"encoding": "base64", "content": base64.b64encode(raw).decode()}
+                )
+            return web.Response(status=404)
         for name in ("files", "commits", "reviews"):
             if suffix == "/pulls/1/" + name:
                 return web.json_response(paged(request, state[name]))
@@ -280,6 +298,7 @@ async def test_ci_gates(git_api, state, tool):
         **({"number": 1} if tool == "pr_merge" else {"tag": "v2.0.0", "message": "Release"}),
     }
     result = await call(git_api, tool, **args)
+    assert not any("/contents/" in c["path"] for c in git_api[2])
     if state == "success":
         assert result["status"] == "done"
         assert len(writes(git_api)) == 1
@@ -288,7 +307,7 @@ async def test_ci_gates(git_api, state, tool):
         assert not writes(git_api)
 
 
-@pytest.mark.parametrize("state", ["no_checks", "pending", "failure", "unknown"])
+@pytest.mark.parametrize("state", ["no_checks", "pending", "failure", "unknown", "success"])
 async def test_no_checks_exception_is_explicit_and_narrow(git_api, state):
     _, data, _ = git_api
     data["runs"] = []
@@ -298,8 +317,95 @@ async def test_no_checks_exception_is_explicit_and_narrow(git_api, state):
         "statuses": [] if state == "no_checks" else [{"context": "ci", "status": state}],
     }
     result = await call(git_api, "pr_merge", repo="project", number=1, allow_no_checks=True)
-    assert (result["status"] == "done") == (state == "no_checks")
-    assert bool(writes(git_api)) == (state == "no_checks")
+    assert (result["status"] == "done") == (state in {"no_checks", "success"})
+    assert bool(writes(git_api)) == (state in {"no_checks", "success"})
+    contents = [c for c in git_api[2] if "/contents/" in c["path"]]
+    assert len(contents) == (2 if state == "no_checks" else 0)
+
+
+@pytest.mark.parametrize("directory", [".gitea/workflows", ".github/workflows"])
+@pytest.mark.parametrize(
+    "workflow,denied",
+    [
+        ("on:\n  push:\n    tags: ['v*']\n", False),
+        ("on: [push, schedule]\n", False),
+        ("on: pull_request\n", True),
+        ("'on': pull_request\n", True),
+        ("on: [push, pull_request]\n", True),
+        ("on: {pull_request: {}}\n", True),
+        ("true: pull_request\n", True),
+        ("on: pull_request_target\n", True),
+        ("'on': [pull_request_target]\n", True),
+        ("'on': {pull_request_target: {}}\n", True),
+        ("'on': push\ntrue: pull_request\n", True),
+        ("on: [invalid yaml\n", True),
+    ],
+)
+async def test_no_checks_checks_base_branch_workflows(git_api, directory, workflow, denied):
+    _, data, calls = git_api
+    data["runs"] = []
+    data["combined"] = {"state": "pending", "total_count": 0, "statuses": []}
+    data["pr"]["base"]["ref"] = "release/v1"
+    data["workflows"] = {
+        directory + "/ci.yaml": workflow,
+        directory + "/README.md": "not workflow YAML: [",
+    }
+    result = await call(git_api, "pr_merge", repo="project", number=1, allow_no_checks=True)
+    if denied:
+        assert result["error"] == {
+            "code": "git_ci_denied",
+            "message": "This repository runs CI on pull requests; wait for its checks instead "
+            "of allow_no_checks",
+            "retryable": False,
+        }
+    else:
+        assert result["status"] == "done"
+    assert bool(writes(git_api)) is not denied
+    contents = [c for c in calls if "/contents/" in c["path"]]
+    assert all(c["query"] == {"ref": "release/v1"} for c in contents)
+    assert sum(c["path"].endswith("/ci.yaml") for c in contents) == 1
+    assert not any(c["path"].endswith("/README.md") for c in contents)
+
+
+async def test_no_checks_false_never_reads_workflows(git_api):
+    git_api[1]["runs"] = []
+    git_api[1]["combined"] = {"state": "pending", "total_count": 0, "statuses": []}
+    result = await call(git_api, "pr_merge", repo="project", number=1, allow_no_checks=False)
+    assert result["error"]["code"] == "git_ci_denied"
+    assert not writes(git_api)
+    assert not any("/contents/" in c["path"] for c in git_api[2])
+
+
+@pytest.mark.parametrize("count", [30, 31])
+async def test_no_checks_workflow_file_budget_is_shared(git_api, count):
+    _, data, calls = git_api
+    data["runs"] = []
+    data["combined"] = {"state": "pending", "total_count": 0, "statuses": []}
+    data["workflows"] = {
+        f"{'.gitea' if i < 15 else '.github'}/workflows/{i}.yml": "on: push" for i in range(count)
+    }
+    result = await call(git_api, "pr_merge", repo="project", number=1, allow_no_checks=True)
+    assert (result["status"] == "done") == (count == 30)
+    assert bool(writes(git_api)) == (count == 30)
+    assert sum(c["path"].endswith(".yml") for c in calls) == 30
+
+
+@pytest.mark.parametrize("size", [64 * 1024, 64 * 1024 + 1])
+@pytest.mark.parametrize("reported_size", [None, 1])
+async def test_no_checks_workflow_byte_limit(git_api, size, reported_size):
+    _, data, calls = git_api
+    data["runs"] = []
+    data["combined"] = {"state": "pending", "total_count": 0, "statuses": []}
+    data["workflows"] = {".gitea/workflows/ci.yml": "on: push\n#".ljust(size, "x")}
+    if reported_size is not None:
+        data["overrides"]["/repos/example/project/contents/.gitea/workflows"] = [
+            {"name": "ci.yml", "type": "file", "size": reported_size}
+        ]
+    result = await call(git_api, "pr_merge", repo="project", number=1, allow_no_checks=True)
+    assert (result["status"] == "done") == (size == 64 * 1024)
+    assert bool(writes(git_api)) == (size == 64 * 1024)
+    if reported_size is None and size > 64 * 1024:
+        assert not any(c["path"].endswith(".yml") for c in calls)
 
 
 @pytest.mark.parametrize(
