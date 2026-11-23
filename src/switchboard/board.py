@@ -13,12 +13,14 @@ import time
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+from .ask_actions import apply_action, validate_action
 from .auth import private_dir
 from .domains.board import ASK_MEDIA_MAX_BYTES, COLUMNS
 from .domains.common import sanitize_text
 from .errors import CapabilityError
 from .execution import Execution
 from .git import Git, invalid, mapping
+from .memory import CALL_CONTEXT
 
 CACHE_SECONDS = 300
 
@@ -220,6 +222,7 @@ class Board:
                 answered.append(
                     {
                         "ask_id": ask["id"],
+                        **({"action": ask["action"]} if "action" in ask else {}),
                         **{
                             k: ask[k]
                             for k in (
@@ -461,6 +464,7 @@ class Board:
     def ask_spec(self, args):
         kind = args["kind"]
         option_args = {
+            "action",
             "options",
             "multiple",
             "allow_other",
@@ -470,7 +474,7 @@ class Board:
             "destructive",
         }
         allowed = {
-            "confirm": {"yes_label", "no_label", "recommended", "destructive"},
+            "confirm": {"yes_label", "no_label", "recommended", "destructive", "action"},
             "choice": {"options", "multiple", "allow_other", "recommended"},
             "text": set(),
             "form": {"fields"},
@@ -482,6 +486,13 @@ class Board:
             "prompt": self.nonblank(args["prompt"], 300),
             "detail": self.nonblank(args["detail"], 2000) if "detail" in args else None,
             "options": [],
+            "pictures": [
+                {
+                    "id": f"pic{n}",
+                    "caption": self.nonblank(p["caption"], 120) if "caption" in p else None,
+                }
+                for n, p in enumerate(args.get("pictures", []), 1)
+            ],
             "multiple": args.get("multiple", False),
             "allow_other": args.get("allow_other", False),
             "recommended": args.get("recommended"),
@@ -530,8 +541,8 @@ class Board:
             if "options" not in args:
                 raise CapabilityError("invalid_arguments", "Choice asks require options")
             spec["options"] = options(args["options"], detail=True)
-            if sum("image" in r for r in args["options"]) > 4:
-                raise CapabilityError("invalid_arguments", "At most four option pictures per ask")
+            if sum("image" in r for r in args["options"]) > 8:
+                raise CapabilityError("invalid_arguments", "At most eight option pictures per ask")
         elif kind == "plan":
             if "steps" not in args:
                 raise CapabilityError("invalid_arguments", "Plan asks require steps")
@@ -698,6 +709,13 @@ class Board:
         spec.pop("closed_at", None)
         spec.setdefault("steps", [])
         spec.setdefault("evidence", [])
+        spec.setdefault("pictures", [])
+        if "action" in spec:
+            spec["action"] = {
+                k: v
+                for k, v in spec["action"].items()
+                if k in {"type", "summary", "result", "message"}
+            }
         for option in spec["options"]:
             option.setdefault("image", False)
         answer, rendered = None, None
@@ -771,17 +789,23 @@ class Board:
     def picture_inputs(self, args):
         pictures = {}
         roots = [Path(r) for r in self.core.config.board["ask_media_roots"]]
-        for option in args.get("options", []):
-            if "image" not in option:
+        inputs = [
+            *args.get("options", []),
+            *({**p, "id": f"pic{n}"} for n, p in enumerate(args.get("pictures", []), 1)),
+        ]
+        for picture in inputs:
+            if "image" not in picture:
                 continue
+            if picture["id"] in pictures:
+                raise CapabilityError("invalid_arguments", "Picture IDs must not overlap")
             try:
-                path = Path(option["image"])
+                path = Path(picture["image"])
                 if not roots or not path.is_absolute():
                     raise ValueError("Pictures disabled or path not absolute")
                 path = path.resolve(strict=True)
                 if not any(path.is_relative_to(root) for root in roots):
                     raise ValueError("Picture outside configured roots")
-                pictures[option["id"]] = self.read_picture(path)
+                pictures[picture["id"]] = self.read_picture(path)
             except (OSError, ValueError, RuntimeError):
                 raise CapabilityError(
                     "invalid_arguments",
@@ -810,28 +834,27 @@ class Board:
 
     async def ask_media(self, client, args):
         row = self.ask_row(args["ask_id"])
-        option = next(
-            (o for o in json.loads(row["spec"])["options"] if o["id"] == args["option_id"]),
-            None,
-        )
-        if option and option.get("image", False):
+        spec = json.loads(row["spec"])
+        picture_id = args["option_id"]
+        has_picture = any(
+            o["id"] == picture_id and o.get("image", False) for o in spec["options"]
+        ) or any(p["id"] == picture_id for p in spec.get("pictures", []))
+        if has_picture:
             directory = self.media_directory(row["ask_id"])
             for extension in ("png", "jpg"):
                 try:
-                    data, _, media_type = self.read_picture(
-                        directory / f"{option['id']}.{extension}"
-                    )
+                    data, _, media_type = self.read_picture(directory / f"{picture_id}.{extension}")
                 except (OSError, ValueError):
                     continue
                 return {
                     "status": "ok",
                     "ask_id": row["ask_id"],
-                    "option_id": option["id"],
+                    "option_id": picture_id,
                     "media_type": media_type,
                     "bytes": len(data),
                     "data_base64": base64.b64encode(data).decode("ascii"),
                 }
-        raise CapabilityError("not_found", "Ask option picture not found")
+        raise CapabilityError("not_found", "Ask picture not found")
 
     def prune_ask_media(self, now):
         cutoff = now - timedelta(days=30)
@@ -846,9 +869,18 @@ class Board:
         repo, number = self.reference(args["card"])
         async with self._write_lock:
             self.core.policy.require_git_repo(repo)
+            if "action" in args:
+                try:
+                    spec["action"] = validate_action(self.core, args["action"])
+                except (OSError, ValueError, TypeError, RuntimeError):
+                    raise CapabilityError(
+                        "invalid_arguments", "Invalid or unavailable ask action"
+                    ) from None
+                spec["destructive"] = True
             pictures = self.picture_inputs(args)
+            option_pictures = {o["id"] for o in args.get("options", []) if "image" in o}
             for option in spec["options"]:
-                option["image"] = option["id"] in pictures
+                option["image"] = option["id"] in option_pictures
             board, issue, column = await self.lookup(repo, number)
             summary = self.summary(issue, repo, column)
             if issue["state"] != "open" or column == "Done":
@@ -875,6 +907,8 @@ class Board:
                 lines = [f"**{client}** asks: {spec['prompt']}"]
                 if spec["detail"]:
                     lines.extend(["", spec["detail"]])
+                if "action" in spec:
+                    lines.extend(["", "Switchboard action: " + spec["action"]["summary"]])
                 if args["kind"] == "plan":
                     lines.append("")
                     lines.extend(
@@ -967,9 +1001,21 @@ class Board:
             repo, number = self.reference(row["card"])
             self.core.policy.require_git_repo(repo)
             board, issue, column = await self.lookup(repo, number)
+            spec = json.loads(row["spec"])
+            if not withdraw and "action" in spec and answer.get("choice") == ["yes"]:
+                action = spec["action"]
+                action.update(apply_action(self.core, row["ask_id"], action))
+                self.core.audit.append(
+                    client=client,
+                    capability="board_answer",
+                    tier="write",
+                    decision="allowed",
+                    outcome=action["result"],
+                    args={"ask_id": row["ask_id"], "action_type": action["type"]},
+                    ctx=CALL_CONTEXT.get() or Execution.new("owner"),
+                )
             with self.core.storage.db as db:
                 if withdraw:
-                    spec = json.loads(row["spec"])
                     spec["closed_at"] = datetime.now(UTC).isoformat()
                     db.execute(
                         "UPDATE board_asks SET state='withdrawn', spec=? WHERE ask_id=?",
@@ -978,8 +1024,14 @@ class Board:
                 else:
                     db.execute(
                         "UPDATE board_asks SET state='answered', answer=?, answered_by=?, "
-                        "answered_at=? WHERE ask_id=?",
-                        (json.dumps(answer), client, datetime.now(UTC).isoformat(), row["ask_id"]),
+                        "answered_at=?, spec=? WHERE ask_id=?",
+                        (
+                            json.dumps(answer),
+                            client,
+                            datetime.now(UTC).isoformat(),
+                            json.dumps(spec),
+                            row["ask_id"],
+                        ),
                     )
             prompt = json.loads(row["spec"])["prompt"]
             body = (
@@ -987,6 +1039,10 @@ class Board:
                 if withdraw
                 else f"**{client}** answered **{row['asker']}**: {rendered}"
             )
+            if not withdraw and "action" in spec:
+                action = spec["action"]
+                body += "\n\nSwitchboard action: " + action["summary"] + ". "
+                body += action.get("message", "Not applied (declined)") + "."
             await self.api.request(
                 f"{self.git.path(repo)}/issues/{number}/comments",
                 method="POST",

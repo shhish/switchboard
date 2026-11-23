@@ -6,14 +6,18 @@ import base64
 import json
 import stat
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
 import jsonschema
 import pytest
+import yaml
 
+from switchboard.ask_actions import apply_action
 from switchboard.board import Board
 from switchboard.config import Config, validate_board
 from switchboard.domains.board import ASK_MEDIA_MAX_BYTES
+from switchboard.policy import Policy
 from switchboard.protocol import Protocol
 
 from .conftest import change_policy
@@ -579,6 +583,7 @@ async def test_audit_hashes_all_free_text_including_nested_and_invalid_calls(ask
     )
     private_path = str(core.config.state_dir / "PRIVATE_IMAGE_PATH")
     await create(asks, "choice", options=[{**OPTIONS[0], "image": private_path}, OPTIONS[1]])
+    await create(asks, pictures=[{"image": private_path, "caption": "PRIVATE_CAPTION"}])
     log = core.audit.path.read_text()
     db_args = " ".join(r[0] for r in core.storage.db.execute("SELECT args_json FROM audit_log"))
     for private in (
@@ -594,6 +599,7 @@ async def test_audit_hashes_all_free_text_including_nested_and_invalid_calls(ask
         "PRIVATE_STEP_CONTEXT",
         "PRIVATE_EVIDENCE",
         "PRIVATE_EVIDENCE_VALUE",
+        "PRIVATE_CAPTION",
         private_path,
     ):
         assert private not in log and private not in db_args
@@ -1013,10 +1019,10 @@ def picture(asks, tmp_path):
         "magic",
         "relative",
         "missing",
-        "five",
     ],
 )
-async def test_invalid_pictures(asks, picture, tmp_path, case):
+@pytest.mark.parametrize("source", ["option", "ask"])
+async def test_invalid_pictures(asks, picture, tmp_path, case, source):
     path = picture
     options = [{**OPTIONS[0], "image": str(path)}, OPTIONS[1]]
     if case == "off":
@@ -1042,9 +1048,10 @@ async def test_invalid_pictures(asks, picture, tmp_path, case):
         options[0]["image"] = path.name
     elif case == "missing":
         path.unlink()
-    elif case == "five":
-        options = [{"id": f"p{n}", "label": "Picture", "image": str(path)} for n in range(5)]
-    result = await create(asks, "choice", options=options)
+    if source == "option":
+        result = await create(asks, "choice", options=options)
+    else:
+        result = await create(asks, pictures=[{"image": options[0]["image"]}])
     assert result["error"]["code"] == "invalid_arguments" and not asks[2]
     assert "PRIVATE_FILE_CONTENTS" not in json.dumps(result)
     assert not (asks[0].config.state_dir / "ask-media").exists()
@@ -1105,11 +1112,101 @@ async def test_picture_copy_and_media_roundtrip(asks, picture, extension, magic,
     ] == "not_found"
 
 
-async def test_four_pictures(asks, picture):
-    options = [{"id": f"p{n}", "label": "Picture", "image": str(picture)} for n in range(4)]
-    ask = (await create(asks, "choice", options=options))["ask"]
+async def test_eight_option_pictures_and_four_ask_pictures(asks, picture):
+    options = [{"id": f"p{n}", "label": "Picture", "image": str(picture)} for n in range(8)]
+    pictures = [{"image": str(picture)}] * 4
+    ask = (await create(asks, "choice", options=options, pictures=pictures))["ask"]
     assert all(o["image"] for o in ask["options"])
-    assert len(list(asks[0].board.media_directory(ask["id"]).iterdir())) == 4
+    assert len(ask["pictures"]) == 4
+    assert len(list(asks[0].board.media_directory(ask["id"]).iterdir())) == 12
+    for picture_id in [o["id"] for o in options] + [p["id"] for p in ask["pictures"]]:
+        assert (await call(asks, "ask_media", ask_id=ask["id"], option_id=picture_id))[
+            "status"
+        ] == "ok"
+    options.append({"id": "ninth", "label": "Picture", "image": str(picture)})
+    cap = asks[0].registry.capabilities["board_ask"]
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(
+            {"card": "project#1", "kind": "choice", "prompt": "Choose", "options": options},
+            cap.input_schema,
+        )
+    assert (await create(asks, "choice", options=options))["error"]["code"] == "invalid_arguments"
+
+
+@pytest.mark.parametrize(
+    "kind,extra,answer",
+    [
+        ("confirm", {}, {"choice": ["yes"]}),
+        ("choice", {"options": OPTIONS}, {"choice": ["fast"]}),
+        ("text", {}, {"text": "Looks good"}),
+        ("form", {"fields": FIELDS}, {"values": VALUES}),
+        ("plan", {"steps": [{"id": "review", "label": "Review"}]}, {"approve": True}),
+    ],
+)
+async def test_ask_pictures_roundtrip(asks, picture, kind, extra, answer):
+    payload = picture.read_bytes()
+    ask = (
+        await create(
+            asks,
+            kind,
+            pictures=[{"image": str(picture), "caption": "c" * 120}, {"image": str(picture)}],
+            **extra,
+        )
+    )["ask"]
+    expected = [{"id": "pic1", "caption": "c" * 120}, {"id": "pic2", "caption": None}]
+    assert ask["pictures"] == expected
+    assert not any(o["image"] for o in ask["options"])
+    board = asks[0].board
+    assert json.loads(board.ask_row(ask["id"])["spec"])["pictures"] == expected
+    assert str(picture) not in json.dumps(ask)
+    assert str(picture) not in asks[0].audit.path.read_text()
+    assert (await call(asks, "card", card="project#1"))["asks"] == [ask]
+    assert (await call(asks, "ask_wait", ask_id=ask["id"], timeout_s=0))["ask"] == ask
+    picture.unlink()  # Media reads use private copies.
+    for picture_id in ("pic1", "pic2"):
+        copied = board.media_directory(ask["id"]) / f"{picture_id}.png"
+        assert copied.read_bytes() == payload
+        assert stat.S_IMODE(copied.stat().st_mode) == 0o600
+        result = await call(asks, "ask_media", ask_id=ask["id"], option_id=picture_id)
+        assert base64.b64decode(result["data_base64"]) == payload
+    for picture_id in ("pic3", "pic4"):
+        assert (await call(asks, "ask_media", ask_id=ask["id"], option_id=picture_id))["error"][
+            "code"
+        ] == "not_found"
+    assert (await owner(asks, ask["id"], answer))["ask"]["pictures"] == expected
+    assert (await call(asks, "ask_media", ask_id=ask["id"], option_id="pic1"))["status"] == "ok"
+
+
+@pytest.mark.parametrize(
+    "pictures",
+    [
+        [{}],
+        [{"image": "preview.png"}] * 5,
+        [{"image": "preview.png", "caption": ""}],
+        [{"image": "preview.png", "caption": " "}],
+        [{"image": "preview.png", "caption": "x" * 121}],
+        [{"image": "preview.png", "caption": None}],
+        [{"image": "preview.png", "unknown": True}],
+        "bad",
+    ],
+)
+async def test_invalid_ask_picture_arguments(asks, pictures):
+    result = await create(asks, pictures=pictures)
+    assert result["error"]["code"] == "invalid_arguments" and not asks[2]
+
+
+async def test_overlapping_picture_ids(asks, picture):
+    options = [{**OPTIONS[0], "id": "pic1", "image": str(picture)}, OPTIONS[1]]
+    result = await create(asks, "choice", options=options, pictures=[{"image": str(picture)}])
+    assert result["error"]["code"] == "invalid_arguments" and not asks[2]
+    assert not (asks[0].config.state_dir / "ask-media").exists()
+    # Existing option IDs remain valid without an ask picture using the same ID.
+    ask = (await create(asks, "choice", options=options))["ask"]
+    assert (await call(asks, "ask_media", ask_id=ask["id"], option_id="pic1"))["status"] == "ok"
+    options[0].pop("image")
+    ask = (await create(asks, "choice", options=options, pictures=[{"image": str(picture)}]))["ask"]
+    assert not ask["options"][0]["image"]
+    assert (await call(asks, "ask_media", ask_id=ask["id"], option_id="pic1"))["status"] == "ok"
 
 
 @pytest.mark.parametrize("failure", ["copy", "comment", "move", "insert", "cancel"])
@@ -1140,11 +1237,12 @@ async def test_picture_failure_cleans_copies_and_creates_no_ask(
             "BEGIN SELECT RAISE(ABORT, 'fail'); END"
         )
     options = [{**OPTIONS[0], "image": str(picture)}, OPTIONS[1]]
+    pictures = [{"image": str(picture)}]
     if failure == "cancel":
         with pytest.raises(asyncio.CancelledError):
-            await create(asks, "choice", options=options)
+            await create(asks, "choice", options=options, pictures=pictures)
     else:
-        result = await create(asks, "choice", options=options)
+        result = await create(asks, "choice", options=options, pictures=pictures)
         assert result["status"] == "error"
     assert asks[0].storage.db.execute("SELECT COUNT(*) FROM board_asks").fetchone()[0] == 0
     assert not list((asks[0].config.state_dir / "ask-media").glob("*"))
@@ -1157,7 +1255,10 @@ async def test_media_prune_closed_after_thirty_days(asks, picture):
     for action in ("answer", "withdraw", "open", "recent", "boundary"):
         ask = (
             await create(
-                asks, "choice", options=[{**OPTIONS[0], "image": str(picture)}, OPTIONS[1]]
+                asks,
+                "choice",
+                options=[{**OPTIONS[0], "image": str(picture)}, OPTIONS[1]],
+                pictures=[{"image": str(picture), "caption": "Preview"}],
             )
         )["ask"]
         ids.append(ask["id"])
@@ -1187,6 +1288,13 @@ async def test_media_prune_closed_after_thirty_days(asks, picture):
     board.prune_ask_media(now)  # Idempotent; history and option flags remain.
     assert [board.media_directory(i).exists() for i in ids] == [False, False, True, True, True]
     assert board.ask_object(board.ask_row(ids[0]))["options"][0]["image"]
+    assert board.ask_object(board.ask_row(ids[0]))["pictures"] == [
+        {"id": "pic1", "caption": "Preview"}
+    ]
+    assert (await call(asks, "ask_media", ask_id=ids[0], option_id="pic1"))["error"][
+        "code"
+    ] == "not_found"
+    assert (await call(asks, "ask_media", ask_id=ids[2], option_id="pic1"))["status"] == "ok"
     assert (await call(asks, "ask_media", ask_id=ids[0], option_id="fast"))["error"][
         "code"
     ] == "not_found"
@@ -1198,6 +1306,8 @@ async def test_old_specs_default_new_keys(asks):
     spec = json.loads(board.ask_row(ask["id"])["spec"])
     spec.pop("steps")
     spec.pop("evidence")
+    spec.pop("pictures")
+    assert ask["pictures"] == []
     for option in spec["options"]:
         option.pop("image")
     with asks[0].storage.db as db:
@@ -1292,3 +1402,307 @@ async def test_media_tool_contract_and_schema_denials(asks):
         {"ask_id": "ask_" + "0" * 16, "option_id": "fast", "path": "ignored"},
     ):
         assert (await call(asks, "ask_media", **args))["error"]["code"] == "invalid_arguments"
+
+
+GRANT = {"type": "grant_scope", "client": "agy", "scope": "ops:read"}
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        {**GRANT, "client": "unknown"},
+        {**GRANT, "scope": "unknown:read"},
+        {**GRANT, "scope": "jobs:read"},
+        {**GRANT, "scope": "approvals:confirm"},
+        {**GRANT, "scope": "approvals:invented"},
+        {**GRANT, "scope": "board:answer"},
+        {**GRANT, "path": "/unrelated"},
+        {**GRANT, "summary": "Trust the agent"},
+        {"type": "grant_scope", "client": "agy"},
+        {"type": "add_ask_media_root"},
+        {"type": "run_shell", "path": "/unrelated"},
+        None,
+    ],
+)
+async def test_ask_action_invalid_scope_and_shape(asks, action):
+    result = await create(asks, action=action)
+    assert result["error"]["code"] == "invalid_arguments"
+    assert not writes(asks[2])
+    assert asks[0].storage.db.execute("SELECT COUNT(*) FROM board_asks").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("kind", ["choice", "text", "form", "plan"])
+async def test_ask_action_only_confirm(asks, kind):
+    assert (await create(asks, kind, action=GRANT))["error"]["code"] == "invalid_arguments"
+    assert not writes(asks[2])
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "relative",
+        "missing",
+        "file",
+        "slash",
+        "home",
+        "dotconfig",
+        "ssh",
+        "config",
+        "state",
+        "tokens",
+        "ancestor",
+        "config_child",
+        "escape",
+        "control",
+    ],
+)
+async def test_ask_action_bad_root(asks, tmp_path, monkeypatch, case):
+    core = asks[0]
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: home)
+    for directory in (home / ".config", home / ".ssh", core.config.config_dir / "child"):
+        directory.mkdir(exist_ok=True)
+    file = tmp_path / "file"
+    file.touch()
+    escape = tmp_path / "escape"
+    escape.symlink_to(core.config.config_dir, target_is_directory=True)
+    values = {
+        "relative": "relative",
+        "missing": str(tmp_path / "missing"),
+        "file": str(file),
+        "slash": "/",
+        "home": str(home),
+        "dotconfig": str(home / ".config"),
+        "ssh": str(home / ".ssh"),
+        "config": str(core.config.config_dir),
+        "state": str(core.config.state_dir),
+        "tokens": str(core.config.token_dir),
+        "ancestor": str(tmp_path),
+        "config_child": str(core.config.config_dir / "child"),
+        "escape": str(escape),
+        "control": str(tmp_path / "bad\x00root"),
+    }
+    result = await create(asks, action={"type": "add_ask_media_root", "path": values[case]})
+    assert result["error"]["code"] == "invalid_arguments"
+    assert not writes(asks[2])
+
+
+async def test_ask_action_yes_grants_and_reloads_policy(asks):
+    core, state, _ = asks
+    file = core.policy.path
+    original = file.read_bytes()
+    cap = core.registry.capabilities["ops_health"]
+    assert not core.policy.allowed("agy", cap)
+    ask = (await create(asks, action=GRANT, destructive=False))["ask"]
+    assert ask["destructive"] is True
+    summary = "Gives agy the ops:read permission"
+    assert ask["action"] == {"type": "grant_scope", "summary": summary}
+    stored = json.loads(core.board.ask_row(ask["id"])["spec"])["action"]
+    assert stored == {**GRANT, "summary": summary}
+    assert summary in state["comments"][1][0]["body"]
+    answered = (await owner(asks, ask["id"], {"choice": ["yes"]}))["ask"]
+    assert answered["action"]["result"] == "applied"
+    assert answered["state"] == "answered"
+    backup = file.with_name(f"policy.yaml.before-ask-{ask['id']}")
+    assert backup.read_bytes() == original
+    assert stat.S_IMODE(backup.stat().st_mode) == stat.S_IMODE(file.stat().st_mode) == 0o600
+    assert Policy(file).require("agy", cap)
+    assert core.policy.require("agy", cap)  # Same instance, cached before replacement.
+    assert not list(file.parent.glob(".*.ask-*"))
+    assert summary in state["comments"][1][-1]["body"]
+    assert "Applied" in state["comments"][1][-1]["body"]
+    receipt = next(r for r in core.audit.tail() if r["outcome"] == "applied")
+    assert receipt["client"] == "cortex" and receipt["args"]["ask_id"] == ask["id"]
+    assert (await call(asks, "card", card="project#1"))["asks"][0]["action"] == answered["action"]
+    assert (await call(asks, "list"))["answered"][0]["action"] == answered["action"]
+
+
+@pytest.mark.parametrize("action_type", ["grant_scope", "add_ask_media_root"])
+@pytest.mark.parametrize("withdraw", [False, True])
+async def test_ask_action_no_or_withdraw_changes_nothing(asks, tmp_path, action_type, withdraw):
+    core = asks[0]
+    root = tmp_path / "media"
+    root.mkdir()
+    action = GRANT if action_type == "grant_scope" else {"type": action_type, "path": str(root)}
+    originals = {p: p.read_bytes() for p in core.config.config_dir.glob("*.yaml")}
+    live = dict(core.config.board)
+    ask = (await create(asks, action=action))["ask"]
+    result = (
+        await call(asks, "ask_withdraw", ask_id=ask["id"])
+        if withdraw
+        else await owner(asks, ask["id"], {"choice": ["no"]})
+    )
+    assert "result" not in result["ask"]["action"]
+    assert all(p.read_bytes() == contents for p, contents in originals.items())
+    assert core.config.board == live
+    assert not list(core.config.config_dir.glob("*.before-ask-*"))
+
+
+@pytest.mark.parametrize("action_type", ["grant_scope", "add_ask_media_root"])
+async def test_ask_action_second_apply_is_already(asks, tmp_path, action_type):
+    core = asks[0]
+    root = tmp_path / "media"
+    root.mkdir()
+    action = GRANT if action_type == "grant_scope" else {"type": action_type, "path": str(root)}
+    first = (await create(asks, action=action))["ask"]
+    second = (await create(asks, action=action))["ask"]
+    assert (await owner(asks, first["id"], {"choice": ["yes"]}))["ask"]["action"][
+        "result"
+    ] == "applied"
+    file = (
+        core.policy.path if action_type == "grant_scope" else core.config.config_dir / "config.yaml"
+    )
+    identity = file.stat()
+    result = await owner(asks, second["id"], {"choice": ["yes"]})
+    assert result["ask"]["action"]["result"] == "already"
+    assert file.stat() == identity
+    stored = json.loads(core.board.ask_row(first["id"])["spec"])["action"]
+    assert apply_action(core, first["id"], stored)["result"] == "already"
+    assert file.stat() == identity
+    assert len(list(file.parent.glob(file.name + ".before-ask-*"))) == 1
+
+
+async def test_ask_action_media_root_enables_picture_immediately(asks, tmp_path):
+    core = asks[0]
+    root = tmp_path / "media"
+    root.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(root, target_is_directory=True)
+    image = root / "preview.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\nexample")
+    file = core.config.config_dir / "config.yaml"
+    file.write_text("port: 18801\nboard:\n  ask_media_roots: []\n")
+    original = file.read_bytes()
+    ask = (await create(asks, action={"type": "add_ask_media_root", "path": str(alias)}))["ask"]
+    assert str(root.resolve()) in ask["action"]["summary"]
+    result = await owner(asks, ask["id"], {"choice": ["yes"]})
+    assert result["ask"]["action"]["result"] == "applied"
+    assert core.config.board == {"ask_media_roots": [str(root.resolve())]}
+    assert yaml.safe_load(file.read_text()) == {"port": 18801, "board": core.config.board}
+    assert file.with_name(f"config.yaml.before-ask-{ask['id']}").read_bytes() == original
+    assert Config.load().board == core.config.board
+    assert stat.S_IMODE(file.stat().st_mode) == 0o600
+    assert (await create(asks, pictures=[{"image": str(image)}]))["ask"]["pictures"][0][
+        "id"
+    ] == "pic1"
+    assert str(root) not in core.audit.path.read_text()
+
+
+async def test_ask_action_root_limit_and_revalidate_at_answer(asks, tmp_path):
+    core = asks[0]
+    roots = [tmp_path / f"root-{i}" for i in range(9)]
+    for root in roots:
+        root.mkdir()
+    ask = (await create(asks, action={"type": "add_ask_media_root", "path": str(roots[8])}))["ask"]
+    file = core.config.config_dir / "config.yaml"
+    file.write_text(yaml.safe_dump({"board": {"ask_media_roots": [str(r) for r in roots[:8]]}}))
+    original = file.read_bytes()
+    result = await create(asks, action={"type": "add_ask_media_root", "path": str(roots[8])})
+    assert result["error"]["code"] == "invalid_arguments"
+    result = await owner(asks, ask["id"], {"choice": ["yes"]})
+    assert result["ask"]["action"]["result"] == "failed"
+    assert file.read_bytes() == original
+
+
+@pytest.mark.parametrize("failure", ["invalid_policy", "replace", "backup_link"])
+async def test_ask_action_failed_write_is_saved_safely(asks, tmp_path, monkeypatch, failure):
+    from switchboard import ask_actions
+
+    core = asks[0]
+    ask = (await create(asks, action=GRANT))["ask"]
+    file = core.policy.path
+    original = file.read_bytes()
+    if failure == "invalid_policy":
+        loader = Policy.load
+
+        def invalid_stage(self):
+            if self.path != file:
+                raise ValueError("PRIVATE exception path and contents")
+            return loader(self)
+
+        monkeypatch.setattr(Policy, "load", invalid_stage)
+    elif failure == "replace":
+        monkeypatch.setattr(ask_actions.os, "replace", Mock(side_effect=OSError("PRIVATE failure")))
+    else:
+        target = tmp_path / "unrelated"
+        target.write_text("untouched")
+        file.with_name(f"policy.yaml.before-ask-{ask['id']}").symlink_to(target)
+    result = await owner(asks, ask["id"], {"choice": ["yes"]})
+    assert result["ask"]["state"] == "answered"
+    assert result["ask"]["action"]["result"] == "failed"
+    assert file.read_bytes() == original
+    assert not core.policy.allowed("agy", core.registry.capabilities["ops_health"])
+    assert not list(file.parent.glob(".*.ask-*"))
+    assert "PRIVATE" not in json.dumps(result) + core.audit.path.read_text()
+    assert any(r["outcome"] == "failed" for r in core.audit.tail())
+    if failure == "backup_link":
+        assert target.read_text() == "untouched"
+
+
+async def test_ask_action_path_cannot_be_redirected_after_approval(asks, tmp_path):
+    root = tmp_path / "media"
+    root.mkdir()
+    ask = (await create(asks, action={"type": "add_ask_media_root", "path": str(root)}))["ask"]
+    root.rmdir()
+    root.symlink_to(asks[0].config.config_dir, target_is_directory=True)
+    result = await owner(asks, ask["id"], {"choice": ["yes"]})
+    assert result["ask"]["action"]["result"] == "failed"
+    assert asks[0].config.board["ask_media_roots"] == []
+
+
+async def test_ask_action_authorization_and_post_answer_comment_failure(asks):
+    core, state, _ = asks
+    ask = (await create(asks, action=GRANT))["ask"]
+    denied = await call(asks, "answer", ask_id=ask["id"], answer={"choice": ["yes"]})
+    assert denied["error"]["code"] == "scope_denied"
+    state["overrides"]["/repos/example/project/issues/1/comments"] = 503
+    assert "error" in await owner(asks, ask["id"], {"choice": ["yes"]})
+    stored = core.board.ask_object(core.board.ask_row(ask["id"]))
+    assert stored["state"] == "answered" and stored["action"]["result"] == "applied"
+    assert core.policy.require("agy", core.registry.capabilities["ops_health"])
+    assert (await owner(asks, ask["id"], {"choice": ["yes"]}))["error"][
+        "code"
+    ] == "invalid_arguments"
+
+
+def test_ask_action_edits_keep_comments_and_every_other_byte():
+    from switchboard.ask_actions import insert_root, insert_scope
+
+    policy = (
+        "# who may do what\n"
+        "clients:\n"
+        "  claude:\n"
+        "    scopes:\n"
+        "    - board:read\n"
+        "  cortex:  # the Server app\n"
+        "    scopes:\n"
+        "    - board:read\n"
+        "    - ops:read  # health\n"
+        "    resources:\n"
+        "      repos: []\n"
+    )
+    edited = insert_scope(policy, "cortex", "activity:read")
+    assert edited.count("\n") == policy.count("\n") + 1
+    assert "# who may do what" in edited and "# the Server app" in edited and "# health" in edited
+    import yaml
+
+    data = yaml.safe_load(edited)
+    assert data["clients"]["cortex"]["scopes"] == ["activity:read", "board:read", "ops:read"]
+    assert data["clients"]["claude"]["scopes"] == ["board:read"]
+    import pytest
+
+    with pytest.raises(ValueError):
+        insert_scope(policy, "nobody", "activity:read")
+
+    config = "# private\nmonitor:\n  enabled: true\n"
+    added = insert_root(config, "/tmp/pics")
+    assert added.startswith(config)
+    assert yaml.safe_load(added)["board"] == {"ask_media_roots": ["/tmp/pics"]}
+    again = insert_root(added, "/tmp/more")
+    assert yaml.safe_load(again)["board"]["ask_media_roots"] == ["/tmp/more", "/tmp/pics"]
+    assert "# private" in again
+    inline = insert_root("board:\n  ask_media_roots: []\n", "/tmp/pics")
+    assert yaml.safe_load(inline) == {"board": {"ask_media_roots": ["/tmp/pics"]}}
+    empty = insert_scope("clients:\n  cortex:\n    scopes: []\n", "cortex", "activity:read")
+    assert yaml.safe_load(empty)["clients"]["cortex"]["scopes"] == ["activity:read"]

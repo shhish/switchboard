@@ -93,15 +93,16 @@ on noteRecord(n)
   end timeout
 end noteRecord
 
-on searchFolder(f, tokens, maxCount, resultRows)
+on searchNotes(queryText, maxCount)
   with timeout of 60 seconds
-    tell application "/System/Applications/Notes.app"
-      ignoring case
-        if name of f is "Recently Deleted" then return {resultRows, false}
-      end ignoring
-      set folderNotes to notes of f
-    end tell
-    repeat with n in folderNotes
+    set tokens to my queryWords(queryText)
+    if tokens = {} then error "Invalid query" number -27003
+    set firstToken to contents of item 1 of tokens
+    -- Let Notes filter in-process (one Apple Event) instead of walking every note;
+    -- a note's plaintext starts with its title. Then check each match.
+    tell application "/System/Applications/Notes.app" to set candidates to (every note whose plaintext contains firstToken)
+    set resultRows to {}
+    repeat with n in candidates
       set readable to true
       try
         my checkReadable(contents of n)
@@ -115,36 +116,12 @@ on searchFolder(f, tokens, maxCount, resultRows)
           set noteText to plaintext of n
         end tell
         if my matchesWords(noteTitle, noteText, tokens) then
-          if (count resultRows) = maxCount then return {resultRows, true}
+          if (count resultRows) = maxCount then return {|results|:resultRows, |truncated|:true}
           set row to my noteRecord(contents of n)
           set row to row & {|snippet|:my noteSnippet(noteText, tokens)}
           set end of resultRows to row
         end if
       end if
-    end repeat
-    tell application "/System/Applications/Notes.app" to set childFolders to folders of f
-    repeat with childFolder in childFolders
-      set found to my searchFolder(contents of childFolder, tokens, maxCount, resultRows)
-      set resultRows to item 1 of found
-      if item 2 of found then return found
-    end repeat
-    return {resultRows, false}
-  end timeout
-end searchFolder
-
-on searchNotes(queryText, maxCount)
-  with timeout of 60 seconds
-    set tokens to my queryWords(queryText)
-    if tokens = {} then error "Invalid query" number -27003
-    set resultRows to {}
-    tell application "/System/Applications/Notes.app" to set noteAccounts to accounts
-    repeat with a in noteAccounts
-      tell application "/System/Applications/Notes.app" to set accountFolders to folders of a
-      repeat with f in accountFolders
-        set found to my searchFolder(contents of f, tokens, maxCount, resultRows)
-        set resultRows to item 1 of found
-        if item 2 of found then return {|results|:resultRows, |truncated|:true}
-      end repeat
     end repeat
     return {|results|:resultRows, |truncated|:false}
   end timeout

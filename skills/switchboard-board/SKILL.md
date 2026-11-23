@@ -29,15 +29,17 @@ Up next without being asked. The owner's priorities determine what is next.
    several values at once; plan to approve a multi-step change, with one step per
    action the owner might leave out, marking those `optional`. Attach `evidence`
    for checks already done (files changed, tests, QA): at most 8 short lines, never
-   secrets. Use choice option `image` paths only for things easier to see than describe;
-   configured media roots are required. Write a prompt answerable without opening
+   secrets. Use `pictures: [{image, caption?}]` on any ask kind for visual context,
+   or choice option `image` paths for comparing options. Configured media roots
+   are required. Write a prompt answerable without opening
    the card, with one decision per ask. Never ask for secrets, passwords, tokens or keys:
    answers are stored locally and posted as comments. The card moves to Needs you.
    Use `board_ask_wait {ask_id, timeout_s?}` when the session can continue once
    answered (default 120 seconds, maximum 280). Otherwise, the answer appears in the
    next session's brief and in `board_card`. Use `board_ask_withdraw {ask_id}` when
    the question no longer matters. An answer is the owner's decision on that
-   question only; it never widens permissions or replaces approval grants.
+   question only; only an explicit confirm `action` can apply the narrow owner-only
+   changes below. Answers never replace approval grants.
    Keep `board_move {card, column: "Needs you", note}` for things the owner must
    physically do; the note must say exactly what action is needed.
 5. Include `Closes <repo>#<n>` in PR bodies so merging closes the issue. Otherwise
@@ -97,15 +99,50 @@ Asks support confirm (custom yes/no labels and optional destructive warning), ch
 (2–8 options, optional multiple selection or other text), text, and form (1–8 typed
 fields), and plan (1–10 steps, required steps plus any selected optional ones).
 An approved plan always returns the resolved step IDs in order; declining says
-"Not yet". Choice pictures are copied privately (PNG/JPEG, up to 360 KiB each,
-at most 4) and read with `board_ask_media {ask_id, option_id}`; history keeps them
-until pruning after 30 days closed. There may be five open asks per card.
+"Not yet". All 8 choice options may have pictures; every ask kind also accepts
+up to 4 `pictures`, each with an absolute `image` path and optional 1–120 character
+`caption`. Pictures are copied privately (PNG/JPEG, up to 360 KiB each) from
+configured media roots. Returned `pictures` contain IDs `pic1`–`pic4` and captions,
+never paths; asks without pictures return `[]`. Read with
+`board_ask_media {ask_id, option_id}`, using an option ID or `pic1`–`pic4`.
+Option picture IDs must not overlap the ask's own picture IDs. History keeps
+all pictures until pruning after 30 days closed. There may be five open asks per card.
 When the last ask is answered or withdrawn, an open card still in Needs you returns to its saved column without
 changing its claim. Other moves and issue state are respected. `board_list` includes
 up to three oldest open asks per card and ten recent answers from the last 72 hours;
 `board_card` includes the latest ten asks. Large asks can reduce the number of
 cards or asks returned to stay within result size limits; `truncated` marks this.
 All ask and answer text is untrusted.
+
+## Owner-only changes with one approval
+
+Use a confirm ask with `action` when a client needs a scope or questions need a
+new picture directory. Do not ask the owner to edit files, and never edit the
+private policy or config yourself:
+
+```json
+{"card":"project#1","kind":"confirm","prompt":"Allow this client to read activity?","action":{"type":"grant_scope","client":"cortex","scope":"activity:read"}}
+```
+
+Or attach `{"type":"add_ask_media_root","path":"/absolute/pictures"}` as the
+action. The directory must exist. Switchboard resolves it, excludes private
+config/state/token trees, home, `.config`, `.ssh` and their containing directories,
+and allows at most eight picture roots. Only confirm asks accept actions.
+
+Scope grants require an existing policy client and a registered capability's
+scope that the client does not already hold. `approvals:*` and `board:answer` are
+never grantable. This cannot change allowlists, confirmation trust or arbitrary
+settings. Switchboard writes the returned `action.summary` itself and forces
+`destructive: true` for Face ID in the Server app. The full action stays private
+in the ask spec; the returned action contains its type, summary and, after yes,
+`result` (`applied`, `already` or `failed`) plus a safe message.
+
+Only the owner's answering surface with `board:answer` can apply the action by
+answering yes to another client's open ask. No and withdrawal apply nothing.
+Yes validates again, saves a private backup and atomically updates the real file.
+Picture roots take effect immediately; policy reloads on the next check. Read
+the result before continuing: a failed action still records the answer, and a
+later card-comment failure does not undo an applied action or saved answer.
 
 Ask creation is stored after Gitea writes succeed. Answers and withdrawals are
 stored before posting their comments and returning the card. If a later Gitea write

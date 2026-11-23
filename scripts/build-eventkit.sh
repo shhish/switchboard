@@ -26,6 +26,10 @@ cp "$PACKAGE/Info.plist" "$APP/Contents/Info.plist"
 if [ -n "${SWITCHBOARD_BUNDLE_ID:-}" ]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $SWITCHBOARD_BUNDLE_ID" "$APP/Contents/Info.plist"
 fi
+# Record which native source tree this app was built from, so deploy.sh can tell
+# whether the installed helper is current. Written before signing.
+git -C "$REPO" -c maintenance.auto=false rev-parse HEAD:native/SwitchboardEventKit \
+    > "$APP/Contents/Resources/source-tree" 2>/dev/null || rm -f "$APP/Contents/Resources/source-tree"
 /usr/bin/codesign --force --options runtime --entitlements "$PACKAGE/Entitlements.plist" --sign "$IDENTITY" "$APP"
 /usr/bin/codesign --verify --strict "$APP"
 printf '%s\n' "$APP"

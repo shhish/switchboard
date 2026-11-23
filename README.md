@@ -73,7 +73,8 @@ Every integration is optional. Turn on the ones you run. The [full tour](#the-fu
 | 🎬 **Watch things**<br/><sub>`media_*` · 17 tools</sub> | Request movies and shows through Seerr, "what should I watch?", continue watching, who watched what, downloads. |
 | 🔀 **Ship code**<br/><sub>`git_*` · 11 tools</sub> | Gitea PRs, CI jobs and redacted logs; shared checkout status; allowlisted PR creation, comments, green merges, reruns and annotated release tags. |
 | 📋 **Share the work**<br/><sub>`board_*` · 11 tools</sub> | One Gitea Slate board for ideas, claimed work and structured questions for you; Siri ideas in Things become Ideas cards, and merged PRs close cards. |
-| **Answer on Slate**<br/><sub>`board_ask` · `board_answer`</sub> | Yes/no, choice, text, forms and plans in the Server app, with evidence and picture choices; agents can wait or read answers in their next brief. |
+| **Answer on Slate**<br/><sub>`board_ask` · `board_answer`</sub> | Yes/no, choice, text, forms and plans in the Server app, with evidence, pictures on all 8 choices and up to 4 captioned pictures per question; agents can wait or read answers in their next brief. |
+| **Approve owner changes**<br/><sub>`board_ask` · `board_answer`</sub> | Approve a client permission or picture directory in the Server app. Switchboard describes the change, requests Face ID, applies it and keeps a backup. |
 | 🎮 **Play**<br/><sub>`console_*` · 6 tools</sub> | PS5 on, off, temperature and storage; list your games, launch or close one. |
 | 🛡️ **Home network**<br/><sub>`dns_*` · 3 tools</sub> | AdGuard Home on the Pi: what it answered and blocked, for which devices; pause blocking for a few minutes. |
 | 💡 **Run the house**<br/><sub>`home_*` `routines_*` · 15 tools</sub> | Lights, accessories and scenes in Apple Home, and routines that run on their own: motion, held-open, time and sunset triggers. Locks and garage doors need your approval. |

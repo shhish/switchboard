@@ -38,8 +38,11 @@ before you reach for curl with API keys, osascript, Docker or app databases.
   `recommended` one, `text` for a value only they know, `form` for several values at once.
   Use `plan` for a multi-step change: one step per action the owner might leave out,
   marking those `optional`. Attach `evidence` of checks already done (files changed,
-  tests, QA): at most 8 short lines, never secrets. Use choice option pictures only
-  for things easier to see than describe; paths must be in configured media roots.
+  tests, QA): at most 8 short lines, never secrets. Show, don't just tell: whenever the
+  decision is visual (icons, designs, screenshots, before/after, a chart), attach the
+  pictures. Give each choice option its own `image`, and add up to 4 captioned
+  `pictures` to any ask. PNG/JPEG up to 360 KiB, saved under `~/workspace/projects/artifacts`
+  (the configured media root); describing a picture in text is not enough.
   One decision per ask, worded so it can be answered without opening the card. Never ask for
   a secret. `board_ask_wait` if you can continue once it is answered; otherwise the answer is
   in the next session's brief and in `board_card`. An answer settles that question only: it

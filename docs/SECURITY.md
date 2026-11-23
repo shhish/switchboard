@@ -37,10 +37,37 @@ such as the Server app's `cortex` client. Never grant `board:answer` to an agent
 client. The repository write allowlist still applies, and a client cannot answer
 its own ask. No live policy is changed by declaring this scope.
 
-An answer records the owner's decision on that question only. It grants no
-Switchboard permission, never widens scopes or allowlists, and never resolves an
-approval. Approvals keep their separate exact-argument, expiring, single-use flow.
+An answer records the owner's decision on that question only. Only an attached
+confirm action can change the narrow settings described below; other answers
+change no permissions or allowlists. Answers never resolve an approval.
+Approvals keep their separate exact-argument, expiring, single-use flow.
 Ask and answer text is stored in SQLite and posted to the card as comments: never
 ask for secrets, passwords, tokens or keys. Audit arguments hash entire `answer`,
 `options` and `fields` objects/arrays as well as prompts, details and custom labels;
 their nested text is not copied to SQLite audit arguments or JSONL in clear.
+
+### Slate ask actions
+
+Clients with `board:write` and the repository allowlist can propose a confirm
+action. Only a different client with the owner's `board:answer` scope can trigger
+it by answering yes. Switchboard generates the action summary and forces
+`destructive: true`, which requests Face ID in the Server app. The server trusts
+the answering client's authenticated scope; it does not independently verify Face ID.
+
+`grant_scope` adds one registered capability scope to an existing policy client.
+`approvals:*` and `board:answer` are never grantable. No action changes repository,
+resource or secure allowlists, confirmation trust, tokens or arbitrary settings.
+`add_ask_media_root` adds an existing resolved directory (maximum eight roots),
+excluding `/`, home, private config/state/token trees, `.config`, `.ssh`, and
+directories containing those trees. Validation runs at creation and application,
+including symlink resolution; redirected approved paths fail closed.
+
+Changes validate a same-directory staged file using the policy loader or board
+config validator, preserve exact old bytes in `<file>.before-ask-<ask_id>` (0600),
+then fsync and atomically replace the target with a 0600 file. Existing backups
+are never overwritten. Already-applied actions succeed without another write.
+The policy reloads on its next check; picture roots also update live config.
+Action results are saved with the answer, audited, and included in the card
+comment. Failures save a generic failure result while still recording the answer;
+no and withdrawal apply nothing. A later card-comment failure does not undo a
+saved answer or file change. Action arguments are hashed in audit logs.

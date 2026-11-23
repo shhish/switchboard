@@ -109,6 +109,27 @@ else
   exit 1
 fi
 
+# The signed native helper is installed separately from the Python release. Rebuild and
+# swap it whenever its source changed, or new helper methods fail as "invalid request"
+# (2026-11-23: Apple Notes shipped while the Nov 19 helper was still running).
+EVENTKIT_APP="${SWITCHBOARD_EVENTKIT_APP:-$HOME/Applications/Switchboard EventKit.app}"
+if [ -n "${SWITCHBOARD_EVENTKIT_LABEL:-}" ] && [ -d "$EVENTKIT_APP" ]; then
+  want="$(git -c maintenance.auto=false rev-parse "$SHA:native/SwitchboardEventKit")"
+  have="$(cat "$EVENTKIT_APP/Contents/Resources/source-tree" 2>/dev/null || true)"
+  if [ "$want" != "$have" ]; then
+    echo "native helper changed; rebuilding"
+    if built="$(scripts/build-eventkit.sh | tail -n 1)" && [ -d "$built" ]; then
+      rm -rf "$EVENTKIT_APP.old"
+      mv "$EVENTKIT_APP" "$EVENTKIT_APP.old"
+      ditto "$built" "$EVENTKIT_APP"
+      launchctl kickstart -k "gui/$(id -u)/$SWITCHBOARD_EVENTKIT_LABEL"
+      echo "native helper installed ($want); previous kept as .old"
+    else
+      echo "warning: native helper build failed; the installed helper is stale" >&2
+    fi
+  fi
+fi
+
 # Expose every skill in the release to each agent, so a new skill is never forgotten.
 for dir in "$HOME/.claude/skills" "$HOME/.codex/skills" "$HOME/.openclaw/skills" "$HOME/.gemini/config/skills"; do
   [ -d "$dir" ] || continue

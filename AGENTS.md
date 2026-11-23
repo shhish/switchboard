@@ -113,6 +113,10 @@ Run:
 ## Operations
 
 - Run `sb doctor` for health and `scripts/deploy.sh --status` for releases.
+- The signed native helper (`native/SwitchboardEventKit`) is a separate app. `deploy.sh`
+  rebuilds and swaps it when its source tree differs from the installed one
+  (`Contents/Resources/source-tree`), keeping the previous app as `.old`. A new helper
+  method that answers "invalid request" means the installed helper is stale.
 - Merging publishes nothing to the open-source mirror: a pushed `v*` tag does. Release
   merged user-visible work in the same task (privacy check, README features, annotated tag).
 - Logs live in `~/Library/Logs/switchboard/` (0700).

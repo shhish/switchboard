@@ -14,12 +14,31 @@ NULL_TEXT = {"type": ["string", "null"], "maxLength": 200}
 ASK_ID = {**string(20), "pattern": r"^ask_[0-9a-f]{16}$"}
 LOCAL_ID = {**string(32), "pattern": r"^[a-z0-9][a-z0-9_-]{0,31}$"}
 KIND = {"type": "string", "enum": ["confirm", "choice", "text", "form", "plan"]}
+ACTION_TYPE = {"type": "string", "enum": ["grant_scope", "add_ask_media_root"]}
+ACTION = obj(
+    {"type": ACTION_TYPE, "client": string(64), "scope": string(100), "path": string(1024)},
+    ("type",),
+)
+ACTION["description"] = (
+    "Confirm asks only. Owner yes applies one scope grant or picture root; "
+    "Switchboard generates the summary and forces destructive confirmation."
+)
+ACTION_RESULT = obj(
+    {
+        "type": ACTION_TYPE,
+        "summary": string(1400),
+        "result": {"type": "string", "enum": ["applied", "already", "failed"]},
+        "message": string(100),
+    },
+    ("type", "summary"),
+)
 # Base64 plus the response envelope must fit the registry's 500,000 character cap.
 ASK_MEDIA_MAX_BYTES = 360 * 1024
 OPTION = obj(
     {"id": LOCAL_ID, "label": string(80), "detail": string(200), "image": string(4096)},
     ("id", "label"),
 )
+PICTURE = obj({"image": string(4096), "caption": string(120)}, ("image",))
 STEP = obj(
     {"id": LOCAL_ID, "label": string(120), "detail": string(200), "optional": B},
     ("id", "label"),
@@ -65,6 +84,18 @@ ASK_PROPERTIES = {
     "from": S,
     "kind": KIND,
     "prompt": string(300),
+    "pictures": {
+        **array(
+            obj(
+                {
+                    "id": {"type": "string", "enum": ["pic1", "pic2", "pic3", "pic4"]},
+                    "caption": {"type": ["string", "null"], "minLength": 1, "maxLength": 120},
+                },
+                ("id",),
+            )
+        ),
+        "maxItems": 4,
+    },
     "detail": {"type": ["string", "null"], "maxLength": 2000},
     "options": {
         **array(
@@ -117,7 +148,7 @@ ASK_PROPERTIES = {
     "answer": {**ANSWER, "type": ["object", "null"]},
     "answer_text": {"type": ["string", "null"], "maxLength": 600},
 }
-ASK = obj(ASK_PROPERTIES, ASK_PROPERTIES)
+ASK = obj({**ASK_PROPERTIES, "action": ACTION_RESULT}, ASK_PROPERTIES)
 ANSWERED_PROPERTIES = {
     "ask_id": ASK_ID,
     "card": CARD_REF,
@@ -187,10 +218,12 @@ def register(registry):
                     "prompt",
                     "detail",
                     "options",
+                    "pictures",
                     "fields",
                     "steps",
                     "evidence",
                     "answer",
+                    "action",
                     "yes_label",
                     "no_label",
                     "recommended",
@@ -237,7 +270,10 @@ def register(registry):
                 ),
                 "maxItems": 5,
             },
-            "answered": {**array(obj(ANSWERED_PROPERTIES, ANSWERED_PROPERTIES)), "maxItems": 10},
+            "answered": {
+                **array(obj({**ANSWERED_PROPERTIES, "action": ACTION_RESULT}, ANSWERED_PROPERTIES)),
+                "maxItems": 10,
+            },
             "needs_you": {"type": "integer", "minimum": 0},
             "truncated": B,
         },
@@ -327,14 +363,16 @@ def register(registry):
         "board_ask",
         "Ask the owner on Slate",
         "Slate structured questions. Use when the owner must decide or supply values. "
-        "Requires board:write, allowlisted repo and open card; up to five open asks. "
-        "Returns sanitized untrusted summary and confirm, choice, text, form or plan ask; "
-        "supports 8 evidence lines and 4 choice pictures up to 360 KiB from configured roots. "
-        "Moves to Needs you. Never ask for secrets. Non-idempotent.",
+        "Requires board:write, allowlisted open card; five open asks max. Returns untrusted "
+        "confirm/choice/text/form/plan ask; 8 evidence lines, 8 option/4 ask pictures "
+        "(PNG/JPEG, 360 KiB, configured roots). Confirm action forces destructive. "
+        "Moves to Needs you. No secrets. Non-idempotent.",
         {
             "card": CARD_REF,
             "kind": KIND,
+            "action": ACTION,
             "prompt": string(300),
+            "pictures": {**array(PICTURE), "maxItems": 4},
             "detail": string(2000),
             "options": {**array(OPTION), "minItems": 2, "maxItems": 8},
             "multiple": B,
@@ -353,12 +391,19 @@ def register(registry):
     )
     declare(
         "board_ask_media",
-        "Slate choice picture",
-        "Slate choice pictures. Use when viewing an ask option's picture. Requires board:read, "
-        "ask_id and option_id. Returns untrusted PNG or JPEG as base64, media type and byte count, "
+        "Slate ask picture",
+        "Slate ask pictures. Use when viewing an option picture or an ask's own picture. "
+        "Requires board:read, ask_id and option_id (option ID or pic1-pic4). "
+        "Returns untrusted PNG or JPEG as base64, media type and byte count, "
         "up to 360 KiB; missing asks, options or pictures are not_found. History pictures "
         "are pruned after 30 days closed.",
-        {"ask_id": ASK_ID, "option_id": LOCAL_ID},
+        {
+            "ask_id": ASK_ID,
+            "option_id": {
+                **LOCAL_ID,
+                "description": "Option ID or pic1-pic4 for the ask's own pictures.",
+            },
+        },
         {
             "ask_id": ASK_ID,
             "option_id": LOCAL_ID,
@@ -397,8 +442,9 @@ def register(registry):
         "Answer a Slate ask",
         "Slate structured answers. Use when the owner's own surface answers an agent. "
         "Requires board:answer, allowlisted repo and another client's open ask. Returns sanitized "
-        "untrusted summary and answered ask; comments and restores the prior column after the "
-        "last open ask if still open in Needs you. Grants no permission. Non-idempotent.",
+        "untrusted summary, answered ask and action result; yes applies attached scope/media-root "
+        "action. Comments and restores prior column after last open ask if still open in "
+        "Needs you. Non-idempotent.",
         {"ask_id": ASK_ID, "answer": ANSWER},
         {**SUMMARY, "ask": ASK},
         required=("ask_id", "answer"),
