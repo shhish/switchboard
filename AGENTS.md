@@ -119,6 +119,13 @@ Run:
   method that answers "invalid request" means the installed helper is stale.
 - Merging publishes nothing to the open-source mirror: a pushed `v*` tag does. Release
   merged user-visible work in the same task (privacy check, README features, annotated tag).
+  The tag message becomes the public commit, so write it for readers:
+  `git tag -a v0.13.0 -m "v0.13.0: Apple Notes" -m "<what a user gets>"`.
+- Commit subjects and PR titles use Conventional Commits, because they are listed in the
+  public commit: `type(scope): what changed`, at most 72 characters, no final period
+  (`feat(notes): read-only Apple Notes search`, `fix(storage): answer from the last sample`).
+  Types: feat, fix, perf, refactor, docs, test, build, ci, chore, style, revert. CI checks
+  the PR title (edit it and CI reruns); `~/.local/bin/oss-publish lint-title "<title>"` checks one locally.
 - Logs live in `~/Library/Logs/switchboard/` (0700).
 - MCP registrations and skill symlinks must reference the deployed release under
   `~/.local/share/switchboard/current`, never a development checkout.

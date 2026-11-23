@@ -9,7 +9,7 @@ import Synchronization
 public enum RemoteSSH {
   static let commands: Set<String> = [
     "version", "snapshot", "checks", "status", "logs", "restart", "refresh-updates", "ps5",
-    "dns-stats", "dns-pause", "dns-resume",
+    "dns-stats", "dns-pause", "dns-resume", "dns-querylog", "dns-rules", "dns-rule", "dns-filters-refresh",
   ]
 
   static func token(_ value: Substring) -> Bool {
@@ -19,11 +19,24 @@ public enum RemoteSSH {
 
   public static func validRequest(_ request: String) -> Bool {
     let parts = request.split(separator: " ", omittingEmptySubsequences: false)
+    if parts.first == "dns-rule" {
+      return parts.count == 3 && ["allow", "block", "remove"].contains(String(parts[1]))
+        && validDomain(String(parts[2]))
+    }
+    if parts.first == "dns-querylog" {
+      guard (3...4).contains(parts.count), (1...3).contains(parts[1].count),
+        parts[1].allSatisfy({ $0.isASCII && $0.isNumber }),
+        let limit = Int(parts[1]), (1...200).contains(limit),
+        ["all", "blocked"].contains(String(parts[2]))
+      else { return false }
+      return parts.count == 3 || String(parts[3]).range(
+        of: #"\A[A-Za-z0-9.:-]{1,100}\z"#, options: .regularExpression) != nil
+    }
     guard (1...3).contains(parts.count), parts.allSatisfy(token), commands.contains(String(parts[0]))
     else { return false }
     let args = parts.dropFirst()
     switch parts[0] {
-    case "version", "snapshot", "checks", "refresh-updates", "dns-stats", "dns-resume":
+    case "version", "snapshot", "checks", "refresh-updates", "dns-stats", "dns-resume", "dns-rules", "dns-filters-refresh":
       return args.isEmpty
     case "dns-pause":
       guard args.count == 1, let minutes = Int(args.first!), (1...120).contains(minutes) else { return false }
@@ -36,6 +49,12 @@ public enum RemoteSSH {
       return true
     default: return false
     }
+  }
+
+  static func validDomain(_ value: String) -> Bool {
+    value.count <= 253 && value.range(
+      of: #"\A(?:\*\.)?[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\z"#,
+      options: .regularExpression) != nil
   }
 
   static func validAddress(_ value: String) -> Bool {
@@ -68,7 +87,8 @@ public enum RemoteSSH {
     switch request.split(separator: " ").first {
     case "restart": return 100
     case "refresh-updates": return 190
-    case "ps5": return 70
+    case "ps5", "dns-filters-refresh": return 70
+    case "dns-querylog": return 50
     default: return 20
     }
   }

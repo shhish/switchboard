@@ -14,6 +14,64 @@ STATE_FORMAT = "{{json .State}} {{.RestartCount}}"
 SSH = "/usr/bin/ssh"
 DISKUTIL = "/usr/sbin/diskutil"
 SMARTCTL = "/opt/homebrew/bin/smartctl"
+BREW = "/opt/homebrew/bin/brew"
+LOG = "/usr/bin/log"
+PRIVACY_PROMPT_MARKER = "watchdog expired for approval entry"
+# The one log query allowed: the last minute of expired privacy-prompt waits.
+PRIVACY_PROMPT_ARGV = [
+    LOG,
+    "show",
+    "--last",
+    "60s",
+    "--style",
+    "compact",
+    "--predicate",
+    f'eventMessage CONTAINS "{PRIVACY_PROMPT_MARKER}"',
+]
+CLOUDFLARED = "/opt/homebrew/bin/cloudflared"
+BREW_NAME = r"[a-z0-9][a-z0-9+_.-]*(?:@[0-9][a-z0-9_.-]*)?"
+# `brew outdated` reports third-party formulae tap-qualified (user/tap/name). Accepted
+# when listing only: upgrades take plain names.
+BREW_LISTED_NAME = r"(?:[a-z0-9][a-z0-9_-]*/[a-z0-9][a-z0-9_.-]*/)?" + BREW_NAME
+
+
+def brew_name(value, *, listed=False):
+    return (
+        isinstance(value, str)
+        and len(value) <= 128
+        and re.fullmatch(BREW_LISTED_NAME if listed else BREW_NAME, value) is not None
+    )
+
+
+def tunnel_hostname(value):
+    return (
+        isinstance(value, str)
+        and len(value) <= 253
+        and re.fullmatch(
+            r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+",
+            value,
+        )
+        is not None
+    )
+
+
+def tunnel_id(value):
+    return (
+        isinstance(value, str)
+        and re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", value) is not None
+    )
+
+
+def tunnel_config_path(value):
+    return (
+        isinstance(value, str)
+        and Path(value).is_absolute()
+        and ".." not in Path(value).parts
+        and not any(ord(c) < 32 or ord(c) == 127 for c in value)
+        and Path(value).name in {"config.yml", "config.yaml"}
+    )
+
+
 OUTPUT_LIMIT = 256 * 1024
 GIT = "/usr/bin/git"
 GIT_PREFIX = [
@@ -56,15 +114,51 @@ def remote_token(value):
     return isinstance(value, str) and re.fullmatch(r"[a-z0-9_-]{1,40}", value) is not None
 
 
+DNS_DOMAIN_PATTERN = (
+    r"(?:\*\.)?[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*"
+)
+DNS_SEARCH_PATTERN = r"[A-Za-z0-9.:-]{1,100}"
+
+
+def dns_domain(value):
+    return (
+        isinstance(value, str)
+        and len(value) <= 253
+        and re.fullmatch(DNS_DOMAIN_PATTERN, value) is not None
+    )
+
+
 def valid_request(request):
     if not isinstance(request, str):
         return False
     tokens = request.split(" ")
+    command, *args = tokens
+    if command == "dns-rule":
+        return len(args) == 2 and args[0] in {"allow", "block", "remove"} and dns_domain(args[1])
+    if command == "dns-querylog":
+        return (
+            len(args) in (2, 3)
+            and re.fullmatch(r"[0-9]{1,3}", args[0]) is not None
+            and 1 <= int(args[0]) <= 200
+            and args[1] in {"all", "blocked"}
+            and (len(args) == 2 or re.fullmatch(DNS_SEARCH_PATTERN, args[2]) is not None)
+        )
     if not 1 <= len(tokens) <= 3 or not all(remote_token(t) for t in tokens):
         return False
     command, *args = tokens
     return (
-        command in {"version", "snapshot", "checks", "refresh-updates", "dns-stats", "dns-resume"}
+        command
+        in {
+            "version",
+            "snapshot",
+            "checks",
+            "refresh-updates",
+            "dns-stats",
+            "dns-resume",
+            "dns-rules",
+            "dns-filters-refresh",
+        }
         and not args
         or command == "dns-pause"
         and len(args) == 1
@@ -144,6 +238,28 @@ def physical_inventory(data):
 def valid_argv(argv, remote_hosts=None, *, physical_disks=None):
     if not isinstance(argv, list) or not all(isinstance(v, str) for v in argv):
         return False
+    if argv[:1] == [LOG]:
+        return argv == PRIVACY_PROMPT_ARGV
+    if argv[:1] == [BREW]:
+        return (
+            argv in ([BREW, "outdated", "--json=v2"], [BREW, "update"])
+            or len(argv) == 3
+            and argv[1] == "upgrade"
+            and brew_name(argv[2])
+            or len(argv) == 4
+            and argv[1:3] == ["upgrade", "--cask"]
+            and brew_name(argv[3])
+        )
+    if argv[:1] == [CLOUDFLARED]:
+        return (
+            len(argv) == 6
+            and argv[1:5] == ["tunnel", "ingress", "validate", "--config"]
+            and tunnel_config_path(argv[5])
+            or len(argv) == 6
+            and argv[1:4] == ["tunnel", "route", "dns"]
+            and tunnel_id(argv[4])
+            and tunnel_hostname(argv[5])
+        )
     if argv == [DISKUTIL, "list", "-plist", "physical"]:
         return True
     if len(argv) == 4 and argv[:3] == [DISKUTIL, "info", "-plist"]:
@@ -235,6 +351,17 @@ async def run(argv, timeout_s=10, *, remote_hosts=None, physical_disks=None):
                 *argv,
                 env={
                     "PATH": "/usr/bin:/bin",
+                    **(
+                        {
+                            "HOME": str(Path.home()),
+                            "HOMEBREW_NO_AUTO_UPDATE": "1",
+                            "HOMEBREW_NO_ANALYTICS": "1",
+                            "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+                        }
+                        if argv[:1] == [BREW]
+                        else {}
+                    ),
+                    **({"HOME": str(Path.home())} if argv[:1] == [CLOUDFLARED] else {}),
                     **(
                         {
                             "GIT_CONFIG_NOSYSTEM": "1",

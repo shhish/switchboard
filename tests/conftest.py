@@ -80,6 +80,8 @@ def block_real_host_commands(monkeypatch):
             hostcmd.SSH,
             hostcmd.DISKUTIL,
             hostcmd.SMARTCTL,
+            hostcmd.BREW,
+            hostcmd.CLOUDFLARED,
         }, "Tests must fake host commands"
         return await original(program, *args, **kwargs)
 

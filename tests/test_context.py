@@ -440,6 +440,8 @@ async def test_policy_example_cortex_ops_weather_and_git_reads(core, config):
     )
     assert [t["name"] for t in core.tools("cortex")] == [
         "activity_feed",
+        "dns_query_log",
+        "dns_rules",
         "dns_stats",
         "git_ci_log",
         "git_ci_runs",
@@ -452,10 +454,12 @@ async def test_policy_example_cortex_ops_weather_and_git_reads(core, config):
         "memory_get",
         "memory_search",
         "ops_alerts_status",
+        "ops_brew_outdated",
         "ops_health",
         "ops_pulse",
         "ops_service_history",
         "ops_switchboard_status",
+        "ops_tunnel_status",
         "storage_history",
         "storage_status",
         "weather_alerts",

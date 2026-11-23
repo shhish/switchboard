@@ -24,7 +24,13 @@ def private_files(host):
 
 
 # Per-command deadlines; the native helper mirrors these in RemoteSSH.deadline(for:).
-TIMEOUTS = {"restart": 100, "refresh-updates": 190, "ps5": 70}
+TIMEOUTS = {
+    "restart": 100,
+    "refresh-updates": 190,
+    "ps5": 70,
+    "dns-filters-refresh": 70,
+    "dns-querylog": 50,
+}
 
 # Agent refusals that mean something specific to the caller.
 REFUSALS = {
@@ -86,7 +92,7 @@ async def call(core, host_name, *tokens):
     hosts = validate_remote_hosts(core.config.remote_hosts)
     if host_name not in hosts:
         raise CapabilityError("not_found", "Unknown configured remote host")
-    if not tokens or not all(hostcmd.remote_token(t) for t in tokens):
+    if not tokens or not all(isinstance(t, str) and t and " " not in t for t in tokens):
         raise CapabilityError("invalid_arguments", "Unsupported remote request")
     request = " ".join(tokens)
     if not hostcmd.valid_request(request):

@@ -366,7 +366,11 @@ async def test_cortex_auth_discovery_and_denials(server, config):
         "ops_health",
         "ops_switchboard_status",
         "ops_alerts_status",
+        "ops_brew_outdated",
+        "ops_tunnel_status",
         "dns_stats",
+        "dns_query_log",
+        "dns_rules",
     } | {
         name
         for name in core.registry.capabilities

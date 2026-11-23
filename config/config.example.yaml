@@ -195,6 +195,21 @@ upstreams:
       codex: ~/.local/share/orb-hub/mcp/tokens/codex.token
 # Choice option pictures are off by default. Roots must be absolute directories.
 # Pictures are PNG/JPEG, up to 360 KiB each, at most 4 per ask.
+brew:
+  # Held formulae/casks and major upgrades require per-package owner approval.
+  # Only a trailing * is supported; no install, uninstall, cleanup or tap tools.
+  held: [cloudflared, gitea, gitea-runner, nginx, 'python@*', node, 'node@*', ffmpeg, 'ffmpeg@*', mkvtoolnix, asc, dotnet, 'openssl@*', sqlite, docker-desktop, 'postgresql@*']
+
+# Tunnel tools are disabled until all three settings are supplied by the owner.
+tunnel: {}
+# tunnel:
+#   config_path: ~/.cloudflared/config.yml
+#   launchd_label: com.cloudflare.cloudflared.tunnel
+#   zone: example.com
+# The YAML must be an owned regular file without group/other write access.
+# Approved route edits require block-style ingress with a final catch-all.
+# cloudflared reads the existing cert.pem itself for DNS; Switchboard never reads it.
+
 board:
   ask_media_roots: []  # e.g. [/absolute/path/to/previews]
 

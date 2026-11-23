@@ -360,6 +360,8 @@ class Config:
     remote_hosts: dict = field(default_factory=dict)
     git: dict = field(default_factory=lambda: {"roots": []})
     board: dict = field(default_factory=dict)
+    brew: dict = field(default_factory=dict)
+    tunnel: dict = field(default_factory=dict)
 
     monitor: dict = field(default_factory=dict)
     alerts: dict = field(default_factory=dict)
@@ -367,8 +369,12 @@ class Config:
     memory: dict = field(default_factory=dict)
 
     def __post_init__(self):
+        from .brew import settings as brew_settings
         from .memory import settings as memory_settings
+        from .tunnel import settings as tunnel_settings
 
+        self.brew = brew_settings(self.brew)
+        self.tunnel = tunnel_settings(self.tunnel)
         self.memory = memory_settings(self.memory)
         self.storage = storage_settings(self.storage)
         self.git = validate_git(self.git)
@@ -408,6 +414,8 @@ class Config:
             "alerts",
             "git",
             "board",
+            "brew",
+            "tunnel",
         }:
             raise ValueError("Invalid config fields")
         result = cls(
@@ -422,8 +430,12 @@ class Config:
         for key in ("port", "approval_ttl_s"):
             if key in data:
                 setattr(result, key, data[key])
+        from .brew import settings as brew_settings
         from .memory import settings as memory_settings
+        from .tunnel import settings as tunnel_settings
 
+        result.brew = brew_settings(data.get("brew", {}))
+        result.tunnel = tunnel_settings(data.get("tunnel", {}))
         result.memory = memory_settings(data.get("memory", {}))
         result.storage = storage_settings(data.get("storage", {}))
         result.monitor = monitor_settings(data.get("monitor", {}))

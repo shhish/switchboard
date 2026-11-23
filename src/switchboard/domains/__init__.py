@@ -16,6 +16,7 @@ from . import (
     git,
     home,
     jobs,
+    mac_ops,
     media,
     memory,
     notes,
@@ -35,6 +36,7 @@ def build_registry():
     registry = Registry()
     for domain in (ops, media, watch, home, calendar, reminders, tasks, jobs, approvals, feedback):
         domain.register(registry)
+    mac_ops.register(registry)
     services.register(registry)
     storage.register(registry)
     books.register(registry)

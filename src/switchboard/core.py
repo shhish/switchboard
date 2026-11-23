@@ -54,6 +54,11 @@ class Core:
         self.monitor = Monitor(
             config, self.storage, self.probes, self.alerts, self.watches, self.board
         )
+        from .brew import Brew
+        from .tunnel import Tunnel
+
+        self.brew = Brew(self)
+        self.tunnel = Tunnel(self)
         self.services = Services(self)
         self.disk_health = DiskHealth(self)
         self.monitor.disk_health = self.disk_health

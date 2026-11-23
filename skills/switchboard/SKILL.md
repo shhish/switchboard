@@ -39,6 +39,47 @@ For configured services, use `ops_service_status` (one `service` or all),
 index), and `ops_host_snapshot`. These require `ops:diagnose`; logs are bounded
 and redacted. Apps are detected through launchctl's `application.<bundle id>.`
 labels. Unknown runtime status means diagnosis failed, not that the service is down.
+
+For the Mac's Homebrew packages, `ops_brew_outdated` (`ops:read`) returns formulae
+and casks with installed/current versions, major, held and pinned flags, cached
+ten minutes and capped at 100 of each. `ops_brew_refresh` (`ops:restart`) runs only
+`brew update` (300-second timeout). `ops_brew_upgrade {"name": "..."}` upgrades
+one named formula/cask (900-second timeout), refusing held packages (`brew_held`)
+and major upgrades (`brew_major`). Use `ops_brew_upgrade_held` for either: each
+package needs its own exact owner approval. Never substitute a bulk upgrade.
+Refresh and upgrade return jobs; poll `jobs_get` until terminal. Refresh's result
+is the new inventory; upgrade's result has before/after versions, with after
+inferred from successful upgrade and absence from fresh outdated inventory.
+Missing/ambiguous packages or incomplete verification are refused. Homebrew's
+normal dependency handling still applies. `brew.held` supports exact names and a
+trailing `*`; the default holds cloudflared, Gitea/runner, Python 3.14/3.15, Node,
+ffmpeg, Docker Desktop and versioned PostgreSQL. No install/uninstall, cleanup or
+tap commands are exposed. Metadata auto-update, analytics and automatic cleanup
+are disabled.
+
+`ops_tunnel_status` (`ops:read`) reads the configured Cloudflare tunnel YAML and
+launchd job. It probes up to 100 ingress hostnames with at most eight concurrent
+GETs: local origins get five seconds, public HTTPS eight, without redirects or
+response bodies. Local 2xx/3xx/401/403 count as up. Routes are `origin_down` when
+local fails, `edge_error` when local is up but the public probe fails or returns
+5xx (including 530), `ok` when both are reachable, otherwise `unknown`.
+Only HTTP(S) origins at localhost, loopback or literal RFC1918 addresses are
+probed; other origin types are unknown. Launchd running state measures the
+process; public probes supply route health, not authenticated connector telemetry.
+
+`ops_tunnel_route_add {"hostname": "x.example.com", "port": 8080}` and
+`ops_tunnel_route_remove {"hostname": "x.example.com"}` require `ops:restart`
+and exact owner approval. Hostnames must be one label under `tunnel.zone`;
+additions map ports 1024–65535 to loopback HTTP. Edits preserve unrelated YAML and
+comments, back up to the config directory's `backups/config-<UTC>.yml` (0700
+directory, 0600 files), validate, then restart the configured launchd job. Add
+also creates DNS before restarting; once DNS starts, failures retain the edited
+config because DNS may have changed. Earlier failures restore it. Remove leaves
+DNS in place: the owner may delete the CNAME in Cloudflare. Inspect status and
+the backup before retrying any partial change. Linked monitoring probes are
+silenced automatically before restarting. Configs with aliases, duplicate keys,
+flow-style ingress or no final catch-all require owner normalization first.
+
 Before builds or QA, check the Mac's `ops_host_snapshot.pressure` (or the workspace
 `tools/sim-lease pressure`) and back off while `busy` or `critical`. Kernel warning
 or load per core above 4 means busy; kernel critical or load per core above 10
@@ -47,6 +88,13 @@ The built-in `host-pressure` monitor probe shows `busy` as degraded without pagi
 cycles (11 samples at the default 60-second interval), with normal reminders and
 recovery notices. It appears in `ops_alerts_status` incidents and accepts
 `ops_alerts_silence {"probe": "host-pressure", "minutes": 15, "reason": "build maintenance"}`.
+
+The built-in `privacy-prompts` probe reads the last minute of the unified log every
+five minutes for macOS privacy prompts that nobody answered (kernel "watchdog expired
+for approval entry"). Any waits make it degraded; after fifteen minutes it pages the
+owner with the stuck permissions (external drives, Full Disk Access, Photos...).
+When drives return EINTR, Docker hangs starting, or CI steps stall for seconds per
+process, check this probe first: only the owner can answer the prompts on screen.
 
 Use `ops_service_restart` with `service` and a short `reason` for explicitly
 restartable launchd/docker/remote entries (`ops:restart`). It silences the linked probe
@@ -66,6 +114,26 @@ failed units and reboot-required status; omit host or use `mac` for the Mac.
 Use `dns_stats` (ops:read) for AdGuard Home's numbers on the Pi, and `dns_pause`
 {"minutes": 1-120, "reason"} / `dns_resume` (dns:control) when a site is wrongly blocked;
 the pause ends by itself.
+Use `dns_query_log` (ops:read) with `limit` 1-200 and `filter` `all` or `blocked`
+to inspect recent DNS queries, client IP/name, question, answer status/reason and
+matched rule text/filter IDs. Optional `search` accepts ASCII letters, digits,
+dots, colons and hyphens only, up to 100 characters. Use `dns_rules` (ops:read)
+for filtering state, user rules and filter lists; only URL hosts are returned.
+Query logs support AdGuard Home v1.0.0 and v0.107.x without the removed server-side
+status filter. `blocked` selects reasons beginning with `Filtered`; `NotFiltered*`
+and `Rewrite*` are excluded. Reads follow `older_than` for at most five pages to
+find enough matches (up to 1000 scanned entries). Modern `rules[]` takes precedence
+over the legacy `rule`/`filterId` fallback. Honor `truncated`: reads cap list sizes,
+rule-text lengths, scan pages and output bytes; a sparse blocked log may return
+fewer matches than requested. Missing/repeated cursors also flag truncation.
+Use `dns_allow`, `dns_block` or `dns_rule_remove` (dns:control, write) with
+`{"domain": "example.com"}` only for the requested domain. These change DNS for
+the whole house and are reversible with each other. Hostname labels must be
+valid ASCII, at most 253 characters total; an optional leading `*.` is accepted.
+Allow/block replace opposite exact-target user rules; remove preserves unrelated
+domains, wildcard targets and advanced rules that cannot be matched exactly.
+Use `dns_filters_refresh` (dns:control, write) to update blocking lists, excluding
+whitelists; it returns the updated-list count and can take up to 60 seconds.
 Use `ops_host_checks {"host": "remotehost"}` for DNS, Tailscale, Kuma and pending updates
 (`ops:diagnose`, read only). Configure at most eight `remote_hosts` with literal
 private IPv4 addresses and absolute key/known-hosts paths; both files must be

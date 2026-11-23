@@ -16,6 +16,12 @@ Commands:
   refresh-updates          apt-get update (package lists only; installs nothing)
   ps5 status|wake|standby  PlayStation 5 power state; wake/standby need owner pairing
   dns-stats                AdGuard Home totals, daily series and top lists (read-only)
+  dns-pause <1-120>         pause protection for a bounded number of minutes
+  dns-resume               resume protection
+  dns-querylog <1-200> <all|blocked> [search]  recent DNS queries
+  dns-rules                filtering state, user rules and filter lists
+  dns-rule <allow|block|remove> <domain>      edit one domain's user rules
+  dns-filters-refresh      refresh blocking filter lists
   version                  agent version
 
 Install: see pi-agent/README.md in the Switchboard repo.
@@ -23,6 +29,7 @@ Install: see pi-agent/README.md in the Switchboard repo.
 
 import base64
 import json
+import math
 import os
 import re
 import sqlite3
@@ -30,9 +37,10 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
-VERSION = "4"
+VERSION = "5"
 SERVICES = {
     # name: (kind, target, restartable)
     "homebridge": ("systemd", "homebridge.service", True),
@@ -527,8 +535,26 @@ def ps5(args):
 
 ADGUARD_URL = "http://127.0.0.1:3000"
 ADGUARD_AUTH = "/opt/switchboard-pi-agent/adguard.json"  # {"user", "password"}; 0600, ours
-ADGUARD_ROUTES = ("/control/status", "/control/stats", "/control/clients")
+ADGUARD_ROUTES = (
+    "/control/status", "/control/stats", "/control/clients",
+    "/control/querylog", "/control/filtering/status",
+)
 TOP_LIMIT = 8
+DNS_DOMAIN_PATTERN = r"(?:\*\.)?[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*"
+DNS_SEARCH_PATTERN = r"[A-Za-z0-9.:-]{1,100}"
+
+
+def dns_domain(value):
+    return (
+        isinstance(value, str)
+        and len(value) <= 253
+        and re.fullmatch(DNS_DOMAIN_PATTERN, value) is not None
+    )
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 def private_json(path, limit=4096):
@@ -554,17 +580,37 @@ def private_json(path, limit=4096):
     return data if isinstance(data, dict) else None
 
 
-def adguard_get(route, auth):
+def adguard_get(route, auth, params=None):
     """GET one fixed AdGuard Home API route on loopback with the stats account."""
     if route not in ADGUARD_ROUTES:
         raise ValueError("unsupported route")
+    if params is not None and route != "/control/querylog":
+        raise ValueError("unsupported parameters")
+    if params is not None and (
+        not isinstance(params, dict)
+        or set(params) - {"limit", "search", "older_than"}
+        or type(params.get("limit")) is not int
+        or not 1 <= params["limit"] <= 200
+        or ("search" in params and (
+            not isinstance(params["search"], str)
+            or re.fullmatch(DNS_SEARCH_PATTERN, params["search"]) is None
+        ))
+        or ("older_than" in params and (
+            not isinstance(params["older_than"], str) or not 1 <= len(params["older_than"]) <= 100
+        ))
+    ):
+        raise ValueError("unsupported parameters")
     token = base64.b64encode(f"{auth['user']}:{auth['password']}".encode()).decode()
     headers = {"Authorization": "Basic " + token}
-    request = urllib.request.Request(ADGUARD_URL + route, headers=headers)
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    query = "?" + urllib.parse.urlencode(params) if params else ""
+    request = urllib.request.Request(ADGUARD_URL + route + query, headers=headers)
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     try:
         with opener.open(request, timeout=8) as reply:
-            data = json.loads(reply.read(4 * 1024 * 1024))
+            raw = reply.read(4 * 1024 * 1024 + 1)
+            if len(raw) > 4 * 1024 * 1024:
+                raise ValueError("response too large")
+            data = json.loads(raw)
     except urllib.error.HTTPError as exc:
         if exc.code in (401, 403):
             raise Refused("dns_auth_failed", "AdGuard rejected the stats account") from None
@@ -577,7 +623,9 @@ def adguard_get(route, auth):
 
 
 def count(value):
-    return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
+    if type(value) in (int, float) and (not isinstance(value, float) or math.isfinite(value)):
+        return int(value)
+    return 0
 
 
 def top(rows, names=None):
@@ -697,7 +745,228 @@ def dns_resume(args):
     return {"protection_enabled": status.get("protection_enabled") is True, "paused_minutes": 0}
 
 
+def adguard_post(route, auth, body):
+    """Only the two fixed filtering writes; never follow redirects or use proxies."""
+    if route not in ("/control/filtering/set_rules", "/control/filtering/refresh"):
+        raise ValueError("unsupported route")
+    token = base64.b64encode(f"{auth['user']}:{auth['password']}".encode()).decode()
+    request = urllib.request.Request(
+        ADGUARD_URL + route,
+        data=json.dumps(body).encode(),
+        headers={"Authorization": "Basic " + token, "Content-Type": "application/json"},
+        method="POST",
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+    try:
+        with opener.open(request, timeout=60 if route.endswith("/refresh") else 8) as reply:
+            raw = reply.read(65537)
+            if len(raw) > 65536:
+                raise ValueError("response too large")
+            # set_rules may have an empty response; refresh returns JSON.
+            data = json.loads(raw) if raw and route.endswith("/refresh") else {}
+            if not isinstance(data, dict):
+                raise ValueError("invalid response")
+            return data
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            raise Refused("dns_auth_failed", "AdGuard rejected the stats account") from None
+        raise Refused("dns_unavailable", "AdGuard API error") from None
+    except (OSError, ValueError, RecursionError):
+        raise Refused("dns_unavailable", "AdGuard API unavailable") from None
+
+
+def text(value, limit):
+    return value[:limit] if isinstance(value, str) else ""
+
+
+def bounded_rows(rows, limit, budget=180000):
+    """Keep output below the SSH pipe budget, including JSON escaping."""
+    out, size = [], 0
+    for row in rows[:limit]:
+        size += len(json.dumps(row).encode()) + 2
+        if size > budget:
+            break
+        out.append(row)
+    return out
+
+
+def query_rules(row):
+    """Prefer the current array, including an empty one; accept legacy fields only as fallback."""
+    matches = row.get("rules")
+    if matches is None:
+        rule = row.get("rule")
+        return (
+            [{"text": rule, "filter_list_id": row.get("filterId")}]
+            if isinstance(rule, str) and rule else []
+        )
+    if not isinstance(matches, list):
+        raise Refused("dns_unavailable", "AdGuard query log returned an unexpected shape")
+    return matches
+
+
+def project_query(row):
+    question = row.get("question") or {}
+    client = row.get("client_info") or {}
+    matches = query_rules(row)
+    if not isinstance(question, dict) or not isinstance(client, dict):
+        raise Refused("dns_unavailable", "AdGuard query log returned an unexpected shape")
+    return {
+        "time": text(row.get("time"), 40),
+        "client": {"ip": text(row.get("client"), 45), "name": text(client.get("name"), 120)},
+        "question": {"domain": text(question.get("name"), 253), "type": text(question.get("type"), 20)},
+        "answer_status": text(row.get("status"), 40),
+        "reason": text(row.get("reason"), 120),
+        "rules": [{"rule": text(match.get("text"), 512), "filter_id": count(match.get("filter_list_id"))}
+                  for match in matches[:8] if isinstance(match, dict)],
+    }, len(matches) > 8
+
+
+def dns_querylog(args):
+    if (
+        len(args) not in (2, 3)
+        or re.fullmatch(r"[0-9]{1,3}", args[0]) is None
+        or not 1 <= int(args[0]) <= 200
+        or args[1] not in ("all", "blocked")
+        or (len(args) == 3 and re.fullmatch(DNS_SEARCH_PATTERN, args[2]) is None)
+    ):
+        raise ValueError("usage: dns-querylog <1-200> <all|blocked> [search]")
+    limit = int(args[0])
+    # v1.0.0 removed server-side status filtering. These parameters also work on v0.107.x.
+    page_size = 200 if args[1] == "blocked" else limit
+    params = {"limit": page_size}
+    if len(args) == 3:
+        params["search"] = args[2]
+    auth = dns_auth()
+    queries, shortened = [], False
+    cursors = set()
+    for page in range(5):
+        data = adguard_get("/control/querylog", auth, dict(params))
+        rows = data.get("data")
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            raise Refused("dns_unavailable", "AdGuard query log returned an unexpected shape")
+        if not rows:
+            break
+        shortened |= len(rows) > page_size
+        rows = rows[:page_size]
+        cursor = data.get("oldest") or rows[-1].get("time")
+        if isinstance(cursor, str) and cursor in cursors:
+            # An ignored/repeated cursor must not duplicate results or loop forever.
+            shortened = True
+            break
+        for row in rows:
+            reason = row.get("reason")
+            # NotFilteredAllowList, NotFilteredNotFound and Rewrite* are not blocked.
+            if args[1] == "blocked" and not (isinstance(reason, str) and reason.startswith("Filtered")):
+                continue
+            query, clipped = project_query(row)
+            shortened |= clipped
+            queries.append(query)
+            if len(queries) == limit:
+                break
+        if len(queries) == limit:
+            shortened = True
+            break
+        if not isinstance(cursor, str) or not 1 <= len(cursor) <= 100 or page == 4:
+            shortened = True
+            break
+        cursors.add(cursor)
+        params["older_than"] = cursor
+    result = bounded_rows(queries, limit)
+    return {"queries": result, "limit": limit, "truncated": shortened or len(result) < len(queries)}
+
+
+def filtering_state(auth):
+    data = adguard_get("/control/filtering/status", auth)
+    rules = data.get("user_rules")
+    if not isinstance(rules, list) or not all(isinstance(rule, str) for rule in rules):
+        raise Refused("dns_unavailable", "AdGuard user rules returned an unexpected shape")
+    return data
+
+
+def dns_rules(args):
+    if args:
+        raise ValueError("usage: dns-rules")
+    data = filtering_state(dns_auth())
+    filters = data.get("filters")
+    if not isinstance(filters, list) or not all(isinstance(item, dict) for item in filters):
+        raise Refused("dns_unavailable", "AdGuard filter lists returned an unexpected shape")
+    lists = []
+    for item in filters[:100]:
+        try:
+            url = item.get("url")
+            host = urllib.parse.urlsplit(url).hostname or "" if isinstance(url, str) else ""
+        except ValueError:
+            host = ""
+        lists.append({
+            "id": count(item.get("id")), "name": text(item.get("name"), 120),
+            "url_host": text(host, 253), "enabled": item.get("enabled") is True,
+            "rules_count": max(0, count(item.get("rules_count"))),
+            "last_updated": text(item.get("last_updated"), 40),
+        })
+    shown_lists = bounded_rows(lists, 100, budget=40000)
+    # AdGuard reports "no custom rules" as [""]; blank lines are not rules.
+    rules = [rule for rule in data["user_rules"] if rule.strip()]
+    shown = bounded_rows([rule[:512] for rule in rules[:1000]], 1000, budget=140000)
+    return {
+        "enabled": data.get("enabled") is True, "user_rules": shown,
+        "user_rules_count": len(rules), "filters": shown_lists,
+        "truncated": len(shown) < len(rules) or len(shown_lists) < len(filters)
+        or any(len(rule) > 512 for rule in rules),
+    }
+
+
+def rule_domain(rule):
+    """Extract only an exact hostname target; preserve regexes and other advanced rules."""
+    rule = rule.strip()
+    if not rule or rule.startswith(("!", "#")):
+        return None
+    if rule.startswith("@@"):
+        rule = rule[2:]
+    if rule.startswith("||"):
+        match = re.fullmatch(r"\|\|([^\^]+)\^(?:\$[^\r\n]+)?", rule)
+        rule = match[1] if match else ""
+    else:
+        parts = rule.split()
+        if len(parts) == 2 and parts[0] in ("0.0.0.0", "127.0.0.1", "::", "::1"):
+            rule = parts[1]
+    return rule.lower() if dns_domain(rule) else None
+
+
+def dns_rule(args):
+    if len(args) != 2 or args[0] not in ("allow", "block", "remove") or not dns_domain(args[1]):
+        raise ValueError("usage: dns-rule <allow|block|remove> <domain>")
+    action, domain = args[0], args[1].lower()
+    auth = dns_auth()
+    rules = filtering_state(auth)["user_rules"]
+    selected = [rule for rule in rules if rule_domain(rule) == domain]
+    desired = ("@@" if action == "allow" else "") + "||" + domain + "^"
+    edited = [rule for rule in rules if rule_domain(rule) != domain]
+    if action != "remove":
+        edited.append(desired)
+    changed = selected != ([] if action == "remove" else [desired])
+    if changed:
+        adguard_post("/control/filtering/set_rules", auth, {"rules": edited})
+    return {
+        "domain": domain, "action": action,
+        "rule": (text(selected[0], 512) if selected else "") if action == "remove" else desired,
+        "changed": changed, "rules_count": len(edited) if changed else len(rules),
+    }
+
+
+def dns_filters_refresh(args):
+    if args:
+        raise ValueError("usage: dns-filters-refresh")
+    data = adguard_post("/control/filtering/refresh", dns_auth(), {"whitelist": False})
+    if type(data.get("updated")) is not int or data["updated"] < 0:
+        raise Refused("dns_unavailable", "AdGuard refresh returned an unexpected shape")
+    return {"updated": data["updated"]}
+
+
 COMMANDS = {
+    "dns-querylog": dns_querylog,
+    "dns-rules": dns_rules,
+    "dns-rule": dns_rule,
+    "dns-filters-refresh": dns_filters_refresh,
     "dns-stats": dns_stats,
     "dns-pause": dns_pause,
     "dns-resume": dns_resume,
@@ -713,10 +982,11 @@ COMMANDS = {
 
 
 def main():
-    request = os.environ.get("SSH_ORIGINAL_COMMAND", "").split()
-    if not request or request[0] not in COMMANDS or len(request) > 3 or any(
+    request = os.environ.get("SSH_ORIGINAL_COMMAND", "").split(" ")
+    dns_request = request[0] in ("dns-querylog", "dns-rule")
+    if request[0] not in COMMANDS or (not dns_request and (len(request) > 3 or any(
         not re.fullmatch(r"[a-z0-9_-]{1,40}", part) for part in request
-    ):
+    ))):
         print(json.dumps({"ok": False, "error": "unsupported request"}))
         return 2
     try:

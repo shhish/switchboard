@@ -5,15 +5,15 @@
 **One set of hands in your house for every AI agent you use.**
 
 Ask Claude to wake the PS5. Ask Codex why Sonarr restarted at 3am. Ask ChatGPT to dim the bedroom lights.<br/>
-They all go through the same 147 tools, one rulebook and one audit log, running on your own Mac.
+They all go through the same 160 tools, one rulebook and one audit log, running on your own Mac.
 
 [![MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.13+-3776AB?style=flat-square&logo=python&logoColor=white)
 ![macOS](https://img.shields.io/badge/macOS-host-000000?style=flat-square&logo=apple&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-server-8A2BE2?style=flat-square)
-![147 tools](https://img.shields.io/badge/tools-147-success?style=flat-square)
+![160 tools](https://img.shields.io/badge/tools-160-success?style=flat-square)
 
-[What it does](#what-it-can-do) · [See it](#a-day-with-switchboard) · [Guard rails](#guard-rails) · [Quick start](#quick-start) · [All 147 tools](docs/CAPABILITIES.md)
+[What it does](#what-it-can-do) · [See it](#a-day-with-switchboard) · [Guard rails](#guard-rails) · [Quick start](#quick-start) · [All 160 tools](docs/CAPABILITIES.md)
 
 </div>
 
@@ -55,7 +55,7 @@ More things you can ask:
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/readme/how-it-fits-dark.svg">
-    <img src="docs/readme/how-it-fits-light.svg" alt="Claude Code, Codex, Antigravity, ChatGPT and your own scripts call Switchboard on your Mac, which applies policy and approvals, runs 147 typed tools, keeps an audit log and shared names, and reaches Plex, Apple Home, PlayStation 5, Things 3, notes and recipes, and the Mac mini and Raspberry Pi." width="100%">
+    <img src="docs/readme/how-it-fits-light.svg" alt="Claude Code, Codex, Antigravity, ChatGPT and your own scripts call Switchboard on your Mac, which applies policy and approvals, runs 160 typed tools, keeps an audit log and shared names, and reaches Plex, Apple Home, PlayStation 5, Things 3, notes and recipes, and the Mac mini and Raspberry Pi." width="100%">
   </picture>
 </p>
 
@@ -67,7 +67,7 @@ Every integration is optional. Turn on the ones you run. The [full tour](#the-fu
 
 | Area | What it does |
 | --- | --- |
-| 🖥️ **Keep the servers alive**<br/><sub>`ops_*` · 14 tools</sub> | Health checks every minute, alerts to your phone and email, logs and restarts, plus a Raspberry Pi as a second host. |
+| 🖥️ **Keep the servers alive**<br/><sub>`ops_*` · 21 tools</sub> | Health checks every minute, alerts to your phone and email, logs and restarts, plus a Raspberry Pi as a second host. Homebrew package checks and named upgrades, with approval for held/major versions; Cloudflare tunnel probes and approved route changes. |
 | **See what happened**<br/><sub>`activity_feed` · `ops_pulse` · `ops_service_history`</sub> | An owner timeline of agent work, your answers and service incidents, plus hourly health bars and recent service history. |
 | 💾 **Watch disk health**<br/><sub>`storage_*` · 2 tools</sub> | Disk space, fill trends and SMART warnings for NVMe and USB drives, answered at once from the last sample; fill history for the Raspberry Pi. |
 | 🎬 **Watch things**<br/><sub>`media_*` · 17 tools</sub> | Request movies and shows through Seerr, "what should I watch?", continue watching, who watched what, downloads. |
@@ -76,7 +76,7 @@ Every integration is optional. Turn on the ones you run. The [full tour](#the-fu
 | **Answer on Slate**<br/><sub>`board_ask` · `board_answer`</sub> | Yes/no, choice, text, forms and plans in the Server app, with evidence, pictures on all 8 choices and up to 4 captioned pictures per question; agents can wait or read answers in their next brief. |
 | **Approve owner changes**<br/><sub>`board_ask` · `board_answer`</sub> | Approve a client permission or picture directory in the Server app. Switchboard describes the change, requests Face ID, applies it and keeps a backup. |
 | 🎮 **Play**<br/><sub>`console_*` · 6 tools</sub> | PS5 on, off, temperature and storage; list your games, launch or close one. |
-| 🛡️ **Home network**<br/><sub>`dns_*` · 3 tools</sub> | AdGuard Home on the Pi: what it answered and blocked, for which devices; pause blocking for a few minutes. |
+| 🛡️ **Home network**<br/><sub>`dns_*` · 9 tools</sub> | AdGuard Home on the Pi: what it answered and blocked, for which devices; inspect query logs, allow or block domains, refresh filter lists and pause blocking. |
 | 💡 **Run the house**<br/><sub>`home_*` `routines_*` · 15 tools</sub> | Lights, accessories and scenes in Apple Home, and routines that run on their own: motion, held-open, time and sunset triggers. Locks and garage doors need your approval. |
 | ✅ **Get things done**<br/><sub>`tasks_*` `reminders_*` `calendar_*` · 20 tools</sub> | Things 3, Apple Reminders and Calendar: read, add, edit, complete; create Things projects while the Mac is locked. |
 | 📚 **Remember things**<br/><sub>`notes_*` `recipes_*` `books_*` `context_*` · 15 tools</sub> | Search Apple Notes, your Obsidian vault and recipes, request books, and learn your names for things. |
@@ -142,6 +142,7 @@ Local Git reads stay under configured roots; merges and release tags pin the SHA
 - **Disk health:** shared APFS container space, hourly fill charts and seven-day forecasts. Optional free-space floors keep a 90%-full 14 TB disk with a terabyte left from paging you, and a warning that turns critical sends a fresh alert. SMART warnings cover failing health, new bad sectors, NVMe wear and hot HDDs; sleeping drives stay asleep during SMART reads.
 - **Restarts** of allowlisted services, which silence their own alerts and respect a cooldown.
 - **Mac pressure alerts** when the kernel reports critical memory pressure or load per core passes 10 for ten minutes (a busy Mac shows in status without paging you), with recovery notices and maintenance silences. Check pressure before builds or QA; swap usage is informational.
+- **Unanswered macOS privacy prompts** page you after fifteen minutes, naming what is stuck (external drives, Full Disk Access, Photos...), because a forgotten prompt quietly hangs drives, Docker and builds.
 - **A Raspberry Pi as a second host** over SSH, with a key that can only run a fixed set of commands: status, logs, DNS / Tailscale / uptime checks, allowlisted restarts. No shell, no reboot.
 </details>
 

@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from . import host_pressure
+from . import host_pressure, privacy_prompts
 from .alert_config import heartbeat_url
 from .auth import read_private
 from .errors import CapabilityError
@@ -18,6 +18,9 @@ from .eventkit import EventKit
 
 SYSTEM_PROBE = "@monitor"
 HOST_PRESSURE_PROBE = "host-pressure"
+PRIVACY_PROMPTS_PROBE = "privacy-prompts"
+# Reading the unified log takes seconds: sample it every few minutes, not every cycle.
+PRIVACY_SAMPLE_S = 300
 MAX_AGENT_SILENCES = 3
 STATE_RANK = {"up": 0, "unknown": 1, "degraded": 2, "down": 3}
 
@@ -83,7 +86,8 @@ class Monitor:
             # Intentionally bypass the health TTL, but refresh its cache.
             result = await self.probes.run()
             pressure = await host_pressure.sample()
-            self.process(result["services"], time.time(), pressure=pressure)
+            prompts = await self.privacy_sample(time.time())
+            self.process(result["services"], time.time(), pressure=pressure, prompts=prompts)
             await self.heartbeat()
             if self.watches:
                 try:
@@ -95,6 +99,18 @@ class Monitor:
                     await self.board.evaluate_things()
                 except Exception:
                     pass  # Capture failures never end monitoring or its other work.
+
+    async def privacy_sample(self, now):
+        """Latest privacy-prompt reading, refreshed at most every PRIVACY_SAMPLE_S."""
+        last = getattr(self, "privacy_last", None)
+        if last and now - last[0] < PRIVACY_SAMPLE_S:
+            return last[1]
+        try:
+            reading = await privacy_prompts.sample()
+        except Exception:
+            reading = None  # An unreadable log is "unknown", never a guess.
+        self.privacy_last = (now, reading)
+        return reading
 
     async def heartbeat(self):
         path = self.config.monitor.get("heartbeat_url_file")
@@ -126,7 +142,7 @@ class Monitor:
         health = getattr(self, "disk_health", None)
         return health.probe_names() if health else set()
 
-    def process(self, services, now, *, pressure=None):
+    def process(self, services, now, *, pressure=None, prompts=None):
         configs = {row["name"]: row for row in self.config.probes}
         failing = {"down", "degraded"}
         # Include opted-out probes in host detection. Require a loopback witness.
@@ -167,6 +183,13 @@ class Monitor:
                     # show "busy" in status, page the owner only for critical.
                     observe_only=level == "busy",
                 )
+            if prompts is not None:
+                self.transition(
+                    {"name": PRIVACY_PROMPTS_PROBE, "group": "host", "privacy_detail": prompts},
+                    "degraded" if prompts["waits"] else "up",
+                    now,
+                    "prompts_unanswered" if prompts["waits"] else None,
+                )
             for row in services:
                 probe = configs.get(row["name"])
                 if probe:
@@ -180,7 +203,7 @@ class Monitor:
                         or (all_failed and not self.silenced(SYSTEM_PROBE, now)),
                     )
             # Retire removed probes without issuing stale recovery notices.
-            active = set(configs) | {SYSTEM_PROBE, HOST_PRESSURE_PROBE}
+            active = set(configs) | {SYSTEM_PROBE, HOST_PRESSURE_PROBE, PRIVACY_PROMPTS_PROBE}
             active |= self.storage_probes()
             for row in self.db.execute("SELECT name FROM monitor_state").fetchall():
                 if row["name"] not in active:
@@ -193,6 +216,9 @@ class Monitor:
         if probe["name"] == HOST_PRESSURE_PROBE:
             # N samples span N-1 intervals: never page before ten minutes at this cadence.
             return math.ceil(600 / self.config.monitor["interval_s"]) + 1
+        if probe["name"] == PRIVACY_PROMPTS_PROBE:
+            # A prompt answered within a few minutes is normal; page after fifteen.
+            return math.ceil(900 / self.config.monitor["interval_s"]) + 1
         threshold = probe.get("failures_before_alert", self.config.monitor["failures_before_alert"])
         if reason == "timeout":
             # Refused/5xx means the service is gone; a slow answer needs a longer streak.
@@ -339,6 +365,17 @@ class Monitor:
                 f"load per core: {probe['pressure_detail']['load_per_core']}; "
                 f"swap used: {probe['pressure_detail']['swap_used_pct']}%."
             )
+        elif "privacy_detail" in probe:
+            title = f"[{name}] [{'Recovered' if kind == 'recovery' else 'Needs you'}]"
+            body = (
+                f"No macOS privacy prompts are waiting any more ({elapsed} after the first)."
+                if kind == "recovery"
+                else f"macOS privacy prompts have been waiting on the Mac's screen for {elapsed}, "
+                f"since {since}. Apps are stuck waiting for: "
+                f"{privacy_prompts.describe(probe['privacy_detail'])}. Until they are answered, "
+                "external drives, Docker and file reads can hang. Answer them on the Mac "
+                "(ScreenLink works)."
+            )
         elif "storage_detail" in probe:
             severity = "Critical" if state["status"] == "down" else "Warning"
             title = f"[{name}] [{'Recovered' if kind == 'recovery' else severity}]"
@@ -375,7 +412,7 @@ class Monitor:
         if name != "all" and name not in (
             {probe["name"] for probe in self.config.probes}
             | self.storage_probes()
-            | {HOST_PRESSURE_PROBE}
+            | {HOST_PRESSURE_PROBE, PRIVACY_PROMPTS_PROBE}
         ):
             raise CapabilityError("invalid_arguments", "Unknown configured probe")
 
@@ -452,6 +489,7 @@ class Monitor:
         active = {row["name"] for row in self.config.probes if row.get("alert", True)} | {
             SYSTEM_PROBE,
             HOST_PRESSURE_PROBE,
+            PRIVACY_PROMPTS_PROBE,
         }
         active |= self.storage_probes()
         incidents = [
