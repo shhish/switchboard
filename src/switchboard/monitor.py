@@ -21,6 +21,7 @@ HOST_PRESSURE_PROBE = "host-pressure"
 PRIVACY_PROMPTS_PROBE = "privacy-prompts"
 # Reading the unified log takes seconds: sample it every few minutes, not every cycle.
 PRIVACY_SAMPLE_S = 300
+PRIVACY_WAIT_S = 0.2
 MAX_AGENT_SILENCES = 3
 STATE_RANK = {"up": 0, "unknown": 1, "degraded": 2, "down": 3}
 
@@ -66,9 +67,10 @@ class Monitor:
             self.task = asyncio.create_task(self.run())
 
     async def close(self):
-        if self.task:
-            self.task.cancel()
-            await asyncio.gather(self.task, return_exceptions=True)
+        tasks = [t for t in (self.task, getattr(self, "privacy_task", None)) if t]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     async def run(self):
         while True:
@@ -101,16 +103,30 @@ class Monitor:
                     pass  # Capture failures never end monitoring or its other work.
 
     async def privacy_sample(self, now):
-        """Latest privacy-prompt reading, refreshed at most every PRIVACY_SAMPLE_S."""
+        """Latest privacy-prompt reading, refreshed at most every PRIVACY_SAMPLE_S.
+
+        Reading the unified log can take seconds on a loaded Mac, so the refresh runs
+        in the background: a cycle waits at most PRIVACY_WAIT_S for it, then reports the
+        previous reading (None until the first one lands) and moves on.
+        """
         last = getattr(self, "privacy_last", None)
         if last and now - last[0] < PRIVACY_SAMPLE_S:
             return last[1]
-        try:
-            reading = await privacy_prompts.sample()
-        except Exception:
-            reading = None  # An unreadable log is "unknown", never a guess.
-        self.privacy_last = (now, reading)
-        return reading
+        task = getattr(self, "privacy_task", None)
+        if task is None:
+
+            async def refresh():
+                try:
+                    reading = await privacy_prompts.sample()
+                except Exception:
+                    reading = None  # An unreadable log is "unknown", never a guess.
+                self.privacy_last = (now, reading)
+
+            task = self.privacy_task = asyncio.create_task(refresh())
+            task.add_done_callback(lambda _: setattr(self, "privacy_task", None))
+        await asyncio.wait({task}, timeout=PRIVACY_WAIT_S)
+        last = getattr(self, "privacy_last", None)
+        return last[1] if last else None
 
     async def heartbeat(self):
         path = self.config.monitor.get("heartbeat_url_file")

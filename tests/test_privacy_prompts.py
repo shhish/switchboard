@@ -159,3 +159,31 @@ async def test_privacy_probe_can_be_silenced(core):
         {"probe": PRIVACY_PROMPTS_PROBE, "minutes": 30, "reason": "Owner away"},
     )
     assert result["status"] == "ok", result
+
+
+async def test_slow_log_never_blocks_a_cycle(config, monkeypatch):
+    import asyncio
+
+    from switchboard import monitor as monitor_module
+
+    storage, _, monitor = setup_monitor(config)
+    release = asyncio.Event()
+
+    async def slow():
+        await release.wait()
+        return privacy_prompts.reading(log_text(("Photos", 1)))
+
+    monkeypatch.setattr(monitor_module.privacy_prompts, "sample", slow)
+    try:
+        assert await asyncio.wait_for(monitor.privacy_sample(1000), 1) is None
+        # A second cycle while the read is still running starts no new read.
+        first = monitor.privacy_task
+        assert await asyncio.wait_for(monitor.privacy_sample(1001), 1) is None
+        assert monitor.privacy_task is first
+        release.set()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert (await monitor.privacy_sample(1002))["waits"] == 1
+        await monitor.close()
+    finally:
+        storage.close()

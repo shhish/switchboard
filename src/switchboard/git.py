@@ -408,7 +408,9 @@ class Git:
     async def ci_runs(self, args):
         repo = self.repo(args["repo"])
         limit = args.get("limit", 20)
-        params = {key: args[key] for key in ("branch", "status") if key in args}
+        params = {
+            key: args[key] for key in ("branch", "status", "event", "head_sha") if key in args
+        }
         rows, truncated = await self.runs(repo, params, cap=limit + 1)
 
         async def one(data):
@@ -600,11 +602,144 @@ class Git:
         repo = self.repo(args["repo"])
         self.require_write(repo)
         path = self.path(repo) + f"/actions/runs/{args['run_id']}"
-        mapping(await self.api.request(path))
+        run = mapping(await self.api.request(path))
+        conclusion = run.get("conclusion")
+        # Gitea refuses rerun-failed-jobs on a run with no failed jobs: re-run the
+        # whole run then, unless the caller explicitly asked for failed jobs only.
+        failed_only = args.get("failed_only", conclusion in ("failure", "cancelled"))
         await self.api.request(
-            path + ("/rerun-failed-jobs" if args.get("failed_only", True) else "/rerun"), payload={}
+            path + ("/rerun-failed-jobs" if failed_only else "/rerun"), payload={}
         )
-        return {"status": "requested", "repo": repo, "run_id": args["run_id"]}
+        result = {
+            "status": "requested",
+            "repo": repo,
+            "run_id": args["run_id"],
+            "failed_only": failed_only,
+            "stale": False,
+        }
+        # A re-run replays the run's original commit; say so when the branch moved on.
+        branch, head = run.get("head_branch"), run.get("head_sha")
+        if run.get("event") in ("push", "schedule") and isinstance(branch, str) and branch:
+            try:
+                current = await self.branch_sha(repo, branch)
+            except CapabilityError:
+                current = None
+            if current and isinstance(head, str) and current != head.lower():
+                result["stale"] = True
+        return result
+
+    async def pr_land(self, args):
+        """Validate before accepting the job; the job itself never raises."""
+        repo = self.repo(args["repo"])
+        self.require_write(repo)
+        row = self.pr_row(
+            repo, mapping(await self.api.request(self.path(repo) + f"/pulls/{args['number']}"))
+        )
+        if row["state"] != "open" or row["draft"] or row["merged"]:
+            raise CapabilityError("git_merge_denied", "PR must be open and not a draft")
+        return repo
+
+    async def land(self, args, *, pressure=None, progress=None):
+        """Rebase, wait for CI, re-run a failure when the host was overloaded, merge."""
+        repo = self.repo(args["repo"])
+        number = args["number"]
+        path = self.path(repo) + f"/pulls/{number}"
+        retries = args.get("flake_retries", 1)
+        deadline = self.clock() + args.get("timeout_s", 1800)
+        steps = []
+
+        def step(kind, detail=""):
+            steps.append(
+                {"at_s": int(round(self.clock() - started)), "step": kind, "detail": detail}
+            )
+            del steps[:-40]
+            if progress:
+                progress(kind)
+
+        def done(status, **extra):
+            return {"status": status, "repo": repo, "number": number, "steps": steps, **extra}
+
+        async def load_level():
+            if pressure is None:
+                return None
+            try:
+                return (await pressure()).get("level")
+            except Exception:
+                return None
+
+        started = self.clock()
+        rebases = 0
+        while True:
+            data = mapping(await self.api.request(path))
+            row = self.pr_row(repo, data)
+            if row["merged"]:
+                return done("merged", merged_sha=text(data.get("merge_commit_sha"), 64))
+            if row["state"] != "open":
+                return done("blocked", reason="PR is closed")
+            if rebases == 0 or not row["mergeable"]:
+                if rebases >= 3:
+                    return done("blocked", reason="still not mergeable after 3 rebases")
+                rebases += 1
+                try:
+                    await self.api.request(
+                        path + "/update", method="POST", params={"style": "rebase"}
+                    )
+                    step("rebase")
+                except CapabilityError as exc:
+                    # Up to date already, or a real conflict: the merge check below decides.
+                    step("rebase_skipped", exc.code)
+                await self.sleep(5)
+                continue
+            ci = await self.ci(repo, row["head_sha"])
+            while ci["state"] in ("pending", "unknown"):
+                if self.clock() >= deadline:
+                    return done("timeout", reason="CI did not finish", sha=row["head_sha"])
+                await self.sleep(20)
+                ci = await self.ci(repo, row["head_sha"])
+            step("ci", ci["state"])
+            if ci["state"] == "failure":
+                failed = [r["id"] for r in ci["runs"] if r.get("conclusion") == "failure"]
+                if retries <= 0 or not failed:
+                    return done("ci_failed", sha=row["head_sha"], failed_runs=failed[:10])
+                # Only spend a retry once the Mac is no longer critical: load flakes repeat.
+                while await load_level() == "critical":
+                    if self.clock() >= deadline:
+                        return done("timeout", reason="host pressure stayed critical")
+                    step("wait_pressure")
+                    await self.sleep(30)
+                retries -= 1
+                for run_id in failed[:5]:
+                    await self.api.request(
+                        self.path(repo) + f"/actions/runs/{run_id}/rerun-failed-jobs", payload={}
+                    )
+                step("rerun", ",".join(map(str, failed[:5])))
+                await self.sleep(20)
+                continue
+            try:
+                merged = await self.pr_merge(
+                    {
+                        "repo": repo,
+                        "number": number,
+                        "method": args.get("method", "merge"),
+                        "delete_branch": args.get("delete_branch", True),
+                    }
+                )
+            except CapabilityError as exc:
+                if exc.code in ("git_merge_denied", "backend_error") and rebases < 3:
+                    step("merge_refused", exc.code)
+                    rebases += 1
+                    try:
+                        await self.api.request(
+                            path + "/update", method="POST", params={"style": "rebase"}
+                        )
+                        step("rebase")
+                    except CapabilityError as inner:
+                        step("rebase_skipped", inner.code)
+                    await self.sleep(5)
+                    continue
+                return done("blocked", reason=exc.code)
+            step("merged", merged["merged_sha"])
+            return done("merged", merged_sha=merged["merged_sha"])
 
     async def tag_create(self, args):
         repo = self.repo(args["repo"])

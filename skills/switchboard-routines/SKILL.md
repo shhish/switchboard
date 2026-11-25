@@ -97,3 +97,14 @@ detected/clear, `on`/`active` on/off, `buttonEvent` single/double/long.
 - `routines_pause` (owner) stops everything at the next step.
 - Keep anything safety-critical (leak → shut the water) as an Apple Home
   automation too: routines pause while HomeRelay or Switchboard is down.
+
+## If it fails
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| `routines_plan` or `routines_propose` returns `invalid_routine` | The YAML breaks the language (unknown device, trigger or field) | Read the listed problems, fix the YAML and run `routines_plan` again until it resolves every device |
+| `home_unavailable` from `routines_plan` | HomeRelay is unreachable, so devices can't be resolved | Check `ops_service_status {"service": "homerelay"}`; plan again once it answers. Don't propose blind |
+| `routines_run` returns `blocked` | A condition or cooldown skipped the run | Read `last_skip` in `routines_list` for the reason; adjust conditions only through a new proposal |
+| Calls return `paused` or `routines_unavailable` | The owner paused routines, or the engine isn't running | Don't work around it: report it; only the owner resumes (`routines_pause` is owner-only) |
+| A routine turned itself off | Five failed runs in a row | Read `routines_runs {run_id}` for the failing step, fix the definition and propose the new version for approval |
+| `not_found` for an approval hash | The YAML changed after the owner saw it, so the hash differs | Show the owner the `approve` command from the latest `routines_propose` result |

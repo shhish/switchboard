@@ -32,17 +32,26 @@ PR workflow:
    `git_pr_create {repo, head, title, body?, base?}`; base defaults to the default
    branch. This capability does not push anything locally.
 2. Wait with `git_ci_wait {repo, number? | ref?, timeout_s?}` instead of polling
-   `git_ci_runs`. Inspect job IDs with `git_ci_runs {repo, branch?, status?, limit?}`
+   `git_ci_runs`. Inspect job IDs with `git_ci_runs {repo, branch?, status?, event?, head_sha?, limit?}`
    and call `git_ci_log {repo, job_id, lines?, contains?}` on failure. Logs return
    at most 400 lines from a bounded 1600-line tail, redacted and ANSI stripped;
    filters are literal and case-insensitive on the redacted text. Responses above
    2 MiB are refused, never silently treated as complete.
 3. Fix real failures. Rerun a suspected flake once using
-   `git_ci_rerun {repo, run_id, failed_only?}` (failed jobs by default), then
-   inspect CI again. Acceptance is not success.
+   `git_ci_rerun {repo, run_id, failed_only?}` (failed jobs when the run failed,
+   else the whole run), then inspect CI again. Acceptance is not success. If the
+   result says `stale: true`, the re-run replays an older commit than the branch
+   head: push or wait for a fresh run instead of trusting it.
 4. Use `git_pr_comment {repo, number, body}` for an explicitly authorized review
    comment. Do not send comments merely because you read a PR.
-5. Follow the repository's review requirements. When green and authorized, call
+5. To land a PR without babysitting it, prefer
+   `git_pr_land {repo, number, flake_retries?, timeout_s?, method?, delete_branch?}`:
+   one background job that rebases onto the base, waits for CI, re-runs failed jobs
+   up to `flake_retries` (default 1) only once host pressure is not critical, then
+   merges with the same gates as `git_pr_merge`. Poll `jobs_get`; the result status is
+   merged, ci_failed (read the failed runs' logs), blocked (conflict or refused) or
+   timeout. Land PRs that touch the same files one at a time.
+6. Follow the repository's review requirements. When green and authorized, call
    `git_pr_merge {repo, number, method?, delete_branch?, allow_no_checks?}`.
    Methods are merge (default), squash or rebase; branch deletion defaults true.
    Open, non-draft, mergeable PRs only; combined statuses and current Actions
@@ -66,3 +75,14 @@ retrying. Missing scopes or allowlists require the owner; do not fall back to an
 API wrapper or raw git to bypass policy. Doctor checks token safety and Gitea
 reachability without a mutation. No repo administration, workflow dispatch,
 standalone branch deletion, force actions, webhooks, keys or credentials are tools.
+
+## If it fails
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| `git_pr_merge` answers `backend_error` HTTP 405 or `git_merge_denied` | Branch protection requires the PR to be rebased onto the current base | Use `git_pr_land`, which rebases (`pulls/N/update?style=rebase`) and waits for fresh CI before merging |
+| CI fails different timing tests on each run, all pass locally | Host overload on the shared Mac (load far above 10 per core) | Check `ops_host_snapshot` or `tools/sim-lease slots`; land with `git_pr_land` (`flake_retries` re-runs only after pressure drops); don't change code for it |
+| A re-run of a failed scheduled run fails again after the fix merged | `git_ci_rerun` replays the run's original commit (`stale: true`) | Wait for the next scheduled run or a new push; trust only runs whose `head_sha` matches the branch head |
+| `git_pr_merge` with `allow_no_checks` is refused | The base branch has pull-request CI, so checks will appear | Wait with `git_ci_wait {repo, number}`; never use `allow_no_checks` to skip pending CI |
+| A Gitea call returns `backend_down` or a timeout | Gitea restarting or the Mac overloaded | Retry once later; before retrying any write, read `git_pr`/`git_ci_runs` to see whether it already happened |
+| CI job is cancelled after its tests passed, in post-checkout cleanup | Runner git was Xcode's, whose helper scripts stall on macOS TCC checks | Runners must have Homebrew git first on PATH (homelab-ops runner plists); see the TCC memory note |

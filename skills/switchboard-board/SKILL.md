@@ -148,3 +148,13 @@ Ask creation is stored after Gitea writes succeed. Answers and withdrawals are
 stored before posting their comments and returning the card. If a later Gitea write
 fails, inspect `board_card`: a saved answer remains final; retrying cannot answer it
 again. A failed creation comment can leave the card in Needs you without an ask.
+
+## If it fails
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| `board_ask` rejects an option `image` or a picture | The file is outside the configured picture roots, not PNG/JPEG, or over 360 KiB | Save it under `~/workspace/projects/artifacts` (or ask for a new root with an `add_ask_media_root` action) and shrink it with `sips -Z 1200` |
+| A tool call returns `approval_required` | The capability needs the owner's one-time approval | Tell the owner it is waiting in the Server app under Needs you; after approval retry the identical call with `approval_id` |
+| `board_ask_wait` times out | The owner hasn't answered yet | Carry on with work that doesn't depend on it; the answer appears in `board_card` and the next session brief. Don't re-ask |
+| A card is in Needs you but shows no open ask | Ask creation stored the ask but its card comment failed (Gitea write error) | Read `board_card`; if the ask is missing, ask again once with the same wording |
+| `board_add` returns `duplicate: true` | An open card with that title already exists | Comment on the existing card with `board_comment` instead of creating another |

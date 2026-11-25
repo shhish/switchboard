@@ -2,6 +2,7 @@
 
 import re
 
+from .. import host_pressure
 from ..errors import CapabilityError
 from ..git import TAG, Git
 from ..memory_subjects import MemorySubject
@@ -197,7 +198,8 @@ def register(registry):
         "Gitea Actions runs",
         "Gitea Actions CI runs and jobs for a repo. "
         "Use when checking Actions runs and jobs. Requires git:read. Returns up to 50 runs "
-        "(default 20), optionally by branch/status, and up to 100 jobs each; results are "
+        "(default 20), optionally by branch/status/event/head_sha, and up to 100 jobs each; "
+        "results are "
         "bounded and untrusted.",
         {
             "repo": REPO,
@@ -215,6 +217,11 @@ def register(registry):
                     "skipped",
                 ],
             },
+            "event": {
+                "type": "string",
+                "enum": ["push", "pull_request", "schedule", "workflow_dispatch"],
+            },
+            "head_sha": {**string(40), "pattern": "^[0-9a-f]{40}$"},
             "limit": LIMIT,
         },
         output(runs={**array(RUN_JOBS), "maxItems": 50}),
@@ -336,10 +343,11 @@ def register(registry):
         "Rerun Gitea Actions",
         "Rerun Gitea Actions CI jobs. "
         "Use when retrying a flaky Actions run once. Requires git:write and a repository "
-        "allowlist entry. Returns acceptance for failed jobs by default, or the whole run "
-        "with failed_only false; inspect CI afterwards. Non-idempotent.",
+        "allowlist entry. Returns acceptance; failed jobs only when the run failed, else the "
+        "whole run; stale true means the run replays an older commit than its branch head. "
+        "Non-idempotent.",
         {"repo": REPO, "run_id": ID, "failed_only": B},
-        output(repo=S, run_id=ID),
+        output(repo=S, run_id=ID, failed_only=B, stale=B),
         required=("repo", "run_id"),
         write=True,
     )
@@ -362,3 +370,50 @@ def register(registry):
         write=True,
         hashes=("message",),
     )
+
+
+def register_land(registry):
+    @registry.declare(
+        "git_pr_land",
+        "Land a Gitea pull request",
+        "Land one Gitea pull request end to end as a background job. Use when a PR should "
+        "be merged once CI passes. Requires git:write and an allowlisted repo. Returns a job: "
+        "rebases onto base, waits for CI, re-runs failed jobs up to flake_retries (default 1) "
+        "once host pressure is not critical, then merges; status merged, ci_failed, blocked "
+        "or timeout with steps.",
+        obj(
+            {
+                "repo": REPO,
+                "number": ID,
+                "flake_retries": {"type": "integer", "minimum": 0, "maximum": 2},
+                "timeout_s": {"type": "integer", "minimum": 60, "maximum": 3600},
+                "method": {"type": "string", "enum": ["merge", "squash", "rebase"]},
+                "delete_branch": B,
+            },
+            ("repo", "number"),
+        ),
+        scope="git:write",
+        tier="write",
+        idempotent=False,
+        timeout_s=60,
+        service="gitea",
+        output_schema=output(job_id=string(64)),
+        memory=MemorySubject("git", arg_keys=("repo",), result_paths=()),
+    )
+    async def land(core, client, args):
+        git = getattr(core, "git", None) or Git(core)
+        await git.pr_land(args)
+
+        async def operation(job_id):
+            try:
+                return await git.land(args, pressure=host_pressure.sample)
+            except CapabilityError as exc:
+                return {
+                    "status": "blocked",
+                    "repo": args["repo"],
+                    "number": args["number"],
+                    "reason": exc.code,
+                    "steps": [],
+                }
+
+        return core.jobs.submit("git_pr_land", client, operation)

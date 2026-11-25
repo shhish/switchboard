@@ -5,15 +5,15 @@
 **One set of hands in your house for every AI agent you use.**
 
 Ask Claude to wake the PS5. Ask Codex why Sonarr restarted at 3am. Ask ChatGPT to dim the bedroom lights.<br/>
-They all go through the same 162 tools, one rulebook and one audit log, running on your own Mac.
+They all go through the same 163 tools, one rulebook and one audit log, running on your own Mac.
 
 [![MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.13+-3776AB?style=flat-square&logo=python&logoColor=white)
 ![macOS](https://img.shields.io/badge/macOS-host-000000?style=flat-square&logo=apple&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-server-8A2BE2?style=flat-square)
-![162 tools](https://img.shields.io/badge/tools-162-success?style=flat-square)
+![163 tools](https://img.shields.io/badge/tools-163-success?style=flat-square)
 
-[What it does](#what-it-can-do) · [See it](#a-day-with-switchboard) · [Guard rails](#guard-rails) · [Quick start](#quick-start) · [All 162 tools](docs/CAPABILITIES.md)
+[What it does](#what-it-can-do) · [See it](#a-day-with-switchboard) · [Guard rails](#guard-rails) · [Quick start](#quick-start) · [All 163 tools](docs/CAPABILITIES.md)
 
 </div>
 
@@ -55,7 +55,7 @@ More things you can ask:
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/readme/how-it-fits-dark.svg">
-    <img src="docs/readme/how-it-fits-light.svg" alt="Claude Code, Codex, Antigravity, ChatGPT and your own scripts call Switchboard on your Mac, which applies policy and approvals, runs 162 typed tools, keeps an audit log and shared names, and reaches Plex, Apple Home, PlayStation 5, Things 3, notes and recipes, and the Mac mini and Raspberry Pi." width="100%">
+    <img src="docs/readme/how-it-fits-light.svg" alt="Claude Code, Codex, Antigravity, ChatGPT and your own scripts call Switchboard on your Mac, which applies policy and approvals, runs 163 typed tools, keeps an audit log and shared names, and reaches Plex, Apple Home, PlayStation 5, Things 3, notes and recipes, and the Mac mini and Raspberry Pi." width="100%">
   </picture>
 </p>
 
@@ -71,7 +71,7 @@ Every integration is optional. Turn on the ones you run. The [full tour](#the-fu
 | **See what happened**<br/><sub>`activity_feed` · `ops_pulse` · `ops_service_history`</sub> | An owner timeline of agent work, your answers and service incidents, plus hourly health bars and recent service history. |
 | 💾 **Watch disk health**<br/><sub>`storage_*` · 2 tools</sub> | Disk space, fill trends and SMART warnings for NVMe and USB drives, answered at once from the last sample; fill history for the Raspberry Pi. |
 | 🎬 **Watch things**<br/><sub>`media_*` · 17 tools</sub> | Request movies and shows through Seerr, "what should I watch?", continue watching, who watched what, downloads. |
-| 🔀 **Ship code**<br/><sub>`git_*` · 11 tools</sub> | Gitea PRs, CI jobs and redacted logs; shared checkout status; allowlisted PR creation, comments, green merges, reruns and annotated release tags. |
+| 🔀 **Ship code**<br/><sub>`git_*` · 12 tools</sub> | Gitea PRs, CI jobs and redacted logs; shared checkout status; allowlisted PR creation, comments, green merges, one-call landing (rebase, wait for CI, retry a load flake, merge), reruns and annotated release tags. |
 | 📋 **Share the work**<br/><sub>`board_*` · 11 tools</sub> | One Gitea Slate board for ideas, claimed work and structured questions for you; Siri ideas in Things become Ideas cards, and merged PRs close cards. |
 | **Answer on Slate**<br/><sub>`board_ask` · `board_answer`</sub> | Yes/no, choice, text, forms and plans in the Server app, with evidence, pictures on all 8 choices and up to 4 captioned pictures per question; agents can wait or read answers in their next brief. |
 | **Approve owner changes**<br/><sub>`board_ask` · `board_answer`</sub> | Approve a client permission or picture directory in the Server app. Switchboard describes the change, requests Face ID, applies it and keeps a backup. |

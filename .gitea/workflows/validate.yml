@@ -44,4 +44,7 @@ jobs:
           rm -f /tmp/switchboard-capabilities-$$.md
 
       - name: Tests
-        run: .venv/bin/pytest -q
+        # A self-hosted runner may export SIM_LEASE (a capacity queue command) so
+        # parallel suites wait for room instead of failing timing tests under load.
+        run: |
+          ${SIM_LEASE:+"$SIM_LEASE" run --class ci --owner switchboard-ci --} .venv/bin/pytest -q

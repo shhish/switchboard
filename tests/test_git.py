@@ -97,7 +97,9 @@ async def git_api(core, config):
     async def handle(request):
         assert request.headers.get("Authorization") == "token " + credential
         path = request.path.removeprefix("/api/v1")
-        payload = await request.json() if request.method == "POST" else None
+        payload = (
+            await request.json() if request.method == "POST" and request.can_read_body else None
+        )
         calls.append(
             {
                 "method": request.method,
@@ -140,7 +142,13 @@ async def git_api(core, config):
                 return web.Response(status=200)
             if suffix in ("/actions/runs/10/rerun", "/actions/runs/10/rerun-failed-jobs"):
                 assert payload == {}
+                if state.get("on_rerun"):
+                    state["on_rerun"]()
                 return web.Response(status=204)
+            if suffix == "/pulls/1/update":
+                assert payload is None and request.query.get("style") == "rebase"
+                state["updates"] = state.get("updates", 0) + 1
+                return web.Response(status=200)
             if suffix == "/tags":
                 assert set(payload) == {"tag_name", "target", "message"}
                 if payload["tag_name"] in state["tags"]:
@@ -185,6 +193,8 @@ async def git_api(core, config):
                 rows = [r for r in rows if r["head_sha"] == request.query["head_sha"]]
             if "branch" in request.query:
                 rows = [r for r in rows if r["head_branch"] == request.query["branch"]]
+            if "event" in request.query:
+                rows = [r for r in rows if r["event"] == request.query["event"]]
             if "status" in request.query:
                 rows = [
                     r for r in rows if request.query["status"] in (r["status"], r["conclusion"])
@@ -194,7 +204,7 @@ async def git_api(core, config):
                 state["pr"]["head"]["sha"] = C
             return web.json_response(result)
         if suffix == "/actions/runs/10":
-            return web.json_response(run())
+            return web.json_response(state.get("run10") or run())
         if suffix.endswith("/jobs"):
             return web.json_response({"jobs": paged(request, state["jobs"])})
         if suffix == "/actions/jobs/7/logs":
@@ -1167,3 +1177,103 @@ async def test_ci_wait_cancellation_propagates(git_api):
     }
     with pytest.raises(asyncio.CancelledError):
         await Git(core).ci_wait({"repo": "project", "number": 1})
+
+
+async def land(api, pressure=None, monkeypatch=None, **args):
+    """Run git_pr_land to completion with instant sleeps and return the job result."""
+    core = api[0]
+    clock = [0.0]
+
+    async def sleep(seconds):
+        clock[0] += seconds
+
+    core.git_sleep, core.git_clock = sleep, lambda: clock[0]
+    if pressure is not None:
+        from switchboard.domains import git as git_domain
+
+        monkeypatch.setattr(git_domain.host_pressure, "sample", pressure)
+    handle = await call(api, "pr_land", repo="project", number=1, **args)
+    assert handle["outcome"] == "accepted", handle
+    await asyncio.gather(*list(core.jobs.tasks.values()))
+    job = core.jobs.get(handle["job_id"], "codex")
+    assert job["status"] == "succeeded", job
+    return job["result"]
+
+
+async def test_land_rebases_waits_and_merges(git_api):
+    _, state, _ = git_api
+    state["runs"] = []
+    state["combined"] = {
+        "state": "success",
+        "total_count": 1,
+        "statuses": [{"context": "tests", "status": "success", "description": "green"}],
+    }
+    result = await land(git_api)
+    assert result["status"] == "merged" and result["merged_sha"] == B
+    assert state["updates"] == 1
+    assert [s["step"] for s in result["steps"]] == ["rebase", "ci", "merged"]
+
+
+async def test_land_reruns_a_failure_once_after_pressure_drops(git_api, monkeypatch):
+    _, state, _ = git_api
+    state["combined"] = {"state": "success", "total_count": 0, "statuses": None}
+    state["runs"] = [run(conclusion="failure")]
+
+    def fixed():
+        state["runs"] = [run(conclusion="success")]
+
+    state["on_rerun"] = fixed
+    levels = iter(["critical", "critical", "ok"])
+
+    async def pressure():
+        return {"level": next(levels, "ok")}
+
+    result = await land(git_api, pressure=pressure, monkeypatch=monkeypatch)
+    assert result["status"] == "merged", result
+    steps = [s["step"] for s in result["steps"]]
+    assert steps.count("wait_pressure") == 2 and "rerun" in steps
+    assert any(c["path"].endswith("/actions/runs/10/rerun-failed-jobs") for c in writes(git_api))
+
+
+async def test_land_stops_when_retries_are_spent(git_api):
+    _, state, _ = git_api
+    state["combined"] = {"state": "success", "total_count": 0, "statuses": None}
+    state["runs"] = [run(conclusion="failure")]
+    result = await land(git_api, flake_retries=0)
+    assert result["status"] == "ci_failed" and result["failed_runs"] == [10]
+    assert not any(c["path"].endswith("/merge") for c in writes(git_api))
+
+
+async def test_land_gives_up_on_an_unmergeable_pr(git_api):
+    _, state, _ = git_api
+    state["pr"]["mergeable"] = False
+    result = await land(git_api)
+    assert result["status"] == "blocked" and "3 rebases" in result["reason"]
+    assert state["updates"] == 3
+
+
+async def test_land_refuses_closed_or_draft_before_accepting(git_api):
+    _, state, _ = git_api
+    state["pr"]["draft"] = True
+    result = await call(git_api, "pr_land", repo="project", number=1)
+    assert result["error"]["code"] == "git_merge_denied"
+
+
+async def test_rerun_defaults_to_whole_run_when_nothing_failed_and_flags_stale(git_api):
+    _, state, _ = git_api
+    result = await call(git_api, "ci_rerun", repo="project", run_id=10)
+    assert result["failed_only"] is False and result["stale"] is False
+    assert writes(git_api)[-1]["path"].endswith("/actions/runs/10/rerun")
+    state["run10"] = run(conclusion="failure")
+    state["branch_sha"] = C
+    result = await call(git_api, "ci_rerun", repo="project", run_id=10)
+    assert result["failed_only"] is True and result["stale"] is True
+    assert writes(git_api)[-1]["path"].endswith("rerun-failed-jobs")
+
+
+async def test_ci_runs_filters_by_event(git_api):
+    _, state, calls = git_api
+    state["runs"] = [run(), {**run(11), "event": "schedule"}]
+    result = await call(git_api, "ci_runs", repo="project", event="schedule")
+    assert [r["id"] for r in result["runs"]] == [11]
+    assert any(c["query"].get("event") == "schedule" for c in calls)

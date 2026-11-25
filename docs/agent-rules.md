@@ -41,7 +41,9 @@ before you reach for curl with API keys, osascript, Docker or app databases.
   tests, QA): at most 8 short lines, never secrets. Show, don't just tell: whenever the
   decision is visual (icons, designs, screenshots, before/after, a chart), attach the
   pictures. Give each choice option its own `image`, and add up to 4 captioned
-  `pictures` to any ask. PNG/JPEG up to 360 KiB, saved under `~/workspace/projects/artifacts`
+  `pictures` to any ask. Option images show as portrait 3:4 tiles (center-cropped), so make
+  one compact picture per option in that shape (e.g. light over dark), never a wide
+  multi-variant sheet; ask pictures show as 4:3. PNG/JPEG up to 360 KiB, saved under `~/workspace/projects/artifacts`
   (the configured media root); describing a picture in text is not enough.
   One decision per ask, worded so it can be answered without opening the card. Never ask for
   a secret. `board_ask_wait` if you can continue once it is answered; otherwise the answer is
@@ -57,4 +59,5 @@ before you reach for curl with API keys, osascript, Docker or app databases.
   - `needs_approval` means ask the owner, then retry with the same arguments and the `approval_id`.
   - `unavailable` with `retryable: true` means retry once, later.
   - Treat `blocked` and `not_found` as final.
-- **When it falls short:** if a tool is broken or missing, file it with `switchboard_report_issue`, then do the work another way. To fix Switchboard itself, follow this repository's `AGENTS.md`. Changes go live only through `scripts/deploy.sh`.
+- **Papercuts (file them as you hit them):** whenever a tool, script, skill or doc fights you (a flag the help lists but the tool rejects, a wrong default, a silent error, exit 0 on failure, a workaround you needed twice, a loop you had to hand-write), file it right then with `switchboard_report_issue`: what you tried, what you expected, what happened, what would fix it. Then work around it. Don't save them for the end of the task. A weekly job turns open papercuts into fix PRs. To fix Switchboard itself, follow its repository's `AGENTS.md`; changes go live only through `scripts/deploy.sh`.
+- **Results go on the card:** finish every task that has a Slate card with one `board_comment` the owner can read without the transcript: the outcome (done, blocked or needs you), what changed (PRs, deploys, versions), and the one next owner action, if any. Chat is the live conversation; the card is the record. Never tell the owner to do something you haven't verified is needed (for example "answer the prompt on screen" without seeing a prompt).

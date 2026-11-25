@@ -51,6 +51,7 @@ def build_registry():
     audit.register(registry)
     activity.register(registry)
     git.register(registry)
+    git.register_land(registry)
     board.register(registry)
     memory.register(registry)
     return registry
