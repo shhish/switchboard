@@ -664,9 +664,9 @@ def test_session_brief_answers_bounded_and_missing_keys():
         None,
     ]
     rendered = FORMATTER["format_board"](data)
-    heading = "Answered by the owner (act on these; board_card for the full answer)"
+    heading = "Answered by the owner, not yet acted on (board_card for the full answer)"
     assert heading in rendered and "Select value? → Use the default · asked by codex" in rendered
-    assert "Self answer" not in rendered and len(rendered) <= 1500
+    assert "Self answer" not in rendered and len(rendered) <= 2400
     assert rendered.index("Needs you\n") < rendered.index(heading) < rendered.index("In progress\n")
     assert "use board_ask (yes/no, choice, text or form), not a prose note" in rendered
     data["answered"] = [{"from": "codex", "answered_by": "cortex"}]
@@ -683,7 +683,26 @@ def test_session_brief_answers_bounded_and_missing_keys():
         }
     ] * 30
     rendered = FORMATTER["format_board"](data)
-    assert "q" * 81 not in rendered and "a" * 121 not in rendered and len(rendered) <= 1500
+    assert "q" * 81 not in rendered and "a" * 121 not in rendered and len(rendered) <= 2400
+
+
+def test_session_brief_hides_answers_an_agent_already_acted_on():
+    data = board_brief_data()
+    card = data["columns"][0]["cards"][0]
+    card["card"] = "unique#1"
+    answer = {
+        "card": "unique#1",
+        "from": "codex",
+        "answered_by": "cortex",
+        "prompt": "Go ahead?",
+        "answer_text": "Yes",
+        "answered": "2026-11-19T10:00:00+00:00",
+    }
+    data["answered"] = [answer]
+    card.update(last_actor="claude", updated="2026-11-19T11:00:00Z")
+    assert "Go ahead?" not in FORMATTER["format_board"](data)
+    card.update(last_actor="cortex")
+    assert "Go ahead?" in FORMATTER["format_board"](data)
 
 
 async def test_large_forms_fit_advertised_result_budgets(asks):
@@ -1706,3 +1725,53 @@ def test_ask_action_edits_keep_comments_and_every_other_byte():
     assert yaml.safe_load(inline) == {"board": {"ask_media_roots": ["/tmp/pics"]}}
     empty = insert_scope("clients:\n  cortex:\n    scopes: []\n", "cortex", "activity:read")
     assert yaml.safe_load(empty)["clients"]["cortex"]["scopes"] == ["activity:read"]
+
+
+GRANTS = {
+    "type": "grant_scopes",
+    "grants": [{"client": "agy", "scope": "ops:read"}, {"client": "cortex", "scope": "jobs:read"}],
+}
+
+
+async def test_ask_action_grants_several_scopes_in_one_yes(asks):
+    core, _, _ = asks
+    file = core.policy.path
+    original = file.read_bytes()
+    ask = (await create(asks, action=GRANTS))["ask"]
+    summary = "Gives agy ops:read; cortex jobs:read"
+    assert ask["action"] == {"type": "grant_scopes", "summary": summary}
+    answered = (await owner(asks, ask["id"], {"choice": ["yes"]}))["ask"]
+    assert answered["action"]["result"] == "applied"
+    clients = Policy(file).load()["clients"]
+    assert "ops:read" in clients["agy"]["scopes"] and "jobs:read" in clients["cortex"]["scopes"]
+    assert file.with_name(f"policy.yaml.before-ask-{ask['id']}").read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "grants",
+    [
+        [{"client": "agy", "scope": "ops:read"}],
+        [{"client": "agy", "scope": "ops:read"}, {"client": "agy", "scope": "ops:read"}],
+        [{"client": "agy", "scope": "ops:read"}, {"client": "agy", "scope": "board:answer"}],
+        [{"client": "agy", "scope": "ops:read"}, {"client": "cortex", "scope": "ops:read"}],
+        [{"client": "agy", "scope": "ops:read"}, {"client": "agy"}],
+        [{"client": "agy", "scope": "ops:read"}] * 9,
+    ],
+)
+async def test_ask_action_several_grants_refuses_bad_sets(asks, grants):
+    result = await create(asks, action={"type": "grant_scopes", "grants": grants})
+    assert result["error"]["code"] == "invalid_arguments"
+
+
+def test_grant_summary_groups_clients_with_the_same_scopes():
+    from switchboard.ask_actions import grant_summary
+
+    grants = [{"client": "cortex", "scope": s} for s in ("elevate:read", "elevate:pair")] + [
+        {"client": c, "scope": s}
+        for c in ("claude", "codex", "agy")
+        for s in ("elevate:read", "elevate:request")
+    ]
+    assert grant_summary(grants) == (
+        "Gives cortex elevate:read and elevate:pair; "
+        "claude, codex and agy elevate:read and elevate:request"
+    )

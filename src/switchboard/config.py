@@ -362,6 +362,7 @@ class Config:
     board: dict = field(default_factory=dict)
     brew: dict = field(default_factory=dict)
     tunnel: dict = field(default_factory=dict)
+    elevate: dict = field(default_factory=dict)
 
     monitor: dict = field(default_factory=dict)
     alerts: dict = field(default_factory=dict)
@@ -370,9 +371,11 @@ class Config:
 
     def __post_init__(self):
         from .brew import settings as brew_settings
+        from .elevate import settings as elevate_settings
         from .memory import settings as memory_settings
         from .tunnel import settings as tunnel_settings
 
+        self.elevate = elevate_settings(self.elevate)
         self.brew = brew_settings(self.brew)
         self.tunnel = tunnel_settings(self.tunnel)
         self.memory = memory_settings(self.memory)
@@ -416,6 +419,7 @@ class Config:
             "board",
             "brew",
             "tunnel",
+            "elevate",
         }:
             raise ValueError("Invalid config fields")
         result = cls(
@@ -431,9 +435,11 @@ class Config:
             if key in data:
                 setattr(result, key, data[key])
         from .brew import settings as brew_settings
+        from .elevate import settings as elevate_settings
         from .memory import settings as memory_settings
         from .tunnel import settings as tunnel_settings
 
+        result.elevate = elevate_settings(data.get("elevate", {}))
         result.brew = brew_settings(data.get("brew", {}))
         result.tunnel = tunnel_settings(data.get("tunnel", {}))
         result.memory = memory_settings(data.get("memory", {}))

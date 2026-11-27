@@ -45,24 +45,63 @@ def media_root(core, value):
         invalid()
 
 
-def validate_action(core, action, *, applying=False):
+def grant_summary(grants):
+    """Short enough for the owner's screen: clients with the same scopes share one clause."""
+    if len(grants) == 1:
+        return f"Gives {grants[0]['client']} the {grants[0]['scope']} permission"
+    by_client = {}
+    for grant in grants:
+        by_client.setdefault(grant["client"], []).append(grant["scope"])
+    groups = {}
+    for client, scopes in by_client.items():
+        groups.setdefault(tuple(scopes), []).append(client)
+
+    def names(items):
+        return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+    clauses = [f"{names(clients)} {names(list(scopes))}" for scopes, clients in groups.items()]
+    return "Gives " + "; ".join(clauses)
+
+
+def validate_action(core, action, *, applying=False, helper_status=None):
     """Return canonical, server-authored approval text, never agent-authored text."""
     kind = action["type"]
-    if kind == "grant_scope":
-        if set(action) != {"type", "client", "scope"}:
-            invalid()
-        client, scope = action["client"], action["scope"]
+    if kind == "run_as_root":
+        from .elevate import validate_root
+
+        return validate_root(action, helper_status)
+    if kind in {"grant_scope", "grant_scopes"}:
+        if kind == "grant_scope":
+            if set(action) != {"type", "client", "scope"}:
+                invalid()
+            grants = [{"client": action["client"], "scope": action["scope"]}]
+        else:
+            if set(action) != {"type", "grants"} or not isinstance(action["grants"], list):
+                invalid()
+            grants = action["grants"]
+            if not 2 <= len(grants) <= 8 or any(
+                not isinstance(g, dict) or set(g) != {"client", "scope"} for g in grants
+            ):
+                invalid()
+            if len({(g["client"], g["scope"]) for g in grants}) != len(grants):
+                invalid()
         clients = core.policy.load().get("clients", {})
         scopes = {cap.scope for cap in core.registry.capabilities.values()}
-        if (
-            client not in clients
-            or scope not in scopes
-            or scope.startswith("approvals:")
-            or scope == "board:answer"
-            or (not applying and scope in clients[client].get("scopes", []))
-        ):
-            invalid()
-        summary = f"Gives {client} the {scope} permission"
+        for grant in grants:
+            client, scope = grant["client"], grant["scope"]
+            if (
+                client not in clients
+                or scope not in scopes
+                or scope.startswith("approvals:")
+                or scope == "board:answer"
+                or (
+                    scope == "elevate:pair"
+                    and "board:answer" not in clients[client].get("scopes", [])
+                )
+                or (not applying and scope in clients[client].get("scopes", []))
+            ):
+                invalid()
+        summary = grant_summary(grants)
         canonical = dict(action)
     elif kind == "add_ask_media_root":
         if set(action) != {"type", "path"}:
@@ -174,15 +213,24 @@ def apply_action(core, ask_id, action):
         validated = validate_action(core, raw, applying=True)
         if validated != {k: v for k, v in action.items() if k not in {"result", "message"}}:
             invalid()
-        if action["type"] == "grant_scope":
+        if action["type"] in {"grant_scope", "grant_scopes"}:
+            grants = action.get("grants") or [
+                {"client": action["client"], "scope": action["scope"]}
+            ]
             path = core.policy.path
             original = path.read_bytes()
             data = yaml.safe_load(original)
-            scopes = data["clients"][action["client"]].setdefault("scopes", [])
-            already = action["scope"] in scopes
+            text = original.decode()
+            added = 0
+            for grant in grants:
+                scopes = data["clients"][grant["client"]].setdefault("scopes", [])
+                if grant["scope"] in scopes:
+                    continue
+                scopes.insert(0, grant["scope"])  # the text edit adds it first
+                text = insert_scope(text, grant["client"], grant["scope"])
+                added += 1
+            already = added == 0
             if not already:
-                scopes.insert(0, action["scope"])  # the text edit adds it first
-                text = insert_scope(original.decode(), action["client"], action["scope"])
                 # The text edit must mean exactly the intended change, nothing else.
                 if yaml.safe_load(text) != data:
                     raise ValueError("Edit does not match")

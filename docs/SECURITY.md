@@ -35,8 +35,9 @@ history includes restart attribution but no board work. No live policy is change
 `board:read` reads cards and asks; `board:write` creates and withdraws asks.
 `board:answer` is a separate write scope intended only for the owner's own surface,
 such as the Server app's `cortex` client. Never grant `board:answer` to an agent
-client. The repository write allowlist still applies, and a client cannot answer
-its own ask. No live policy is changed by declaring this scope.
+client. The repository write allowlist still applies. A client cannot answer
+its own ask except for adding a phone key: that requires `elevate:pair` and a
+signature from a key already trusted by the root helper. No live policy is changed by declaring this scope.
 
 An answer records the owner's decision on that question only. Only an attached
 confirm action can change the narrow settings described below; other answers
@@ -81,3 +82,48 @@ Action results are saved with the answer, audited, and included in the card
 comment. Failures save a generic failure result while still recording the answer;
 no and withdrawal apply nothing. A later card-comment failure does not undo a
 saved answer or file change. Action arguments are hashed in audit logs.
+
+
+## Root commands
+
+Switchboard never executes root commands. `elevate_request` (`elevate:request`)
+creates a destructive confirm ask; `elevate_status` (`elevate:read`) lists the
+root helper's recipes and paired public-key fingerprints. Prefer a recipe;
+custom requests contain 1–5 explicit argv steps, with no implicit shell.
+All root actions, including direct `board_ask` proposals, require their elevate
+scope and the existing Git repository allowlist.
+
+The Server iPhone app shows the generated summary and asks Face ID to sign the
+exact decoded `action.sign_payload` bytes with its Secure Enclave key. The bytes
+bind version, machine, nonce, seven-day expiry, kind, argv, recipe/arguments or
+management file hash, ask ID, authenticated asker and reason. Switchboard stores
+those bytes once and relays the payload and base64 DER signature to
+`native/elevate` at `elevate.socket` (default
+`/var/run/com.switchboard.elevate.sock`). It holds no signing key and cannot forge
+an approval. A yes without a signature fails with a Server app instruction; no
+and withdrawal execute nothing. The helper independently checks signatures,
+machine, expiry and replay, and re-renders recipes from its root-owned catalog.
+
+`elevate_pair` is for the owner's surface only. A `grant_scope` action may grant
+`elevate:pair` only to a client already holding `board:answer`. Before installation
+or when keyless, pairing writes only an atomic public pending-key file under
+`~/.local/state/switchboard-elevate/` (0700 directory, 0600 file) and returns the
+one-time installer path in the deployed release. With keys present, adding a key
+requires an already-paired phone's signature. The owner's pairing client may
+answer its own add-key ask; the helper's existing-key verification remains the
+trust boundary. Other self-answers remain forbidden.
+
+`elevate_update` proposes recipe or helper updates with the SHA256 of the local
+file's bytes. Recipe updates show added, removed and changed recipe IDs. Only
+the helper installs those signed bytes and rejects a changed file. No live
+policy/configuration or helper trust roots are edited by these relay tools.
+
+Answers stay `answered` while their action may be `running`. Job nonces and
+poll deadlines are durable; startup and running-action reads query the helper,
+never replay a run. Polling every two seconds stops on a terminal result or the
+execution timeout plus 120 seconds. Lost/unknown jobs fail closed. The action
+keeps the last 4000 output characters and its exit code; one marked card receipt
+includes at most 1500 output characters in a fenced block. Comment retries check
+the marker to avoid duplicate receipts. Output and signatures never enter audit;
+root receipts audit only ask ID, kind, recipe ID, result and exit code.
+Doctor reports helper availability as information, never a degraded service.

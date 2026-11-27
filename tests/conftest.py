@@ -44,6 +44,8 @@ def block_live_services(monkeypatch):
     forbidden = {3003, 3000, 18800, 8050, 8010, 5055, 18796, 8095, 8445, 32400, 8181}
 
     def guarded(sock, address):
+        if address == "/var/run/com.switchboard.elevate.sock":
+            raise FileNotFoundError("Tests never contact the installed root helper")
         if isinstance(address, tuple):
             assert address[0] in ("127.0.0.1", "::1"), "Tests cannot use external networks"
             assert address[1] not in forbidden, "Tests cannot use a live service port"
@@ -90,7 +92,12 @@ def block_real_host_commands(monkeypatch):
 
 @pytest.fixture
 def config(tmp_path, monkeypatch):
-    cfg = Config(tmp_path / "config", tmp_path / "state", tmp_path / "logs")
+    cfg = Config(
+        tmp_path / "config",
+        tmp_path / "state",
+        tmp_path / "logs",
+        elevate={"socket": str(tmp_path / "missing-elevate.sock")},
+    )
     for name in ("plex", "tautulli", "maintenance"):
         cfg.backends[name]["enabled"] = False
     cfg.backends["maintenance"]["path"] = str(tmp_path / "maintenance.json")

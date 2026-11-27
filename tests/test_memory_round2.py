@@ -523,15 +523,10 @@ def test_claude_hook_json_and_failures(tmp_path, mode):
         timeout=6,
     )
     assert result.returncode == 0 and result.stderr == ""
-    if mode == "ok":
-        assert json.loads(result.stdout) == {
-            "hookSpecificOutput": {
-                "hookEventName": "SessionStart",
-                "additionalContext": "Shared fact",
-            }
-        }
-    else:
-        assert result.stdout == ""
+    # This stub answers only the memory call, so the board part always says it couldn't load.
+    board = "Board (Slate): couldn't load this session; run board_list before picking up work."
+    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert context == ("Shared fact\n\n" + board if mode == "ok" else board)
 
 
 @pytest.mark.parametrize(

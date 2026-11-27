@@ -1,0 +1,629 @@
+{
+  "recipes": [
+    {
+      "id": "privacy-reset",
+      "title": "Restart macOS privacy checks",
+      "detail": "Kills the system tccd and sandboxd; launchd restarts them. Fixes Interrupted system call on /Volumes and stuck Docker when privacy checks time out.",
+      "steps": [
+        [
+          "/usr/bin/killall",
+          "-9",
+          "tccd",
+          "sandboxd"
+        ]
+      ],
+      "timeout": 30
+    },
+    {
+      "id": "spotlight-indexing",
+      "title": "Turn Spotlight indexing on or off for a disk",
+      "detail": "mdutil -i on|off. Off stops mds_stores from loading the Mac while it indexes media disks.",
+      "args": [
+        {
+          "name": "state",
+          "label": "Indexing",
+          "choices": [
+            "on",
+            "off"
+          ]
+        },
+        {
+          "name": "volume",
+          "label": "Disk",
+          "pattern": "/|/Volumes/[A-Za-z0-9 ._-]{1,64}"
+        }
+      ],
+      "steps": [
+        [
+          "/usr/bin/mdutil",
+          "-i",
+          "{state}",
+          "{volume}"
+        ]
+      ],
+      "timeout": 120
+    },
+    {
+      "id": "spotlight-rebuild",
+      "title": "Rebuild the Spotlight index of a disk",
+      "args": [
+        {
+          "name": "volume",
+          "label": "Disk",
+          "pattern": "/|/Volumes/[A-Za-z0-9 ._-]{1,64}"
+        }
+      ],
+      "steps": [
+        [
+          "/usr/bin/mdutil",
+          "-E",
+          "{volume}"
+        ]
+      ],
+      "timeout": 120
+    },
+    {
+      "id": "xcode-select",
+      "title": "Choose the active Xcode",
+      "args": [
+        {
+          "name": "xcode",
+          "label": "Xcode",
+          "pattern": "/Applications/Xcode[A-Za-z0-9 ._-]{0,40}\\.app"
+        }
+      ],
+      "steps": [
+        [
+          "/usr/bin/xcode-select",
+          "-s",
+          "{xcode}"
+        ]
+      ],
+      "timeout": 30
+    },
+    {
+      "id": "xcode-first-launch",
+      "title": "Accept the Xcode license and install its components",
+      "args": [
+        {
+          "name": "xcode",
+          "label": "Xcode",
+          "pattern": "/Applications/Xcode[A-Za-z0-9 ._-]{0,40}\\.app"
+        }
+      ],
+      "steps": [
+        [
+          "/usr/bin/env",
+          "DEVELOPER_DIR={xcode}/Contents/Developer",
+          "/usr/bin/xcodebuild",
+          "-license",
+          "accept"
+        ],
+        [
+          "/usr/bin/env",
+          "DEVELOPER_DIR={xcode}/Contents/Developer",
+          "/usr/bin/xcodebuild",
+          "-runFirstLaunch"
+        ]
+      ],
+      "timeout": 1800
+    },
+    {
+      "id": "xcode-platform",
+      "title": "Download an Xcode platform runtime",
+      "args": [
+        {
+          "name": "xcode",
+          "label": "Xcode",
+          "pattern": "/Applications/Xcode[A-Za-z0-9 ._-]{0,40}\\.app"
+        },
+        {
+          "name": "platform",
+          "label": "Platform",
+          "choices": [
+            "iOS",
+            "tvOS",
+            "watchOS",
+            "visionOS"
+          ]
+        }
+      ],
+      "steps": [
+        [
+          "/usr/bin/env",
+          "DEVELOPER_DIR={xcode}/Contents/Developer",
+          "/usr/bin/xcodebuild",
+          "-downloadPlatform",
+          "{platform}"
+        ]
+      ],
+      "timeout": 7200
+    },
+    {
+      "id": "launchd-restart",
+      "title": "Restart a system service",
+      "detail": "launchctl kickstart -k for a LaunchDaemon in the system domain.",
+      "args": [
+        {
+          "name": "label",
+          "label": "Service",
+          "pattern": "[A-Za-z0-9][A-Za-z0-9._-]{2,120}"
+        }
+      ],
+      "steps": [
+        [
+          "/bin/launchctl",
+          "kickstart",
+          "-k",
+          "system/{label}"
+        ]
+      ],
+      "timeout": 60
+    },
+    {
+      "id": "launchd-load",
+      "title": "Load a LaunchDaemon",
+      "args": [
+        {
+          "name": "plist",
+          "label": "Daemon",
+          "pattern": "/Library/LaunchDaemons/[A-Za-z0-9._-]{3,120}\\.plist"
+        }
+      ],
+      "steps": [
+        [
+          "/bin/launchctl",
+          "bootstrap",
+          "system",
+          "{plist}"
+        ]
+      ],
+      "timeout": 60
+    },
+    {
+      "id": "launchd-unload",
+      "title": "Unload a LaunchDaemon",
+      "args": [
+        {
+          "name": "plist",
+          "label": "Daemon",
+          "pattern": "/Library/LaunchDaemons/[A-Za-z0-9._-]{3,120}\\.plist"
+        }
+      ],
+      "steps": [
+        [
+          "/bin/launchctl",
+          "bootout",
+          "system",
+          "{plist}"
+        ]
+      ],
+      "timeout": 60,
+      "destructive": true
+    },
+    {
+      "id": "dns-flush",
+      "title": "Flush the DNS cache",
+      "steps": [
+        [
+          "/usr/bin/dscacheutil",
+          "-flushcache"
+        ],
+        [
+          "/usr/bin/killall",
+          "-HUP",
+          "mDNSResponder"
+        ]
+      ],
+      "timeout": 30
+    },
+    {
+      "id": "memory-purge",
+      "title": "Free inactive memory",
+      "steps": [
+        [
+          "/usr/sbin/purge"
+        ]
+      ],
+      "timeout": 120
+    },
+    {
+      "id": "power-setting",
+      "title": "Change a power setting",
+      "detail": "pmset -a for sleep, display sleep, disk sleep, wake on network, restart after power loss.",
+      "args": [
+        {
+          "name": "setting",
+          "label": "Setting",
+          "choices": [
+            "sleep",
+            "displaysleep",
+            "disksleep",
+            "womp",
+            "autorestart",
+            "powernap",
+            "tcpkeepalive"
+          ]
+        },
+        {
+          "name": "value",
+          "label": "Value",
+          "pattern": "[0-9]{1,3}"
+        }
+      ],
+      "steps": [
+        [
+          "/usr/bin/pmset",
+          "-a",
+          "{setting}",
+          "{value}"
+        ]
+      ],
+      "timeout": 30
+    },
+    {
+      "id": "macos-updates-list",
+      "title": "List macOS updates",
+      "steps": [
+        [
+          "/usr/sbin/softwareupdate",
+          "--list"
+        ]
+      ],
+      "timeout": 600
+    },
+    {
+      "id": "macos-update-install",
+      "title": "Install one macOS update (no restart)",
+      "args": [
+        {
+          "name": "label",
+          "label": "Update",
+          "pattern": "[A-Za-z0-9][A-Za-z0-9 ._()+,-]{2,119}"
+        }
+      ],
+      "steps": [
+        [
+          "/usr/sbin/softwareupdate",
+          "--install",
+          "{label}",
+          "--agree-to-license"
+        ]
+      ],
+      "timeout": 7200
+    },
+    {
+      "id": "install-pkg",
+      "title": "Install a signed installer package from Downloads",
+      "detail": "Checks the package signature first and stops if it is unsigned.",
+      "args": [
+        {
+          "name": "pkg",
+          "label": "Package",
+          "pattern": "{home}/Downloads/[A-Za-z0-9 ._()+-]{1,120}\\.pkg"
+        }
+      ],
+      "steps": [
+        [
+          "/usr/sbin/pkgutil",
+          "--check-signature",
+          "{pkg}"
+        ],
+        [
+          "/usr/sbin/installer",
+          "-pkg",
+          "{pkg}",
+          "-target",
+          "/"
+        ]
+      ],
+      "timeout": 3600
+    },
+    {
+      "id": "own-files",
+      "title": "Give the owner back files that root owns",
+      "detail": "chown -R to the owner's account, inside the owner's home, Homebrew or a mounted disk.",
+      "args": [
+        {
+          "name": "path",
+          "label": "Folder",
+          "pattern": "({home}|/opt/homebrew|/Volumes/(?!Macintosh HD)[A-Za-z0-9 ._-]{1,64})(/[A-Za-z0-9 ._@+-]{1,120}){1,12}"
+        }
+      ],
+      "steps": [
+        [
+          "/usr/sbin/chown",
+          "-R",
+          "-x",
+          "-P",
+          "{owner}:staff",
+          "{path}"
+        ]
+      ],
+      "timeout": 600
+    },
+    {
+      "id": "disk-mount",
+      "title": "Mount or eject a disk",
+      "args": [
+        {
+          "name": "action",
+          "label": "Action",
+          "choices": [
+            "mount",
+            "unmount",
+            "eject"
+          ]
+        },
+        {
+          "name": "disk",
+          "label": "Disk",
+          "pattern": "disk[0-9]{1,3}(s[0-9]{1,3})?|/Volumes/[A-Za-z0-9 ._-]{1,64}"
+        }
+      ],
+      "steps": [
+        [
+          "/usr/sbin/diskutil",
+          "{action}",
+          "{disk}"
+        ]
+      ],
+      "timeout": 120
+    },
+    {
+      "id": "disk-repair",
+      "title": "Check and repair a disk's file system",
+      "args": [
+        {
+          "name": "disk",
+          "label": "Disk",
+          "pattern": "disk[0-9]{1,3}(s[0-9]{1,3})?|/Volumes/[A-Za-z0-9 ._-]{1,64}"
+        }
+      ],
+      "steps": [
+        [
+          "/usr/sbin/diskutil",
+          "repairVolume",
+          "{disk}"
+        ]
+      ],
+      "timeout": 7200
+    },
+    {
+      "id": "backup-quota",
+      "title": "Set a Time Machine backup quota",
+      "detail": "tmutil setquota for one destination, in GB.",
+      "args": [
+        {
+          "name": "destination",
+          "label": "Destination ID",
+          "pattern": "[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}"
+        },
+        {
+          "name": "gb",
+          "label": "Quota (GB)",
+          "pattern": "[1-9][0-9]{0,4}"
+        }
+      ],
+      "steps": [
+        [
+          "/usr/bin/tmutil",
+          "setquota",
+          "{destination}",
+          "{gb}"
+        ]
+      ],
+      "timeout": 60
+    },
+    {
+      "id": "backup-start",
+      "title": "Start a Time Machine backup now",
+      "steps": [
+        [
+          "/usr/bin/tmutil",
+          "startbackup",
+          "--auto"
+        ]
+      ],
+      "timeout": 60
+    },
+    {
+      "id": "remove-system-service",
+      "title": "Remove a system background service",
+      "detail": "Unloads a LaunchDaemon, then deletes its plist and its privileged helper of the same name.",
+      "args": [
+        {
+          "name": "label",
+          "label": "Service",
+          "pattern": "[A-Za-z0-9][A-Za-z0-9._-]{2,120}"
+        }
+      ],
+      "steps": [
+        [
+          "/bin/sh",
+          "-c",
+          "/bin/launchctl bootout system/{label} 2>/dev/null; exit 0"
+        ],
+        [
+          "/bin/rm",
+          "-f",
+          "/Library/LaunchDaemons/{label}.plist",
+          "/Library/PrivilegedHelperTools/{label}"
+        ]
+      ],
+      "timeout": 60,
+      "destructive": true
+    },
+    {
+      "id": "remove-app",
+      "title": "Delete an app that root owns",
+      "detail": "For old app copies the owner's account can't remove.",
+      "args": [
+        {
+          "name": "app",
+          "label": "App",
+          "pattern": "/Applications/[A-Za-z0-9 ._()+-]{1,80}\\.app"
+        }
+      ],
+      "steps": [
+        [
+          "/bin/rm",
+          "-rf",
+          "{app}"
+        ]
+      ],
+      "timeout": 300,
+      "destructive": true
+    },
+    {
+      "id": "command-line-tools-reset",
+      "title": "Remove the Command Line Tools so they can be reinstalled",
+      "detail": "Deletes /Library/Developer/CommandLineTools. Reinstalling needs xcode-select --install afterwards.",
+      "steps": [
+        [
+          "/bin/rm",
+          "-rf",
+          "/Library/Developer/CommandLineTools"
+        ]
+      ],
+      "timeout": 300,
+      "destructive": true
+    },
+    {
+      "id": "auto-macos-updates",
+      "title": "Turn automatic macOS update installs on or off",
+      "args": [
+        {
+          "name": "state",
+          "label": "Install automatically",
+          "choices": [
+            "true",
+            "false"
+          ]
+        }
+      ],
+      "steps": [
+        [
+          "/usr/bin/defaults",
+          "write",
+          "/Library/Preferences/com.apple.SoftwareUpdate",
+          "AutomaticallyInstallMacOSUpdates",
+          "-bool",
+          "{state}"
+        ]
+      ],
+      "timeout": 30
+    },
+    {
+      "id": "restart-after-freeze",
+      "title": "Restart automatically after a system freeze",
+      "args": [
+        {
+          "name": "state",
+          "label": "Setting",
+          "choices": [
+            "on",
+            "off"
+          ]
+        }
+      ],
+      "steps": [
+        [
+          "/usr/sbin/systemsetup",
+          "-setrestartfreeze",
+          "{state}"
+        ]
+      ],
+      "timeout": 30
+    },
+    {
+      "id": "host-name",
+      "title": "Set the Mac's network names",
+      "args": [
+        {
+          "name": "kind",
+          "label": "Name",
+          "choices": [
+            "HostName",
+            "LocalHostName",
+            "ComputerName"
+          ]
+        },
+        {
+          "name": "name",
+          "label": "New name",
+          "pattern": "[A-Za-z0-9][A-Za-z0-9-]{0,62}"
+        }
+      ],
+      "steps": [
+        [
+          "/usr/sbin/scutil",
+          "--set",
+          "{kind}",
+          "{name}"
+        ]
+      ],
+      "timeout": 30
+    },
+    {
+      "id": "firewall",
+      "title": "Turn the macOS firewall on or off",
+      "args": [
+        {
+          "name": "state",
+          "label": "Firewall",
+          "choices": [
+            "on",
+            "off"
+          ]
+        }
+      ],
+      "steps": [
+        [
+          "/usr/libexec/ApplicationFirewall/socketfilterfw",
+          "--setglobalstate",
+          "{state}"
+        ]
+      ],
+      "timeout": 30
+    },
+    {
+      "id": "firewall-allow-app",
+      "title": "Let an app accept connections through the firewall",
+      "args": [
+        {
+          "name": "app",
+          "label": "App",
+          "pattern": "(/Applications|/opt/homebrew/(bin|opt/[A-Za-z0-9._+-]{1,60}/bin))/[A-Za-z0-9 ._()+-]{1,80}"
+        }
+      ],
+      "steps": [
+        [
+          "/usr/libexec/ApplicationFirewall/socketfilterfw",
+          "--add",
+          "{app}"
+        ],
+        [
+          "/usr/libexec/ApplicationFirewall/socketfilterfw",
+          "--unblockapp",
+          "{app}"
+        ]
+      ],
+      "timeout": 30
+    },
+    {
+      "id": "restart-mac",
+      "title": "Restart the Mac in one minute",
+      "detail": "Every agent session and service stops. Cancel within the minute with: sudo killall shutdown",
+      "steps": [
+        [
+          "/sbin/shutdown",
+          "-r",
+          "+1"
+        ]
+      ],
+      "timeout": 30,
+      "destructive": true
+    }
+  ]
+}

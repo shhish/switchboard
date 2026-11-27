@@ -351,7 +351,17 @@ async def test_cortex_auth_discovery_and_denials(server, config):
     core, url, session = server
     policy = Policy(Path("config/policy.example.yaml"))
     assert policy.client("cortex") == {
-        "scopes": ["memory:read", "ops:read", "activity:read", "weather:read", "git:read"]
+        "scopes": [
+            "memory:read",
+            "ops:read",
+            "activity:read",
+            "weather:read",
+            "git:read",
+            "elevate:read",
+            "elevate:pair",
+            "board:read",
+            "board:answer",
+        ]
     }
     core.policy = policy
     assert (
@@ -361,6 +371,15 @@ async def test_cortex_auth_discovery_and_denials(server, config):
     catalog = await response.json()
     cortex_tools = {
         "activity_feed",
+        "approvals_answer",
+        "approvals_pending",
+        "board_answer",
+        "board_ask_media",
+        "board_ask_wait",
+        "board_card",
+        "board_list",
+        "elevate_pair",
+        "elevate_status",
         "ops_pulse",
         "ops_service_history",
         "ops_health",
@@ -391,6 +410,10 @@ async def test_cortex_auth_discovery_and_denials(server, config):
             "weather:read",
             "git:read",
             "memory:read",
+            "elevate:read",
+            "elevate:pair",
+            "board:read",
+            "board:answer",
         ):
             assert (await core.call("cortex", name, {}))["error"]["code"] == "scope_denied"
 

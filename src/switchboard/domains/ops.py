@@ -35,6 +35,7 @@ CHECKS = obj(
                 "policy",
                 "heartbeat",
                 "storage",
+                "elevate",
             )
         },
         "remote_hosts": {

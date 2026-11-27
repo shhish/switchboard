@@ -178,6 +178,7 @@ class Board:
         }
 
     async def list(self, client, args):
+        await self.core.root_actions.recover()
         project = self.repo(args["project"]) if "project" in args else None
         board, rows, truncated = await self.snapshot()
         groups = {name: [] for name in COLUMNS}
@@ -277,6 +278,7 @@ class Board:
         return issue
 
     async def card(self, client, args):
+        await self.core.root_actions.recover()
         repo, number = self.reference(args["card"])
         _, issue, column = await self.lookup(repo, number)
         count = issue.get("comments", 0)
@@ -333,6 +335,14 @@ class Board:
 
     def record(self, issue, repo, column, client, note=None, *, claim=False):
         summary = self.summary(issue, repo, column)
+        # Leaving the active columns ends a claim; Needs you keeps it so the work returns.
+        claimed = (
+            client
+            if claim
+            else None
+            if column in {"Ideas", "Up next", "Done"}
+            else summary["claimed_by"]
+        )
         db = self.core.storage.db
         with db:
             db.execute(
@@ -345,7 +355,7 @@ class Board:
                 (
                     issue["id"],
                     summary["card"],
-                    client if claim else summary["claimed_by"],
+                    claimed,
                     client,
                     text(note, 200) if note is not None else summary["last_note"],
                     datetime.now(UTC).isoformat(),
@@ -591,6 +601,16 @@ class Board:
             "form": {"values"},
             "plan": {"approve", "steps"},
         }[kind] | {"note"}
+        if kind == "confirm" and spec.get("action", {}).get("type") == "run_as_root":
+            allowed.add("signature")
+            if "signature" in answer:
+                signature = answer["signature"]
+                try:
+                    if not isinstance(signature, str) or not 1 <= len(signature) <= 200:
+                        raise ValueError
+                    base64.b64decode(signature, validate=True)
+                except ValueError:
+                    raise CapabilityError("invalid_arguments", "Invalid root signature") from None
         if answer.keys() - allowed:
             raise CapabilityError("invalid_arguments", "Answer does not match the ask kind")
         result = {}
@@ -711,10 +731,27 @@ class Board:
         spec.setdefault("evidence", [])
         spec.setdefault("pictures", [])
         if "action" in spec:
+            action = spec["action"]
+            if action.get("type") == "run_as_root" and action.get("result") == "running":
+                self.core.root_actions.schedule(row["ask_id"])
             spec["action"] = {
                 k: v
-                for k, v in spec["action"].items()
-                if k in {"type", "summary", "result", "message"}
+                for k, v in action.items()
+                if k
+                in {
+                    "type",
+                    "summary",
+                    "result",
+                    "message",
+                    "sign_payload",
+                    "kind",
+                    "recipe",
+                    "steps",
+                    "job",
+                    "exit",
+                    "output",
+                    "changes",
+                }
             }
         for option in spec["options"]:
             option.setdefault("image", False)
@@ -732,7 +769,7 @@ class Board:
                 return [clean(v) for v in value]
             return value
 
-        return clean(
+        result = clean(
             {
                 "id": row["ask_id"],
                 "card": row["card"],
@@ -747,6 +784,11 @@ class Board:
                 "answer_text": rendered,
             }
         )
+
+        if "action" in spec and "sign_payload" in spec["action"]:
+            for name in ("sign_payload", "steps", "summary"):
+                result["action"][name] = spec["action"][name]
+        return result
 
     def open_asks(self, issue_id, limit=3):
         return [
@@ -871,7 +913,25 @@ class Board:
             self.core.policy.require_git_repo(repo)
             if "action" in args:
                 try:
-                    spec["action"] = validate_action(self.core, args["action"])
+                    helper_status = None
+                    if args["action"]["type"] == "run_as_root":
+                        from .elevate import NotInstalled
+
+                        self.core.policy.require_scope(
+                            client,
+                            "elevate:pair"
+                            if args["action"].get("manage") == "add-key"
+                            else "elevate:request",
+                        )
+                        try:
+                            helper_status = await self.core.elevate.status()
+                        except NotInstalled:
+                            raise CapabilityError(
+                                "invalid_arguments", "Root helper not installed"
+                            ) from None
+                    spec["action"] = validate_action(
+                        self.core, args["action"], helper_status=helper_status
+                    )
                 except (OSError, ValueError, TypeError, RuntimeError):
                     raise CapabilityError(
                         "invalid_arguments", "Invalid or unavailable ask action"
@@ -900,6 +960,10 @@ class Board:
                     else ("In progress" if summary["claimed_by"] else "Up next")
                 )
             ask_id = "ask_" + secrets.token_hex(8)
+            if spec.get("action", {}).get("type") == "run_as_root":
+                from .elevate import sign_action
+
+                sign_action(spec["action"], ask_id, client, spec["prompt"])
             try:
                 self.copy_pictures(ask_id, pictures)
                 if column != "Needs you":
@@ -960,17 +1024,27 @@ class Board:
         start = self.clock()
         deadline = start + args.get("timeout_s", 120)
         row = self.ask_row(args["ask_id"])
-        while row["state"] == "open":
+        await self.core.root_actions.refresh(row["ask_id"])
+        row = self.ask_row(row["ask_id"])
+
+        def waiting(row):
+            return (
+                row["state"] == "open"
+                or json.loads(row["spec"]).get("action", {}).get("result") == "running"
+            )
+
+        while waiting(row):
             remaining = deadline - self.clock()
             if remaining <= 0:
                 break
             await self.sleep(min(2, remaining))
+            await self.core.root_actions.refresh(args["ask_id"])
             row = self.ask_row(args["ask_id"])
         return {
             "status": "ok",
             "ask": self.ask_object(row),
             "waited_s": max(0, self.clock() - start),
-            "timed_out": row["state"] == "open",
+            "timed_out": waiting(row),
         }
 
     async def move_ask_card(self, board, issue, column):
@@ -983,7 +1057,20 @@ class Board:
     async def finish_ask(self, client, args, *, withdraw=False):
         async with self._write_lock:
             row = self.ask_row(args["ask_id"])
-            if withdraw and row["asker"] != client or not withdraw and row["asker"] == client:
+            stored_action = json.loads(row["spec"]).get("action", {})
+            pairing = (
+                stored_action.get("type") == "run_as_root"
+                and stored_action.get("kind") == "add-key"
+            )
+            if pairing and not withdraw:
+                self.core.policy.require_scope(client, "elevate:pair")
+            if (
+                withdraw
+                and row["asker"] != client
+                or not withdraw
+                and row["asker"] == client
+                and not pairing
+            ):
                 raise CapabilityError(
                     "resource_denied",
                     "Only the asker may withdraw; clients cannot answer their own asks",
@@ -1004,14 +1091,44 @@ class Board:
             spec = json.loads(row["spec"])
             if not withdraw and "action" in spec and answer.get("choice") == ["yes"]:
                 action = spec["action"]
-                action.update(apply_action(self.core, row["ask_id"], action))
+                if action["type"] == "run_as_root":
+                    # The answer and running nonce are durable before contacting the helper.
+                    with self.core.storage.db as db:
+                        db.execute(
+                            "UPDATE board_asks SET state='answered', answer=?, answered_by=?, "
+                            "answered_at=? WHERE ask_id=?",
+                            (
+                                json.dumps(answer),
+                                client,
+                                datetime.now(UTC).isoformat(),
+                                row["ask_id"],
+                            ),
+                        )
+                    await self.core.root_actions.submit(
+                        self.ask_row(row["ask_id"]), spec, args["answer"].get("signature")
+                    )
+                else:
+                    action.update(apply_action(self.core, row["ask_id"], action))
                 self.core.audit.append(
                     client=client,
                     capability="board_answer",
                     tier="write",
                     decision="allowed",
                     outcome=action["result"],
-                    args={"ask_id": row["ask_id"], "action_type": action["type"]},
+                    args={
+                        "ask_id": row["ask_id"],
+                        "action_type": action["type"],
+                        **(
+                            {
+                                "kind": action["kind"],
+                                "recipe": action.get("recipe"),
+                                "result": action["result"],
+                                "exit": action.get("exit"),
+                            }
+                            if action["type"] == "run_as_root"
+                            else {}
+                        ),
+                    },
                     ctx=CALL_CONTEXT.get() or Execution.new("owner"),
                 )
             with self.core.storage.db as db:
@@ -1033,6 +1150,8 @@ class Board:
                             row["ask_id"],
                         ),
                     )
+            if spec.get("action", {}).get("result") == "running":
+                self.core.root_actions.schedule(row["ask_id"])
             prompt = json.loads(row["spec"])["prompt"]
             body = (
                 f"**{client}** withdrew the ask: {prompt}"
@@ -1068,7 +1187,10 @@ class Board:
         return await self.finish_ask(client, args, withdraw=True)
 
     async def answer(self, client, args):
-        return await self.finish_ask(client, args)
+        result = await self.finish_ask(client, args)
+        await self.core.root_actions.refresh(args["ask_id"])
+        result["ask"] = self.ask_object(self.ask_row(args["ask_id"]))
+        return result
 
     def things_enabled(self):
         settings = self.core.config.backends

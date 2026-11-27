@@ -6,6 +6,9 @@
 # Weather uses a separate credential-free HTTPS client; no proxy or cross-host redirects.
 port: 18800
 approval_ttl_s: 1800
+# Phone-signed root requests are relayed here; Switchboard never executes them.
+elevate:
+  socket: /var/run/com.switchboard.elevate.sock
 # Local Git discovery is off until absolute root directories are provided.
 # Repositories one level deep and their registered worktrees must stay under roots.
 git:

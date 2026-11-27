@@ -68,6 +68,17 @@ async def diagnose(config, backends, policy, orb=None, monitor=None, *, core=Non
         if os.access(hostcmd.SMARTCTL, os.X_OK)
         else "smartctl missing or not executable",
     }
+    from .elevate import Elevate, ElevateError, NotInstalled
+
+    try:
+        helper = await Elevate(config.elevate["socket"]).status()
+        helper_reason = f"running v{helper['version']} with {len(helper['keys'])} keys"
+    except NotInstalled:
+        helper_reason = "not installed"
+    except ElevateError:
+        helper_reason = "unavailable"
+    checks["elevate"] = {"status": "info", "reason": helper_reason}
+
     from .alerts import AlertDelivery
 
     last_cycle = None
@@ -182,7 +193,9 @@ async def diagnose(config, backends, policy, orb=None, monitor=None, *, core=Non
         orb_status,
     ]
     # A backend switched off on purpose is not a fault.
-    status = "ok" if all(c["status"] in ("ok", "disabled") for c in all_checks) else "degraded"
+    status = (
+        "ok" if all(c["status"] in ("ok", "disabled", "info") for c in all_checks) else "degraded"
+    )
     checks["remote_hosts"] = remote_checks
     return {
         "status": status,

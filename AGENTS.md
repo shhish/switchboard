@@ -41,8 +41,11 @@ Also fix ops problems (crash loops, noisy logs, stale config) when you find them
 
 - Python >=3.13; use `.venv` (Homebrew Python is `/opt/homebrew/bin/python3`).
   Runtime dependencies are aiohttp and PyYAML; dev tools pytest, pytest-asyncio, ruff.
+  In linked worktrees sharing `.venv`, set `PYTHONPATH="$PWD/src"` for tests and manifests
+  so the editable install cannot silently import the main checkout.
 - Bind **127.0.0.1 only**, port 18800 by default. Never bind 0.0.0.0.
 - Never add generic shell/exec or raw HTTP passthrough tools.
+- Root commands go only through `native/elevate`, which runs only what a paired phone signed.
 - **No finance/trading capabilities ever**, including read-only finance status:
   All finance integrations are out of scope. `ops_health`
   uses a positive list of non-finance services and discards aggregator finance data.
@@ -118,7 +121,9 @@ Run:
   (`Contents/Resources/source-tree`), keeping the previous app as `.old`. A new helper
   method that answers "invalid request" means the installed helper is stale.
 - Merging publishes nothing to the open-source mirror: a pushed `v*` tag does. Release
-  merged user-visible work in the same task (privacy check, README features, annotated tag).
+  merged user-visible work in the same task (privacy check, README features and counts,
+  a `docs/ROADMAP.md` entry, annotated tag). `tests/test_readme_counts.py` fails when the
+  README's tool counts drift from the registry; fix the README, never the test.
   The tag message becomes the public commit, so write it for readers:
   `git tag -a v0.13.0 -m "v0.13.0: Apple Notes" -m "<what a user gets>"`.
 - Commit subjects and PR titles use Conventional Commits, because they are listed in the

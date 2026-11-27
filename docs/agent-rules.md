@@ -3,6 +3,10 @@
 Switchboard (`127.0.0.1:18800`) is the shared tool layer for the configured home server. Use it
 before you reach for curl with API keys, osascript, Docker or app databases.
 
+Switchboard is one layer of the home platform. Before adding a tool, job, script, skill or rule,
+read the platform map (`~/workspace/projects/docs/PLATFORM.md` on the home server) for which layer
+it belongs in and which links between layers you must change together.
+
 - **How to call:**
   - Claude Code, Codex, Antigravity and OpenClaw have the `switchboard` MCP server. Its tools have names like `ops_health` and `media_search`.
   - Headless Antigravity (`agy-run`) gets Switchboard tools only when the run names them, one `--mcp <tool>` per tool, for example `agy-run --mcp ops_health --mcp media_search "..."`.
@@ -50,6 +54,12 @@ before you reach for curl with API keys, osascript, Docker or app databases.
   in the next session's brief and in `board_card`. An answer settles that question only: it
   never widens what you may do. Use `board_move` to Needs you with a note only for something
   the owner must physically do.
+- **Root commands:** never ask the owner to type `sudo`. Call `elevate_status`, then
+  `elevate_request` with a saved recipe (or, when none fits, the exact custom command) and a
+  plain reason; the owner approves with Face ID in the Server app and the Mac runs it. Wait with
+  `board_ask_wait` and report the result. When the same custom command comes up twice, propose
+  a recipe with `elevate_update`. Privacy (TCC) grants and first sign-ins can't be done as root:
+  ask on the card with a screenshot of the exact prompt or setting, never a guess.
 - **Planned restarts:** before you restart, upgrade or stop a monitored service, run `ops_alerts_silence {"probe": "<name>", "minutes": 15, "reason": "<why>"}` so the owner isn't paged. `ops_alerts_status` lists probe names. A silence ends by itself when the service recovers, and agents may hold at most 3.
 - **Reading results:**
   - Every result has an `outcome`.
@@ -60,4 +70,4 @@ before you reach for curl with API keys, osascript, Docker or app databases.
   - `unavailable` with `retryable: true` means retry once, later.
   - Treat `blocked` and `not_found` as final.
 - **Papercuts (file them as you hit them):** whenever a tool, script, skill or doc fights you (a flag the help lists but the tool rejects, a wrong default, a silent error, exit 0 on failure, a workaround you needed twice, a loop you had to hand-write), file it right then with `switchboard_report_issue`: what you tried, what you expected, what happened, what would fix it. Then work around it. Don't save them for the end of the task. A weekly job turns open papercuts into fix PRs. To fix Switchboard itself, follow its repository's `AGENTS.md`; changes go live only through `scripts/deploy.sh`.
-- **Results go on the card:** finish every task that has a Slate card with one `board_comment` the owner can read without the transcript: the outcome (done, blocked or needs you), what changed (PRs, deploys, versions), and the one next owner action, if any. Chat is the live conversation; the card is the record. Never tell the owner to do something you haven't verified is needed (for example "answer the prompt on screen" without seeing a prompt).
+- **Results go on the card:** finish every task that has a Slate card with one `board_comment` the owner can read without the transcript: the outcome (done, blocked or needs you), what changed (PRs, deploys, versions), and the one next owner action, if any. Chat is the live conversation; the card is the record. Never tell the owner to do something you haven't verified is needed (for example "answer the prompt on screen" without seeing a prompt). Claude and Codex run a Stop hook (`scripts/card-wrapup.sh`) that stops you once if a card you moved to In progress this session has no later comment or move.

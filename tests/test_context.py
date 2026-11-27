@@ -440,9 +440,18 @@ async def test_policy_example_cortex_ops_weather_and_git_reads(core, config):
     )
     assert [t["name"] for t in core.tools("cortex")] == [
         "activity_feed",
+        "approvals_answer",
+        "approvals_pending",
+        "board_answer",
+        "board_ask_media",
+        "board_ask_wait",
+        "board_card",
+        "board_list",
         "dns_query_log",
         "dns_rules",
         "dns_stats",
+        "elevate_pair",
+        "elevate_status",
         "git_ci_log",
         "git_ci_runs",
         "git_ci_wait",

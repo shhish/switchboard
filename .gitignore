@@ -14,3 +14,4 @@ config/policy.yaml
 native/build/
 native/SwitchboardEventKit/.build/
 .DS_Store
+native/elevate/build/

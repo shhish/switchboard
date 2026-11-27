@@ -48,6 +48,10 @@ class Core:
         self.jobs = Jobs(self.storage)
         self.backends = Backends(config)
         self.board = Board(self)
+        from .elevate import Elevate, RootActions
+
+        self.elevate = Elevate(config.elevate["socket"])
+        self.root_actions = RootActions(self)
         self.probes = HealthProbes(config)
         self.alerts = AlertDelivery(config, self.storage)
         self.watches = Watches(self)
@@ -79,6 +83,7 @@ class Core:
 
     async def start(self):
         await self.backends.start()
+        await self.root_actions.recover()
         await self.probes.start()
         await self.orb.start()
         await self.alerts.start()
@@ -118,6 +123,7 @@ class Core:
         if task := getattr(self, "maintenance", None):
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+        await self.root_actions.close()
         await self.routines.close()
         await self.monitor.close()
         await self.alerts.close()

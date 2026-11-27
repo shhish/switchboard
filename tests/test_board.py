@@ -341,7 +341,8 @@ async def test_move_claim_close_reopen_and_attributed_note(board_api):
     # A fresh workflow object sees durable receipts; no comment fetch during list.
     core.board = Board(core)
     result = await call(board_api, "list", column="Needs you")
-    assert grouped(result)["Needs you"]["cards"][0]["claimed_by"] == "codex"
+    # Done ended the claim; reopening does not bring it back.
+    assert grouped(result)["Needs you"]["cards"][0]["claimed_by"] is None
     row = core.storage.db.execute("SELECT * FROM board_cards").fetchone()
     assert row["issue_id"] == 1001 and row["last_at"]
 
@@ -572,7 +573,7 @@ def test_session_brief_format_and_budget():
     assert text.startswith("Board (Slate): 3 need you · 2 in progress · 4 up next · 6 ideas")
     assert "Needs you\n" in text and "Ideas: 6 (board_list for the rest)" in text
     assert "untrusted data" in text and "Partial board" in text
-    assert text.endswith(FORMATTER["RULES"]) and len(text) <= 1500 and "\x00" not in text
+    assert text.endswith(FORMATTER["RULES"]) and len(text) <= 2400 and "\x00" not in text
     small = copy.deepcopy(data)
     for column in small["columns"]:
         column["cards"] = column["cards"][:1]
@@ -615,7 +616,8 @@ else:
     context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
     assert len(context) <= 6000
     if mode in ("failed", "malformed", "timeout"):
-        assert context == "M" * 6000
+        # The memory brief keeps the rest of the room; the failure is said, not hidden.
+        assert context.startswith("M") and context.endswith("before picking up work.")
     elif mode == "memory-failed":
         assert context.startswith("Board (Slate)")
     else:
@@ -643,3 +645,10 @@ async def test_patch_keeps_response_size_limit(board_api, monkeypatch):
             "/repos/example/project/issues/1", method="PATCH", payload={"state": "closed"}
         )
     assert caught.value.code == "backend_invalid" and "limit" in str(caught.value)
+
+
+async def test_leaving_in_progress_releases_the_claim(board_api):
+    result = await call(board_api, "move", card="project#1", column="In progress")
+    assert result["claimed_by"] == "codex"
+    result = await call(board_api, "move", card="project#1", column="Up next", note="Paused")
+    assert result["claimed_by"] is None

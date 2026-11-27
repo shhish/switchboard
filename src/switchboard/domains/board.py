@@ -14,21 +14,65 @@ NULL_TEXT = {"type": ["string", "null"], "maxLength": 200}
 ASK_ID = {**string(20), "pattern": r"^ask_[0-9a-f]{16}$"}
 LOCAL_ID = {**string(32), "pattern": r"^[a-z0-9][a-z0-9_-]{0,31}$"}
 KIND = {"type": "string", "enum": ["confirm", "choice", "text", "form", "plan"]}
-ACTION_TYPE = {"type": "string", "enum": ["grant_scope", "add_ask_media_root"]}
+ACTION_TYPE = {
+    "type": "string",
+    "enum": ["grant_scope", "grant_scopes", "add_ask_media_root", "run_as_root"],
+}
+ROOT_STEPS = {
+    **array({**array({"type": "string", "maxLength": 4096}), "minItems": 1, "maxItems": 64}),
+    "minItems": 1,
+    "maxItems": 5,
+}
+ROOT_ARGS = {"type": "object"}
+ROOT_KEY = obj(
+    {"name": {**string(40), "pattern": r"^[A-Za-z0-9 ._-]+$"}, "x963": string(88)}, ("name", "x963")
+)
+ROOT_TIMEOUT = {"type": "integer", "minimum": 5, "maximum": 7200}
 ACTION = obj(
-    {"type": ACTION_TYPE, "client": string(64), "scope": string(100), "path": string(1024)},
+    {
+        "type": ACTION_TYPE,
+        "client": string(64),
+        "scope": string(100),
+        "grants": {
+            **array(obj({"client": string(64), "scope": string(100)}, ("client", "scope"))),
+            "minItems": 2,
+            "maxItems": 8,
+        },
+        "path": string(1024),
+        "recipe": string(41),
+        "args": ROOT_ARGS,
+        "steps": ROOT_STEPS,
+        "timeout": ROOT_TIMEOUT,
+        "manage": {"type": "string", "enum": ["add-key", "update-recipes", "update-helper"]},
+        "key": ROOT_KEY,
+    },
     ("type",),
 )
 ACTION["description"] = (
-    "Confirm asks only. Owner yes applies one scope grant or picture root; "
+    "Confirm asks only. Owner yes applies a scope/picture-root change "
+    "or phone-signed root request; "
     "Switchboard generates the summary and forces destructive confirmation."
 )
 ACTION_RESULT = obj(
     {
         "type": ACTION_TYPE,
-        "summary": string(1400),
-        "result": {"type": "string", "enum": ["applied", "already", "failed"]},
-        "message": string(100),
+        "summary": string(400000),
+        "sign_payload": string(524288),
+        "kind": {
+            "type": "string",
+            "enum": ["recipe", "custom", "add-key", "update-recipes", "update-helper"],
+        },
+        "recipe": string(41),
+        "steps": {**ROOT_STEPS, "minItems": 0},
+        "job": {**string(32), "pattern": "^[0-9a-f]{32}$"},
+        "exit": {"type": "integer"},
+        "output": {"type": "string", "maxLength": 4000},
+        "changes": obj(
+            {k: array(string(100)) for k in ("added", "removed", "changed")},
+            ("added", "removed", "changed"),
+        ),
+        "result": {"type": "string", "enum": ["applied", "already", "failed", "running"]},
+        "message": string(2000),
     },
     ("type", "summary"),
 )
@@ -68,6 +112,12 @@ FIELD = obj(
 )
 ANSWER = obj(
     {
+        "signature": {
+            **string(200),
+            "description": (
+                "Base64 DER signature over action.sign_payload bytes, from the paired phone."
+            ),
+        },
         "choice": {**array(LOCAL_ID), "maxItems": 8},
         "other": string(500),
         "text": string(4000),
@@ -416,10 +466,11 @@ def register(registry):
     declare(
         "board_ask_wait",
         "Wait for a Slate answer",
-        "Slate ask waiting. Use when work can continue after an answer. Requires board:read "
-        "and ask_id; timeout_s 0-280, default 120. Returns sanitized untrusted ask, waited_s "
-        "and timed_out; polls local state every two seconds without Gitea calls. Unknown IDs "
-        "are not_found; withdrawal also ends waiting.",
+        "Slate ask waiting. Use when work can continue after an answer or root job. Requires "
+        "board:read and ask_id; timeout_s 0-280, default 120. Returns sanitized untrusted ask, "
+        "waited_s and timed_out; polls every two seconds, refreshing running root jobs from the "
+        "helper. Answered root asks keep waiting while running. Unknown IDs are not_found; "
+        "withdrawal ends waiting.",
         {"ask_id": ASK_ID, "timeout_s": {"type": "integer", "minimum": 0, "maximum": 280}},
         {"ask": ASK, "waited_s": {"type": "number", "minimum": 0}, "timed_out": B},
         required=("ask_id",),
@@ -440,11 +491,11 @@ def register(registry):
     declare(
         "board_answer",
         "Answer a Slate ask",
-        "Slate structured answers. Use when the owner's own surface answers an agent. "
-        "Requires board:answer, allowlisted repo and another client's open ask. Returns sanitized "
-        "untrusted summary, answered ask and action result; yes applies attached scope/media-root "
-        "action. Comments and restores prior column after last open ask if still open in "
-        "Needs you. Non-idempotent.",
+        "Slate structured answers. Use when the owner's surface answers an ask. Requires "
+        "board:answer, allowlisted repo and another client's open ask (own add-key asks need "
+        "elevate:pair). Returns untrusted summary, answered ask and action result. Yes applies "
+        "scope/media-root actions; root actions require a paired phone signature. Comments and "
+        "restores its column after the last open ask. Non-idempotent.",
         {"ask_id": ASK_ID, "answer": ANSWER},
         {**SUMMARY, "ask": ASK},
         required=("ask_id", "answer"),

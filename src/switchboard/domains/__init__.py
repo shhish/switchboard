@@ -12,6 +12,7 @@ from . import (
     console,
     context,
     dns,
+    elevate,
     feedback,
     git,
     home,
@@ -53,5 +54,6 @@ def build_registry():
     git.register(registry)
     git.register_land(registry)
     board.register(registry)
+    elevate.register(registry)
     memory.register(registry)
     return registry

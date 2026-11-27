@@ -5,6 +5,18 @@ approval/job machinery and three adapters. Phase 3 media/Home writes are impleme
 and fake-backend tested. No real client registration, launchd installation,
 secret provisioning, tunnel switch or backend mutation is part of this build.
 
+## Phone-approved root commands
+
+- [x] Signed native helper relay: recipe/custom asks, exact signing bytes, file-hash
+  updates, public-key pairing, durable running receipts and restart recovery.
+  Four `elevate_*` tools, scoped owner answering, informational doctor check and
+  fake Unix-socket/Gitea coverage. No deployment or live policy/config changes.
+  The Server app must sign decoded `sign_payload` bytes with its paired Secure
+  Enclave key and send the DER signature in `board_answer.answer.signature`.
+- [x] Live since 2026-11-26: one-step setup (the app pairs, macOS's own password box
+  installs the helper pinned to that key), 29 recipes, `grant_scopes` asks; the first
+  approved command (privacy-reset) cleared a stalled tccd from the phone.
+
 ## Slate board
 
 - [x] Shared Gitea user-project board: bounded grouped reads, card discussions,
@@ -12,6 +24,12 @@ secret provisioning, tunnel switch or backend mutation is part of this build.
   Board scopes and Git repo allowlists gate writes; local SQLite keeps actor notes.
   Five-minute discovery cache, workflow skill and bounded Claude session context;
   fake-Gitea coverage, with no live writes or private policy changes.
+- [x] Keeping the board moving (2026-11-26): claims clear when a card leaves In
+  progress, the session brief shows every column with idle ages (Codex too), and
+  `scripts/card-wrapup.sh` is a Claude/Codex Stop hook that stops an agent once when
+  a card it claimed has no later comment or move. homelab-ops `slate.steward` resumes
+  answered asks, releases 48 h claims, closes merged cards and starts two Up next
+  cards a night.
 
 - [x] Structured Slate asks: confirm, choice, text and typed forms; local waits,
   withdrawal, bounded open/recent-answer reads and session briefs. Owner-surface
@@ -257,8 +275,8 @@ profiles alongside; light evals (F) follow E.
   tied to physical-store APFS references, shared container fill, hourly SQLite
   history (35 days), seven-day least-squares forecast and monitor incidents/silences.
   Remote fill reuses snapshot; doctor, owner-only SMART enable script and fake fixtures.
-- [ ] Owner reviews private config, enables storage/monitor channels and deploys the
-  reviewed release. APFS backup roles remain unknown with physical-only diskutil
+- [x] Owner reviewed private config, enabled storage/monitor channels and deployed
+  (live since 2026-11). APFS backup roles remain unknown with physical-only diskutil
   discovery; legacy Time Machine directories are detected. No live drive mutation.
 ## Git workflows
 
@@ -266,9 +284,14 @@ profiles alongside; light evals (F) follow E.
   logs; allowlisted PR creation/comments/merge, CI reruns and annotated release
   tags. CI gates and SHA pinning prevent unchecked merges/tags. Local status uses
   fixed read-only Git commands and realpath-constrained roots/worktrees.
-- [ ] Owner provisions the disabled Gitea backend, local roots and write-repository
-  allowlist, runs the idempotent agent-grant script, reviews and deploys. No live
-  configuration, checkout mutation, Gitea write or deployment performed here.
+- [x] Gitea backend, local roots and write-repository allowlist provisioned by the
+  owner and deployed (in daily use since 2026-11).
+- [x] `git_pr_land` (2026-11-24): one job rebases, waits for CI, re-runs failed jobs
+  only once host pressure is no longer critical, and merges through the same gates.
+  `git_ci_rerun` re-runs the whole run when nothing failed and flags stale replays;
+  `git_ci_runs` filters by event and commit.
+- [ ] `git_ci_cancel` for runs stuck in progress (papercut iss_eb2f37d0e49c); orphaned
+  runs from 2026-08 had to be cancelled by hand.
 
 ## Phase 19: shared agent memory
 
@@ -291,5 +314,28 @@ profiles alongside; light evals (F) follow E.
   registrations are guarded; notes schemas are central. Shell briefs and the optional
   Claude SessionStart hook complement MCP briefs/resources. Usage stats and doctor
   include delivered notes, write landing statuses, findings and maintenance times.
-- [ ] Owner enables memory and grants scopes with the reviewed owner-run script;
-  no live policy changes or real memory import were performed during implementation.
+- [x] Owner enabled memory and granted scopes (live; session briefs carry it).
+
+## Mac, network and agent upkeep (2026-11-22 to 11-25)
+
+- [x] Apple Notes read-only search and read through the signed native helper
+  (`notes_apple_*`, scope `apple_notes:read`); one `whose` query per search.
+- [x] The native helper records its source tree and `deploy.sh` rebuilds and swaps it
+  when that changes, so a new helper method can't silently answer "invalid request".
+- [x] Host-pressure monitor probe: kernel memory pressure and load per core; `busy`
+  shows in status, `critical` pages after ten minutes.
+- [x] Privacy-prompts monitor probe: macOS permission (TCC) checks timing out in the
+  unified log, read in the background every five minutes; pages after fifteen minutes
+  with what is blocked and the fix (a wedged `tccd` needs a restart, not an answer).
+- [x] Homebrew tools: outdated inventory (majors, held and pinned marked, tap-qualified
+  names), refresh, safe single-package upgrade, approval-tier held/major upgrade.
+- [x] Cloudflare tunnel tools: per-route origin and public probes (path-limited routes
+  probed at their path), approval-tier route add/remove with validation, backup and rollback.
+- [x] AdGuard Home: query log (all/blocked, search), custom rules and filter lists,
+  allow/block/remove a domain, filter refresh, through Pi agent v5.
+- [x] Agent rules: file papercuts the moment a tool fights you; finish each task with
+  one result comment on its card; read the owner's platform map before adding things.
+- [x] README tool counts are tested against the registry, so they can't drift.
+- [ ] One weekly upkeep report (owner workspace, homelab-ops) for things that can't
+  update themselves (held Homebrew packages, OpenClaw, Docker images, *arr apps, macOS,
+  Pi reboots, drift audit), approved per item from the Server app.
