@@ -32,8 +32,15 @@ Up next without being asked. The owner's priorities determine what is next.
    secrets. Use `pictures: [{image, caption?}]` on any ask kind for visual context,
    or choice option `image` paths for comparing options. Configured media roots
    are required. Write a prompt answerable without opening
-   the card, with one decision per ask. Never ask for secrets, passwords, tokens or keys:
-   answers are stored locally and posted as comments. The card moves to Needs you.
+   the card, with one decision per ask. Never ask for secrets, passwords, tokens or keys
+   with text or form asks: those answers are stored locally and posted as comments.
+   For a key, use `kind: "secret"` with `destination: <name>` from the owner's hand-over
+   allowlist (`~/.config/switchboard/handover.yaml`). Switchboard saves the value straight
+   to that Keychain item or 0600 file and records only "provided"; read it from there
+   yourself, never ask for it back. If no destination fits, propose one with a confirm ask
+   whose action is `{type: "add_secret_destination", handover: {name, label, store:
+   "keychain"|"file", service?: "homelab.<name>", charset?, min_length?, max_length?}}`
+   (Keychain values are at most 128 characters). The card moves to Needs you.
    Use `board_ask_wait {ask_id, timeout_s?}` when the session can continue once
    answered (default 120 seconds, maximum 280). Otherwise, the answer appears in the
    next session's brief and in `board_card`. Use `board_ask_withdraw {ask_id}` when

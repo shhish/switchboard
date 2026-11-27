@@ -5,6 +5,14 @@ approval/job machinery and three adapters. Phase 3 media/Home writes are impleme
 and fake-backend tested. No real client registration, launchd installation,
 secret provisioning, tunnel switch or backend mutation is part of this build.
 
+## Weekly papercuts (2026-11-26)
+
+- [x] Plex sessions add `episode_title` (the bare episode name) beside the unchanged
+  "Show - Episode" `title`, rating keys, episode numbers, bandwidth and LAN/WAN state.
+- [x] PR landing forwards explicit `allow_no_checks` to the existing merge gate;
+  absent checks still require a base branch without PR workflows. Fake-Gitea
+  tests cover opt-in, default denial and workflow/check refusal.
+
 ## Phone-approved root commands
 
 - [x] Signed native helper relay: recipe/custom asks, exact signing bytes, file-hash
@@ -16,6 +24,18 @@ secret provisioning, tunnel switch or backend mutation is part of this build.
 - [x] Live since 2026-11-26: one-step setup (the app pairs, macOS's own password box
   installs the helper pinned to that key), 29 recipes, `grant_scopes` asks; the first
   approved command (privacy-reset) cleared a stalled tccd from the phone.
+
+## Secret hand-over
+
+- [x] `kind: "secret"` asks: the owner's answer is written straight to an allowlisted
+  login Keychain item (`homelab.*`) or 0600 file under `secrets/handover/`, verified,
+  and recorded only as provided. Never in Gitea, SQLite, audit (secret-named keys are
+  redacted before hashing), outputs (no `secret` in output schemas) or argv. The
+  allowlist (`handover.yaml`) is re-read on every use; `add_secret_destination` confirm
+  actions add to it. Design and threat model: [SECRET_HANDOVER.md](SECRET_HANDOVER.md).
+- [ ] Server app secure field for secret asks (Cortex passes `secret` through).
+- [ ] Optional end-to-end encryption to a per-ask key, so Cortex and the tunnel edge
+  only see ciphertext.
 
 ## Slate board
 
@@ -238,7 +258,8 @@ secret provisioning, tunnel switch or backend mutation is part of this build.
   Fixed routes only; never its shell, files, payloads, cheats, fan, reboot or raw call.
   Launch takes CUSA/PPSA IDs only (best effort: homebrew can reuse one).
 - [ ] The engine only runs while the PS5Upload desktop app is open; a login item (owner's
-  call) keeps details available.
+  call) keeps details available. Doctor reports a closed app as `not_running` (optional),
+  not as a Switchboard fault (switchboard#35).
 - [ ] Later: expose the PS5 to Apple Home (homebridge-playstation) if the owner wants Siri.
 
 ## Next directions (design: agent-capability-layer/NEXT-DIRECTIONS.md)
@@ -336,6 +357,9 @@ profiles alongside; light evals (F) follow E.
 - [x] Agent rules: file papercuts the moment a tool fights you; finish each task with
   one result comment on its card; read the owner's platform map before adding things.
 - [x] README tool counts are tested against the registry, so they can't drift.
+- [x] Reliability (2026-11-26): titles with an apostrophe (India's Got Latent) reach
+  Seerr search percent-encoded, so `media_search` and `media_show_detail` stop failing
+  on them; doctor reports the closed PS5Upload app as optional `not_running`.
 - [ ] One weekly upkeep report (owner workspace, homelab-ops) for things that can't
   update themselves (held Homebrew packages, OpenClaw, Docker images, *arr apps, macOS,
   Pi reboots, drift audit), approved per item from the Server app.

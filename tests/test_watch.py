@@ -292,6 +292,7 @@ async def test_now_playing_identity_network_progress_and_privacy(watch):
         "rating_key": "42",
         "kind": "movie",
         "show": None,
+        "episode_title": None,
         "season": None,
         "episode": None,
         "bandwidth_kbps": 12000,
@@ -318,7 +319,7 @@ async def test_now_playing_identity_network_progress_and_privacy(watch):
     )
     session = (await core.call("dot", "media_now_playing", {}))["sessions"][0]
     assert session["transcode"] is False and session["progress_percent"] == 25
-    assert session["title"] == "A Show - Pilot"
+    assert session["title"] == "A Show - Pilot" and session["episode_title"] == "Pilot"
     assert (session["show"], session["season"], session["episode"]) == ("A Show", 18, 6)
     assert type(session["season"]) is int and type(session["episode"]) is int
     assert (
@@ -330,6 +331,20 @@ async def test_now_playing_identity_network_progress_and_privacy(watch):
     assert session["location"] == "wan" and session["local"] is False
     state["sessions"] = {"MediaContainer": {"size": 0}}
     assert (await core.call("dot", "media_now_playing", {}))["sessions"] == []
+
+
+@pytest.mark.parametrize("show", [None, "A Show - Part Two"])
+async def test_now_playing_keeps_episode_title_independent_of_show(watch, show):
+    core, state, _, _ = watch
+    state["sessions"] = container(
+        [{"title": "Pilot - Part One", "type": "episode", "grandparentTitle": show}]
+    )
+    session = (await core.call("dot", "media_now_playing", {}))["sessions"][0]
+    # title keeps the "Show - Episode" contract consumers parse; episode_title is exact.
+    assert session["title"] == (f"{show} - Pilot - Part One" if show else "Pilot - Part One")
+    assert session["episode_title"] == "Pilot - Part One"
+    assert session["show"] == show
+    assert session["kind"] == "episode"
 
 
 @pytest.mark.parametrize("kind,expected", [("track", "track"), ("clip", "other")])

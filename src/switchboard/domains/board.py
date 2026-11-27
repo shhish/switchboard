@@ -13,11 +13,33 @@ CARD_REF = string(240)
 NULL_TEXT = {"type": ["string", "null"], "maxLength": 200}
 ASK_ID = {**string(20), "pattern": r"^ask_[0-9a-f]{16}$"}
 LOCAL_ID = {**string(32), "pattern": r"^[a-z0-9][a-z0-9_-]{0,31}$"}
-KIND = {"type": "string", "enum": ["confirm", "choice", "text", "form", "plan"]}
+KIND = {"type": "string", "enum": ["confirm", "choice", "text", "form", "plan", "secret"]}
 ACTION_TYPE = {
     "type": "string",
-    "enum": ["grant_scope", "grant_scopes", "add_ask_media_root", "run_as_root"],
+    "enum": [
+        "grant_scope",
+        "grant_scopes",
+        "add_ask_media_root",
+        "add_secret_destination",
+        "run_as_root",
+    ],
 }
+SECRET_STORE = {"type": "string", "enum": ["keychain", "file"]}
+SECRET_CHARSET = {"type": "string", "enum": ["hex", "alnum", "base64url", "printable"]}
+SECRET_LENGTH = {"type": "integer", "minimum": 1, "maximum": 4096}
+# A destination an agent proposes; the owner's Yes adds it to the hand-over allowlist.
+HANDOVER = obj(
+    {
+        "name": LOCAL_ID,
+        "label": string(80),
+        "store": SECRET_STORE,
+        "service": {**string(72), "pattern": r"^homelab\.[a-z0-9][a-z0-9._-]{0,62}$"},
+        "charset": SECRET_CHARSET,
+        "min_length": SECRET_LENGTH,
+        "max_length": SECRET_LENGTH,
+    },
+    ("name", "label"),
+)
 ROOT_STEPS = {
     **array({**array({"type": "string", "maxLength": 4096}), "minItems": 1, "maxItems": 64}),
     "minItems": 1,
@@ -45,11 +67,12 @@ ACTION = obj(
         "timeout": ROOT_TIMEOUT,
         "manage": {"type": "string", "enum": ["add-key", "update-recipes", "update-helper"]},
         "key": ROOT_KEY,
+        "handover": HANDOVER,
     },
     ("type",),
 )
 ACTION["description"] = (
-    "Confirm asks only. Owner yes applies a scope/picture-root change "
+    "Confirm asks only. Owner yes applies a scope/picture-root/secret-destination change "
     "or phone-signed root request; "
     "Switchboard generates the summary and forces destructive confirmation."
 )
@@ -126,7 +149,30 @@ ANSWER = obj(
         "steps": {**array(LOCAL_ID), "maxItems": 10},
         # Field IDs and value types are validated against the stored form in the handler.
         "values": {"type": "object"},
+        # Secret asks only: the value goes to the allowlisted store and is never kept.
+        "secret": {**string(4096), "description": "Secret asks only; never stored or echoed."},
+        "decline": {"type": "boolean", "enum": [True]},
     }
+)
+# What an answer looks like once recorded: a secret ask keeps only whether one was provided.
+ANSWER_OUT = obj(
+    {
+        **{k: v for k, v in ANSWER["properties"].items() if k not in {"secret", "decline"}},
+        "provided": B,
+    }
+)
+HANDOVER_OUT = obj(
+    {
+        "name": LOCAL_ID,
+        "label": string(80),
+        "store": SECRET_STORE,
+        "where": string(300),
+        "charset": SECRET_CHARSET,
+        "min_length": SECRET_LENGTH,
+        "max_length": SECRET_LENGTH,
+        "replaces": B,
+    },
+    ("name", "label", "store", "where", "charset", "min_length", "max_length", "replaces"),
 )
 ASK_PROPERTIES = {
     "id": ASK_ID,
@@ -195,7 +241,8 @@ ASK_PROPERTIES = {
     "created": string(80),
     "answered": {"type": ["string", "null"], "maxLength": 80},
     "answered_by": NULL_TEXT,
-    "answer": {**ANSWER, "type": ["object", "null"]},
+    "answer": {**ANSWER_OUT, "type": ["object", "null"]},
+    "handover": {**HANDOVER_OUT, "type": ["object", "null"]},
     "answer_text": {"type": ["string", "null"], "maxLength": 600},
 }
 ASK = obj({**ASK_PROPERTIES, "action": ACTION_RESULT}, ASK_PROPERTIES)
@@ -414,13 +461,17 @@ def register(registry):
         "Ask the owner on Slate",
         "Slate structured questions. Use when the owner must decide or supply values. "
         "Requires board:write, allowlisted open card; five open asks max. Returns untrusted "
-        "confirm/choice/text/form/plan ask; 8 evidence lines, 8 option/4 ask pictures "
+        "confirm/choice/text/form/plan/secret ask; 8 evidence lines, 8 option/4 ask pictures "
         "(PNG/JPEG, 360 KiB, configured roots). Confirm action forces destructive. "
-        "Moves to Needs you. No secrets. Non-idempotent.",
+        "Moves to Needs you. Keys only via kind=secret. Non-idempotent.",
         {
             "card": CARD_REF,
             "kind": KIND,
             "action": ACTION,
+            "destination": {
+                **LOCAL_ID,
+                "description": "Secret asks only: an owner-allowlisted hand-over destination.",
+            },
             "prompt": string(300),
             "pictures": {**array(PICTURE), "maxItems": 4},
             "detail": string(2000),
@@ -493,9 +544,9 @@ def register(registry):
         "Answer a Slate ask",
         "Slate structured answers. Use when the owner's surface answers an ask. Requires "
         "board:answer, allowlisted repo and another client's open ask (own add-key asks need "
-        "elevate:pair). Returns untrusted summary, answered ask and action result. Yes applies "
-        "scope/media-root actions; root actions require a paired phone signature. Comments and "
-        "restores its column after the last open ask. Non-idempotent.",
+        "elevate:pair). Returns untrusted summary, ask and action result. Yes applies "
+        "scope/media-root/secret actions; root needs a phone signature. Secret answers go "
+        "to their store, recorded as provided. Restores column. Non-idempotent.",
         {"ask_id": ASK_ID, "answer": ANSWER},
         {**SUMMARY, "ask": ASK},
         required=("ask_id", "answer"),

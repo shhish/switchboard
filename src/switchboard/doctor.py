@@ -192,10 +192,9 @@ async def diagnose(config, backends, policy, orb=None, monitor=None, *, core=Non
         *backends_status.values(),
         orb_status,
     ]
-    # A backend switched off on purpose is not a fault.
-    status = (
-        "ok" if all(c["status"] in ("ok", "disabled", "info") for c in all_checks) else "degraded"
-    )
+    # A backend switched off on purpose, or an optional app that is closed, is not a fault.
+    healthy = ("ok", "disabled", "info", "not_running")
+    status = "ok" if all(c["status"] in healthy for c in all_checks) else "degraded"
     checks["remote_hosts"] = remote_checks
     return {
         "status": status,

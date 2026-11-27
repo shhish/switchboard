@@ -88,6 +88,9 @@ async def shows(config, fake_backends, monkeypatch):
             assert request.headers["Accept"] == "application/json"
             assert "X-Api-Key" not in request.headers
         calls.append(request.path)
+        # Like real Seerr: raw reserved characters in the query are a 400.
+        if any(c in request.rel_url.raw_query_string for c in "+'!()*"):
+            return web.Response(status=400, text="PRIVATE")
         value = state.get(request.path, 404)
         if isinstance(value, int):
             return web.Response(status=value, text="PRIVATE")
@@ -397,4 +400,30 @@ async def test_show_detail_exact_match_beyond_public_search_cap(shows, fake_back
         {"title": f"Dune Prophecy {n}", "tmdb_id": n + 1} for n in range(11)
     ] + [{"title": "Dune Prophecy", "tmdb_id": 901}]
     result = await core.call("dot", "media_show_detail", {"title": "Dune Prophecy"})
+    assert result["show"]["tmdb_id"] == 901
+
+
+async def test_show_detail_title_with_apostrophe_resolves_through_seerr(shows, fake_backends):
+    # Library rows from Sonarr carry only a TVDB ID; the TMDB ID comes from Seerr search,
+    # which used to 400 on "'" because yarl decoded %27 (switchboard#31).
+    core, source, _ = shows
+    title = "India's Got Latent"
+    source["/api/v1/tv/901"]["name"] = title
+    fake_backends[0]["/shows/list"]["shows"] = [
+        {"id": 336, "title": title, "year": 2024, "tvdb_id": 454066, "episode_file_count": 9}
+    ]
+    fake_backends[0]["/api/v1/search"]["results"].append(
+        {
+            "id": 901,
+            "mediaType": "tv",
+            "name": title,
+            "firstAirDate": "2024-06-14",
+            "mediaInfo": {"status": 5},
+        }
+    )
+    found = await core.call("dot", "media_search", {"query": title})
+    assert found["warnings"] == []
+    assert found["library"][0]["tmdb_id"] == 901
+    result = await core.call("dot", "media_show_detail", {"title": title})
+    assert result["outcome"] == "ok"
     assert result["show"]["tmdb_id"] == 901

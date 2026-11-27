@@ -153,6 +153,33 @@ async def test_doctor_backend_down(core):
     assert result["backends"]["media"]["status"] == "down"
 
 
+async def test_doctor_closed_ps5upload_app_is_optional_not_a_fault(core):
+    # The PS5Upload desktop app answers only while it is open (switchboard#35).
+    core.config.backends["ps5upload"]["enabled"] = False
+    baseline = await core.call("dot", "ops_switchboard_status", {})
+    app = web.Application()
+    async with running_app(app) as dead_url:
+        pass
+    core.config.backends["ps5upload"].update(url=dead_url, enabled=True)
+    result = await core.call("dot", "ops_switchboard_status", {})
+    check = result["backends"]["ps5upload"]
+    assert check["status"] == "not_running"
+    assert "optional" in check["reason"] and "PS5Upload" in check["reason"]
+    assert result["status"] == baseline["status"]
+
+    # Open but answering nonsense is still a fault.
+    async def version(request):
+        return web.json_response([1])
+
+    app = web.Application()
+    app.router.add_get("/api/version", version)
+    async with running_app(app) as url:
+        core.config.backends["ps5upload"]["url"] = url
+        result = await core.call("dot", "ops_switchboard_status", {})
+    assert result["backends"]["ps5upload"]["status"] == "down"
+    assert result["status"] == "degraded"
+
+
 async def test_backend_http_error_redacts(core, fake_backends):
     fake_backends[0]["/library/summary"] = 502
     result = await core.call("dot", "media_library_status", {})
@@ -198,6 +225,13 @@ async def test_orb_notifier_posts_typed_card_only(config):
 
 async def test_search_multi_word_query_is_percent_encoded(core):
     result = await core.call("owner", "media_search", {"query": "Masters of the Air: Part 2"})
+    assert result["status"] == "ok"
+    assert not any("overseerr" in w for w in result.get("warnings", []))
+
+
+async def test_search_apostrophe_stays_percent_encoded(core):
+    # yarl decodes %27 unless told the URL is encoded; Seerr 400s on "'" (switchboard#31).
+    result = await core.call("owner", "media_search", {"query": "India's Got Latent"})
     assert result["status"] == "ok"
     assert not any("overseerr" in w for w in result.get("warnings", []))
 

@@ -45,12 +45,13 @@ PR workflow:
 4. Use `git_pr_comment {repo, number, body}` for an explicitly authorized review
    comment. Do not send comments merely because you read a PR.
 5. To land a PR without babysitting it, prefer
-   `git_pr_land {repo, number, flake_retries?, timeout_s?, method?, delete_branch?}`:
+   `git_pr_land {repo, number, flake_retries?, timeout_s?, method?, delete_branch?, allow_no_checks?}`:
    one background job that rebases onto the base, waits for CI, re-runs failed jobs
    up to `flake_retries` (default 1) only once host pressure is not critical, then
    merges with the same gates as `git_pr_merge`. Poll `jobs_get`; the result status is
    merged, ci_failed (read the failed runs' logs), blocked (conflict or refused) or
-   timeout. Land PRs that touch the same files one at a time.
+   timeout. `allow_no_checks` uses the same narrow exception described below for
+   `git_pr_merge`; it defaults false. Land PRs that touch the same files one at a time.
 6. Follow the repository's review requirements. When green and authorized, call
    `git_pr_merge {repo, number, method?, delete_branch?, allow_no_checks?}`.
    Methods are merge (default), squash or rebase; branch deletion defaults true.

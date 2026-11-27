@@ -76,8 +76,9 @@ async def compression(config, tmp_path, monkeypatch):
     script.write_text(FAKE_SCRIPT)
     (state / "options.json").write_text("{}")
     config.backends["media_compress"].update(
-        enabled=True, python=sys.executable, script=str(script), state_dir=str(state), timeout_s=2
+        enabled=True, python=sys.executable, script=str(script), state_dir=str(state), timeout_s=30
     )
+    # A real interpreter starts here; under CI load (load average ~500) 2 s was not enough.
 
     def policy(data):
         for client in ("dot", "owner", "codex"):
@@ -280,7 +281,8 @@ async def test_command_failures_redacted_and_reaped(compression, mode, code):
     core, state, _ = compression
     options(state, mode=mode)
     if mode == "timeout":
-        core.config.backends["media_compress"]["timeout_s"] = 0.15
+        # Long enough for the script to start and record its PID, far below its 30 s sleep.
+        core.config.backends["media_compress"]["timeout_s"] = 5
     result = await admit(core)
     assert result["error"]["code"] == code
     assert "PRIVATE" not in json.dumps(result) + core.audit.path.read_text()

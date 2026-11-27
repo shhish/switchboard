@@ -376,11 +376,11 @@ def register_land(registry):
     @registry.declare(
         "git_pr_land",
         "Land a Gitea pull request",
-        "Land one Gitea pull request end to end as a background job. Use when a PR should "
-        "be merged once CI passes. Requires git:write and an allowlisted repo. Returns a job: "
-        "rebases onto base, waits for CI, re-runs failed jobs up to flake_retries (default 1) "
-        "once host pressure is not critical, then merges; status merged, ci_failed, blocked "
-        "or timeout with steps.",
+        "Gitea PR landing: rebase, wait for CI, merge. Use when landing an authorized PR. "
+        "Requires git:write and an allowlisted repo. Returns a job with steps and merged, "
+        "ci_failed, blocked or timeout status. Retries failures up to flake_retries (default 1) "
+        "once host pressure is not critical. Explicit allow_no_checks only permits absent "
+        "checks/runs when the base has no PR workflows.",
         obj(
             {
                 "repo": REPO,
@@ -389,6 +389,7 @@ def register_land(registry):
                 "timeout_s": {"type": "integer", "minimum": 60, "maximum": 3600},
                 "method": {"type": "string", "enum": ["merge", "squash", "rebase"]},
                 "delete_branch": B,
+                "allow_no_checks": B,
             },
             ("repo", "number"),
         ),

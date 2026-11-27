@@ -54,6 +54,7 @@ SESSION = obj(
         "grandparent_rating_key": KEY,
         "kind": {"type": "string", "enum": ["movie", "episode", "track", "other"]},
         "show": TEXT,
+        "episode_title": TEXT,
         "season": {"type": ["integer", "null"]},
         "episode": {"type": ["integer", "null"]},
         "bandwidth_kbps": {"type": ["integer", "null"], "minimum": 0},
@@ -441,7 +442,8 @@ def register(registry):
         "Now playing",
         "Plex now playing: current sessions and progress. Use when checking current Plex "
         "playback. Requires configured Plex read access. Returns bounded titles, users, "
-        "products, episode identity, progress and bandwidth.",
+        "products, show and separate episode titles, rating keys, progress, "
+        "bandwidth and local/remote state.",
         scope="media:read",
         service="plex",
         output_schema=output(sessions=array(SESSION), truncated={"type": "boolean"}),
@@ -470,6 +472,7 @@ def register(registry):
                 if isinstance(d, str)
             )
             public = {
+                # Cortex and Orb split "Show - Episode"; episode_title is the bare name.
                 "title": f"{show} - {title}"[:300] if show else title,
                 "user": text(user.get("title")),
                 "product": text(player.get("product")),
@@ -477,6 +480,7 @@ def register(registry):
                 "transcode": "transcode" in decisions if known else None,
                 "kind": kind,
                 "show": show,
+                "episode_title": text(title) if kind == "episode" else None,
                 "season": integer(row.get("parentIndex")) if kind == "episode" else None,
                 "episode": integer(row.get("index")) if kind == "episode" else None,
                 "bandwidth_kbps": integer(session.get("bandwidth")),

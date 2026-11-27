@@ -722,6 +722,7 @@ class Git:
                         "number": number,
                         "method": args.get("method", "merge"),
                         "delete_branch": args.get("delete_branch", True),
+                        "allow_no_checks": args.get("allow_no_checks", False),
                     }
                 )
             except CapabilityError as exc:

@@ -116,6 +116,30 @@ def validate_action(core, action, *, applying=False, helper_status=None):
         validate_board({"ask_media_roots": roots + ([] if path in roots else [path])})
         canonical = {"type": kind, "path": path}
         summary = f"Lets questions use pictures from {path}"
+    elif kind == "add_secret_destination":
+        from . import handover
+
+        if set(action) != {"type", "handover"} or not isinstance(action["handover"], dict):
+            invalid()
+        proposal = dict(action["handover"])
+        try:
+            dest = handover.destination(proposal.pop("name", None), proposal)
+            existing = handover.read_allowlist(core.config.config_dir)
+        except (ValueError, yaml.YAMLError):
+            invalid()
+        taken = existing.get(dest["name"])
+        if (
+            (taken is not None and (taken != dest or not applying))
+            or (not applying and len(existing) >= handover.MAX_DESTINATIONS)
+            or any(
+                d.get("service") == dest.get("service") and n != dest["name"]
+                for n, d in existing.items()
+                if "service" in dest
+            )
+        ):
+            invalid()
+        canonical = {"type": kind, "handover": dest}
+        summary = f"Lets agents ask you for {dest['label']}, saved to {handover.where(core, dest)}"
     else:
         invalid()
     return {**canonical, "summary": summary}
@@ -235,6 +259,10 @@ def apply_action(core, ask_id, action):
                 if yaml.safe_load(text) != data:
                     raise ValueError("Edit does not match")
                 replace_yaml(path, ask_id, original, text, lambda p: Policy(p).load())
+        elif action["type"] == "add_secret_destination":
+            from . import handover
+
+            already = not handover.add_destination(core, ask_id, action["handover"])
         else:
             path = core.config.config_dir / "config.yaml"
             original = path.read_bytes()

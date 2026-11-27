@@ -13,6 +13,7 @@ import time
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+from . import handover
 from .ask_actions import apply_action, validate_action
 from .auth import private_dir
 from .domains.board import ASK_MEDIA_MAX_BYTES, COLUMNS
@@ -482,6 +483,7 @@ class Board:
             "yes_label",
             "no_label",
             "destructive",
+            "destination",
         }
         allowed = {
             "confirm": {"yes_label", "no_label", "recommended", "destructive", "action"},
@@ -489,6 +491,7 @@ class Board:
             "text": set(),
             "form": {"fields"},
             "plan": {"steps", "destructive"},
+            "secret": {"destination"},
         }[kind]
         if (option_args | {"fields", "steps"}) & args.keys() - allowed:
             raise CapabilityError("invalid_arguments", "Arguments do not match the ask kind")
@@ -509,6 +512,7 @@ class Board:
             "destructive": args.get("destructive", False),
             "fields": [],
             "steps": [],
+            "handover": None,
             "evidence": [
                 {
                     "label": self.nonblank(r["label"], 100),
@@ -562,6 +566,10 @@ class Board:
                     options(args["steps"], detail=True, label_limit=120), args["steps"], strict=True
                 )
             ]
+        elif kind == "secret":
+            if "destination" not in args:
+                raise CapabilityError("invalid_arguments", "Secret asks require a destination")
+            spec["handover"] = self.handover_spec(args["destination"])
         elif kind == "form":
             if "fields" not in args:
                 raise CapabilityError("invalid_arguments", "Form asks require fields")
@@ -593,7 +601,54 @@ class Board:
             option["image"] = False
         return spec
 
+    def handover_spec(self, name, *, dest=None, replaces=None):
+        """What the owner sees: Switchboard's label and store, never agent text."""
+        dest = dest or handover.lookup(self.core.config.config_dir, name)
+        return {
+            "name": dest["name"],
+            "label": dest["label"],
+            "store": dest["store"],
+            "where": handover.where(self.core, dest),
+            "charset": dest["charset"],
+            "min_length": dest["min_length"],
+            "max_length": dest["max_length"],
+            "replaces": handover.exists(self.core, dest) if replaces is None else replaces,
+        }
+
+    async def take_secret(self, row, spec, answer, client):
+        """Save a secret answer and its receipt before anything else records the answer.
+
+        Runs under the board write lock, inside answer()'s uncancellable run, and saves
+        the receipt as soon as the value is stored.
+        """
+        if set(answer) == {"decline"} and answer["decline"] is True:
+            return {"provided": False}
+        if set(answer) != {"secret"}:
+            raise CapabilityError("invalid_arguments", "Answer does not match the ask kind")
+        asked = spec["handover"]
+        # One snapshot is both checked against the ask and written to.
+        dest = handover.lookup(self.core.config.config_dir, asked["name"])
+        if self.handover_spec(asked["name"], dest=dest, replaces=asked["replaces"]) != asked:
+            raise CapabilityError("invalid_arguments", "The secret destination changed; ask again")
+        value = handover.check_value(dest, answer["secret"])
+        await asyncio.to_thread(handover.store, self.core, dest, value)
+        stored = {"provided": True}
+        with self.core.storage.db as db:
+            db.execute(
+                "UPDATE board_asks SET state='answered', answer=?, answered_by=?, "
+                "answered_at=? WHERE ask_id=? AND state='open'",
+                (json.dumps(stored), client, datetime.now(UTC).isoformat(), row["ask_id"]),
+            )
+        return stored
+
     def validate_answer(self, kind, spec, answer):
+        if kind == "secret":
+            # Only the recorded form exists here; take_secret consumes the value first.
+            if set(answer) != {"provided"} or type(answer["provided"]) is not bool:
+                raise CapabilityError("invalid_arguments", "Answer does not match the ask kind")
+            where = (spec.get("handover") or {}).get("where", "its store")
+            rendered = f"Provided (saved to {where})" if answer["provided"] else "Declined"
+            return {"provided": answer["provided"]}, text(rendered, 600)
         allowed = {
             "confirm": {"choice"},
             "choice": {"choice", "other"},
@@ -730,6 +785,7 @@ class Board:
         spec.setdefault("steps", [])
         spec.setdefault("evidence", [])
         spec.setdefault("pictures", [])
+        spec.setdefault("handover", None)
         if "action" in spec:
             action = spec["action"]
             if action.get("type") == "run_as_root" and action.get("result") == "running":
@@ -973,6 +1029,17 @@ class Board:
                     lines.extend(["", spec["detail"]])
                 if "action" in spec:
                     lines.extend(["", "Switchboard action: " + spec["action"]["summary"]])
+                if spec["handover"]:
+                    secret = spec["handover"]
+                    lines.extend(
+                        [
+                            "",
+                            f"Secret: {secret['label']}. Switchboard saves it to "
+                            f"{secret['where']}"
+                            + (", replacing the saved value" if secret["replaces"] else "")
+                            + ". It never appears on the board.",
+                        ]
+                    )
                 if args["kind"] == "plan":
                     lines.append("")
                     lines.extend(
@@ -1080,15 +1147,21 @@ class Board:
                     "invalid_arguments",
                     "Ask already answered" if row["state"] == "answered" else "Ask withdrawn",
                 )
+            secret = not withdraw and row["kind"] == "secret"
             answer, rendered = (
                 (None, None)
-                if withdraw
+                if withdraw or secret
                 else self.validate_answer(row["kind"], json.loads(row["spec"]), args["answer"])
             )
             repo, number = self.reference(row["card"])
             self.core.policy.require_git_repo(repo)
             board, issue, column = await self.lookup(repo, number)
             spec = json.loads(row["spec"])
+            if secret:
+                # The value is written to its store here and goes no further.
+                answer, rendered = self.validate_answer(
+                    "secret", spec, await self.take_secret(row, spec, args["answer"], client)
+                )
             if not withdraw and "action" in spec and answer.get("choice") == ["yes"]:
                 action = spec["action"]
                 if action["type"] == "run_as_root":
@@ -1187,7 +1260,25 @@ class Board:
         return await self.finish_ask(client, args, withdraw=True)
 
     async def answer(self, client, args):
-        result = await self.finish_ask(client, args)
+        row = self.ask_row(args["ask_id"])
+        if row["kind"] == "secret":
+            # A dropped or timed-out request must not free the write lock mid-write or skip
+            # the comment and column restore once the value is saved: finish, then cancel.
+            work = asyncio.ensure_future(self.finish_ask(client, args))
+            cancelled = False
+            while not work.done():
+                try:
+                    # wait() neither cancels the work nor raises its error.
+                    await asyncio.wait({work})
+                except asyncio.CancelledError:
+                    cancelled = True
+            if cancelled:
+                if not work.cancelled():
+                    work.exception()  # retrieved, so it isn't reported as unhandled
+                raise asyncio.CancelledError
+            result = work.result()
+        else:
+            result = await self.finish_ask(client, args)
         await self.core.root_actions.refresh(args["ask_id"])
         result["ask"] = self.ask_object(self.ask_row(args["ask_id"]))
         return result

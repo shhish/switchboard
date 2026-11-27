@@ -56,7 +56,9 @@ web knowledge may supply background, never proof of local availability.
 ## Playback and corrections
 
 `media_now_playing` reads Plex sessions and returns users, compatible combined
-titles, progress, transcoding and player product names. It also returns optional
+titles ("Show - Episode", which Cortex and Orb parse), progress, transcoding and
+player product names. Episodes also carry `show` and the bare `episode_title`.
+It also returns optional
 Plex `rating_key`, `parent_rating_key`, `grandparent_rating_key`, `kind`, show,
 integer season/episode, `bandwidth_kbps`, LAN/WAN `location` and boolean `local`.
 Missing values are unknown. It does not expose IPs, named devices, session IDs

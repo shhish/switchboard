@@ -215,6 +215,11 @@ tunnel: {}
 
 board:
   ask_media_roots: []  # e.g. [/absolute/path/to/previews]
+  # Secrets agents may ask for live in <config>/handover.yaml (0600), not here:
+  # destinations:
+  #   tmdb: {label: TMDB API key, store: keychain, service: homelab.tmdb}
+  #   fanart: {label: fanart.tv key, store: file, charset: hex, min_length: 32}
+  # See docs/SECRET_HANDOVER.md.
 
 backends:
   gitea:

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import aiohttp
+from yarl import URL
 
 from .apple_notes import AppleNotes
 from .auth import read_private
@@ -18,6 +19,13 @@ from .nws import NWS
 from .things import Things
 
 MAX_BODY = 8 * 1024 * 1024
+
+
+# Desktop apps that answer only while open. Closed is expected, not a fault; a wrong
+# answer while open still reports down.
+ON_DEMAND = {
+    "ps5upload": "optional: PS5Upload app not open; console details and games need it",
+}
 
 
 class Backends:
@@ -98,6 +106,10 @@ class Backends:
         if self.session is None:
             raise RuntimeError("Backend session not started")
         url = settings["url"] + path
+        if "%" in path:
+            # The caller percent-encoded this path. Send it as-is: yarl would decode %27
+            # back to "'", and Seerr rejects reserved characters with HTTP 400.
+            url = URL(url, encoded=True)
         try:
             async with self.session.request(
                 method,
@@ -227,6 +239,8 @@ class Backends:
                 return {"status": "degraded", "reason": "MCP ping rejected"}
             return {"status": "ok", "reason": "reachable"}
         except CapabilityError as exc:
+            if name in ON_DEMAND and exc.code == "backend_down":
+                return {"status": "not_running", "reason": ON_DEMAND[name]}
             return {"status": "down", "reason": str(exc)}
 
     async def status(self):

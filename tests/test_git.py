@@ -1214,6 +1214,48 @@ async def test_land_rebases_waits_and_merges(git_api):
     assert [s["step"] for s in result["steps"]] == ["rebase", "ci", "merged"]
 
 
+@pytest.mark.parametrize("allow", [None, False, True])
+async def test_land_no_checks_requires_explicit_option(git_api, allow):
+    _, state, calls = git_api
+    state["runs"] = []
+    state["combined"] = {"state": "pending", "total_count": 0, "statuses": []}
+    result = await land(git_api, **({} if allow is None else {"allow_no_checks": allow}))
+    merges = [c for c in writes(git_api) if c["path"].endswith("/merge")]
+    if allow:
+        assert result["status"] == "merged"
+        assert len(merges) == 1
+        assert merges[0]["payload"]["head_commit_id"] == A
+        assert any("/contents/" in c["path"] for c in calls)
+    else:
+        assert result["status"] == "blocked" and result["reason"] == "git_ci_denied"
+        assert not merges
+        assert not any("/contents/" in c["path"] for c in calls)
+
+
+@pytest.mark.parametrize("directory", [".gitea/workflows", ".github/workflows"])
+async def test_land_no_checks_still_refuses_base_pr_workflows(git_api, directory):
+    _, state, _ = git_api
+    state["runs"] = []
+    state["combined"] = {"state": "pending", "total_count": 0, "statuses": []}
+    state["workflows"] = {directory + "/ci.yml": "on: pull_request\n"}
+    result = await land(git_api, allow_no_checks=True)
+    assert result["status"] == "blocked" and result["reason"] == "git_ci_denied"
+    assert not any(c["path"].endswith("/merge") for c in writes(git_api))
+
+
+@pytest.mark.parametrize("state", ["pending", "failure", "unknown"])
+async def test_land_no_checks_never_bypasses_existing_checks(git_api, state):
+    git_api[1]["runs"] = []
+    git_api[1]["combined"] = {
+        "state": state,
+        "total_count": 1,
+        "statuses": [{"context": "tests", "status": state}],
+    }
+    result = await land(git_api, allow_no_checks=True, timeout_s=60, flake_retries=0)
+    assert result["status"] in {"timeout", "ci_failed"}
+    assert not any(c["path"].endswith("/merge") for c in writes(git_api))
+
+
 async def test_land_reruns_a_failure_once_after_pressure_drops(git_api, monkeypatch):
     _, state, _ = git_api
     state["combined"] = {"state": "success", "total_count": 0, "statuses": None}

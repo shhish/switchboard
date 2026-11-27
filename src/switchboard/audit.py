@@ -76,7 +76,7 @@ DENIALS = {"denied", "approval_required"}
 
 
 def redact(value):
-    """Key-name redaction, kept for callers outside the audit log."""
+    """Key-name redaction; also applied before the audit log hashes a structured field."""
     if isinstance(value, dict):
         return {k: "[REDACTED]" if SENSITIVE.search(k) else redact(v) for k, v in value.items()}
     if isinstance(value, list):
@@ -95,7 +95,8 @@ def canonical(value):
 def safe_args(value, hash_fields=frozenset(), _key=None):
     """Arguments as they may be stored: short scalars verbatim, long text hashed."""
     if _key in hash_fields and isinstance(value, (dict, list)):
-        text = canonical(value)
+        # Secret-named keys are dropped before hashing, so a hash never fingerprints them.
+        text = canonical(redact(value))
         return {"len": len(text), "sha256": digest(text)[:16]}
     if isinstance(value, dict):
         return {

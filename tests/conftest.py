@@ -288,8 +288,9 @@ async def fake_backends(config):
             assert request.headers.get("Authorization") == "Bearer fake-home-read"
         if request.path == "/api/v1/search":
             assert request.headers.get("X-Api-Key") == "fake-overseerr-key"
-            # Like real Overseerr: a "+" for a space is a 400.
-            if "+" in request.rel_url.raw_query_string:
+            # Like real Seerr: a "+" for a space, or a raw reserved character
+            # such as "'", is a 400 (switchboard#31).
+            if any(c in request.rel_url.raw_query_string for c in "+'!()*"):
                 return web.json_response({"message": "bad query"}, status=400)
         if request.path == "/api/v1/accessories/Office/Lamp":
             return web.json_response(state["/api/v1/accessories/a1"])
