@@ -1,5 +1,6 @@
 """Public bundled skills over both MCP eras; no installed skills or private files."""
 
+import hashlib
 import json
 
 import pytest
@@ -77,6 +78,7 @@ async def test_guidance_capabilities_both_eras(server, config, modern):
     _, reply = await post(server, config, body)
     assert reply["result"]["capabilities"]["prompts"] == {}
     assert reply["result"]["capabilities"]["resources"] == {}
+    assert reply["result"]["capabilities"]["extensions"] == {"io.modelcontextprotocol/skills": {}}
 
 
 @pytest.mark.parametrize(
@@ -96,6 +98,15 @@ async def test_guidance_capabilities_both_eras(server, config, modern):
         ("resources/read", {"uri": "switchboard://skills/../config"}, -32002),
         ("resources/read", {"uri": "file:///private/config.yaml"}, -32002),
         ("resources/read", {"uri": None}, -32602),
+        ("skills/list", {"cursor": "next"}, -32602),
+        ("skills/list", {"extra": True}, -32602),
+        ("skills/get", {}, -32602),
+        ("skills/get", {"uri": "skill://unknown/SKILL.md"}, -32602),
+        ("skills/get", {"uri": "switchboard://skills/switchboard"}, -32602),
+        ("skills/get", {"uri": "skill://../config/SKILL.md"}, -32602),
+        ("skills/get", {"uri": None}, -32602),
+        ("skills/get", {"uri": 123}, -32602),
+        ("skills/get", {"uri": "skill://switchboard/SKILL.md", "extra": 1}, -32602),
     ],
 )
 async def test_bad_guidance_requests_are_audited(core, method, params, code):
@@ -173,3 +184,134 @@ def test_deployed_release_finds_skills_beside_its_venv(tmp_path, monkeypatch):
     monkeypatch.setattr(guidance, "__file__", str(site / "guidance.py"))
     monkeypatch.setattr(sys, "prefix", str(release / ".venv"))
     assert guidance.release_skills_root() == (release / "skills").resolve()
+
+
+@pytest.mark.parametrize("modern", [True, False])
+async def test_skills_extension_in_protocol(core, modern):
+    discover_msg = (
+        message("server/discover")
+        if modern
+        else message(
+            "initialize",
+            modern=False,
+            protocolVersion="2025-03-26",
+            capabilities={},
+            clientInfo={"name": "test", "version": "1"},
+        )
+    )
+    reply = await Protocol(core).handle(discover_msg, "agy")
+    assert reply["result"]["capabilities"]["extensions"]["io.modelcontextprotocol/skills"] == {}
+    assert reply["result"]["capabilities"]["resources"] == {}
+
+    list_reply = await Protocol(core).handle(message("skills/list", modern=modern), "agy")
+    list_result = list_reply["result"]
+    if modern:
+        assert list_result["resultType"] == "complete"
+        assert list_result["ttlMs"] == 300000
+        assert list_result["cacheScope"] == "private"
+    else:
+        assert "resultType" not in list_result
+        assert "ttlMs" not in list_result
+        assert "cacheScope" not in list_result
+
+    skills = list_result["skills"]
+    expected = SkillCatalog().load()
+    assert len(skills) == len(expected)
+    assert [s["frontmatter"]["name"] for s in skills] == sorted(expected)
+
+    for entry in skills:
+        name = entry["frontmatter"]["name"]
+        skill = expected[name]
+        expected_uri = f"skill://{name}/SKILL.md"
+        assert entry["uri"] == expected_uri
+        assert entry["frontmatter"]["description"] == skill.description
+        assert len(entry["resources"]) == 1
+        res = entry["resources"][0]
+        assert res["uri"] == expected_uri
+
+        read_reply = await Protocol(core).handle(
+            message("resources/read", modern=modern, uri=expected_uri), "agy"
+        )
+        contents = read_reply["result"]["contents"]
+        assert len(contents) == 1
+        assert contents[0]["uri"] == expected_uri
+        assert contents[0]["mimeType"] == "text/markdown"
+        assert contents[0]["text"] == skill.markdown
+
+        raw_bytes = contents[0]["text"].encode("utf-8")
+        expected_digest = f"sha256:{hashlib.sha256(raw_bytes).hexdigest()}"
+        assert res["digest"] == expected_digest
+        assert res["size"] == len(raw_bytes)
+
+        get_reply = await Protocol(core).handle(
+            message("skills/get", modern=modern, uri=expected_uri), "agy"
+        )
+        get_result = get_reply["result"]
+        if modern:
+            assert get_result["resultType"] == "complete"
+            assert get_result["ttlMs"] == 300000
+            assert get_result["cacheScope"] == "private"
+        else:
+            assert "resultType" not in get_result
+            assert "ttlMs" not in get_result
+            assert "cacheScope" not in get_result
+        assert get_result["skill"] == entry
+
+    sb_read_reply = await Protocol(core).handle(
+        message("resources/read", modern=modern, uri=expected["switchboard"].uri), "agy"
+    )
+    assert sb_read_reply["result"]["contents"] == [
+        {
+            "uri": expected["switchboard"].uri,
+            "mimeType": "text/markdown",
+            "text": expected["switchboard"].markdown,
+        }
+    ]
+
+    rows = core.audit.tail(200)
+    assert "skills/list" in {r["capability"] for r in rows}
+    assert "skills/get" in {r["capability"] for r in rows}
+    assert all(
+        r["decision"] == "allowed" for r in rows if r["capability"] in ("skills/list", "skills/get")
+    )
+
+
+async def test_skills_extension_denied_client(core):
+    with pytest.raises(CapabilityError):
+        core.guidance("unknown", "skills/list", {})
+    with pytest.raises(CapabilityError):
+        core.guidance("unknown", "skills/get", {"uri": "skill://switchboard/SKILL.md"})
+    with pytest.raises(CapabilityError):
+        await core.mcp_capabilities("unknown")
+
+    list_reply = await Protocol(core).handle(message("skills/list"), "unknown")
+    assert list_reply["error"]["code"] == -32000
+
+    get_reply = await Protocol(core).handle(
+        message("skills/get", uri="skill://switchboard/SKILL.md"), "unknown"
+    )
+    assert get_reply["error"]["code"] == -32000
+
+
+@pytest.mark.parametrize("modern", [True, False])
+async def test_skills_extension_both_eras(server, config, modern):
+    core, _, _ = server
+    status, result = await post(server, config, message("skills/list", modern=modern), client="agy")
+    assert status == 200
+    skills = result["result"]["skills"]
+    expected = SkillCatalog().load()
+    assert len(skills) == len(expected)
+    entry = next(s for s in skills if s["frontmatter"]["name"] == "switchboard")
+    uri = "skill://switchboard/SKILL.md"
+    assert entry["uri"] == uri
+    status, read_reply = await post(
+        server, config, message("resources/read", modern=modern, uri=uri), client="agy"
+    )
+    assert status == 200
+    text = read_reply["result"]["contents"][0]["text"]
+    assert entry["resources"][0]["digest"] == f"sha256:{hashlib.sha256(text.encode()).hexdigest()}"
+    status, get_reply = await post(
+        server, config, message("skills/get", modern=modern, uri=uri), client="agy"
+    )
+    assert status == 200
+    assert get_reply["result"]["skill"] == entry

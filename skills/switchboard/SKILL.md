@@ -220,7 +220,9 @@ The release's public `skills/*/SKILL.md` guidance is also available over MCP:
 `prompts/list` and `prompts/get` expose each directory name as a prompt with an
 optional `task` argument; Claude Code turns these into slash commands.
 `resources/list` and `resources/read` expose the same skills as Markdown at
-`switchboard://skills/<name>` for @-mentions. Any authenticated, policy-known
+`switchboard://skills/<name>` for @-mentions. The MCP skills extension
+(`io.modelcontextprotocol/skills`) serves them via `skills/list` and `skills/get`
+(`skill://<name>/SKILL.md`). Any authenticated, policy-known
 client can read this guidance; it grants no scopes, allowlists or approvals.
 Prefer the capabilities to raw service APIs whenever a capability exists.
 The MCP catalog also merges Orb's existing `orb_*` tools for clients with

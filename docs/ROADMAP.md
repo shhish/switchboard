@@ -5,6 +5,12 @@ approval/job machinery and three adapters. Phase 3 media/Home writes are impleme
 and fake-backend tested. No real client registration, launchd installation,
 secret provisioning, tunnel switch or backend mutation is part of this build.
 
+## MCP skills extension (2026-11-28)
+
+- [x] Switchboard's skills are also served through the MCP skills extension (`io.modelcontextprotocol/skills` beta):
+  `skills/list`, `skills/get` (`skill://<name>/SKILL.md`), and `resources/read`, with sha256 digests and sizes, beside the
+  existing prompts and `switchboard://` resources.
+
 ## Weekly papercuts (2026-11-26)
 
 - [x] Plex sessions add `episode_title` (the bare episode name) beside the unchanged

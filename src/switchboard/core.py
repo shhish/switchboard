@@ -156,7 +156,12 @@ class Core:
 
     async def mcp_capabilities(self, client):
         self.policy.client(client)
-        capabilities = {"tools": {"listChanged": True}, "prompts": {}, "resources": {}}
+        capabilities = {
+            "tools": {"listChanged": True},
+            "prompts": {},
+            "resources": {},
+            "extensions": {"io.modelcontextprotocol/skills": {}},
+        }
         events = await self.orb.events_capability(client)
         if self.events(client) or events is not None:
             capabilities["events"] = events or {}

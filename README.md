@@ -130,7 +130,7 @@ chmod 600 ~/.config/switchboard/*.yaml
 .venv/bin/sb --client codex call ops_health --json '{}'
 ```
 
-Then add `sb mcp-stdio --client <agent>` as an MCP server in each agent. Deploying also links the [skills](skills/) and syncs one [rules block](docs/agent-rules.md) into Claude Code, Codex and Antigravity, so a new agent gets the tools and house rules in one step. [Setup](docs/SETUP.md) covers the macOS helper, the Pi agent, monitoring and rollback.
+Then add `sb mcp-stdio --client <agent>` as an MCP server in each agent. Deploying also links the [skills](skills/) and syncs one [rules block](docs/agent-rules.md) into Claude Code, Codex and Antigravity, so a new agent gets the tools and house rules in one step. Agents that read the MCP skills extension (Claude on the web, Claude Code, ChatGPT) also get the same skills straight from the server, with digests. [Setup](docs/SETUP.md) covers the macOS helper, the Pi agent, monitoring and rollback.
 
 ## The full tour
 

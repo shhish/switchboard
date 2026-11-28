@@ -209,6 +209,7 @@ async def test_modern_events_work_and_legacy_initialize_omits_unserved_events(
         "tools": {"listChanged": True},
         "prompts": {},
         "resources": {},
+        "extensions": {"io.modelcontextprotocol/skills": {}},
         "events": {},
     }
     _, initialize = await post(
@@ -289,6 +290,7 @@ async def test_scope_enforced_on_hidden_routes(server, config, upstream, method,
         "tools": {"listChanged": True},
         "prompts": {},
         "resources": {},
+        "extensions": {"io.modelcontextprotocol/skills": {}},
     }
     audit = server[0].audit.tail(1)[0]
     assert audit["decision"] == "denied" and audit["args"] == "[REDACTED]"
@@ -443,6 +445,7 @@ async def test_upstream_failure_preserves_local_tools_and_doctor(server, config,
         "tools": {"listChanged": True},
         "prompts": {},
         "resources": {},
+        "extensions": {"io.modelcontextprotocol/skills": {}},
     }
     _, local = await post(server, config, message("tools/call", name="home_list"))
     assert local["result"]["isError"] is False

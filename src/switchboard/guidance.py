@@ -1,10 +1,11 @@
 """Bounded public guidance bundled with this release, never deployment config."""
 
+import hashlib
 import os
 import re
 import stat
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -38,10 +39,30 @@ class Skill:
     description: str
     body: str
     markdown: str
+    frontmatter: dict = field(default_factory=dict)
 
     @property
     def uri(self):
         return URI_PREFIX + self.name
+
+    @property
+    def skill_uri(self):
+        return f"skill://{self.name}/SKILL.md"
+
+    def entry(self) -> dict:
+        raw = self.markdown.encode("utf-8")
+        front = {"name": self.name, "description": self.description, **self.frontmatter}
+        return {
+            "uri": self.skill_uri,
+            "frontmatter": front,
+            "resources": [
+                {
+                    "uri": self.skill_uri,
+                    "digest": f"sha256:{hashlib.sha256(raw).hexdigest()}",
+                    "size": len(raw),
+                }
+            ],
+        }
 
 
 class SkillCatalog:
@@ -111,7 +132,10 @@ class SkillCatalog:
                         or not body
                     ):
                         continue
-                    skills[directory.name] = Skill(directory.name, description, body, markdown)
+                    frontmatter = dict(front) if isinstance(front, dict) else {}
+                    skills[directory.name] = Skill(
+                        directory.name, description, body, markdown, frontmatter
+                    )
                 except Exception:  # noqa: BLE001 - a bad bundled skill is skipped, never a 500
                     continue
         except OSError:
@@ -126,6 +150,19 @@ class SkillCatalog:
         if set(params) - allowed or (listing and params.get("cursor") is not None):
             raise CapabilityError("invalid_arguments", "Unexpected guidance parameter or cursor")
         skills = self.load()
+        if method == "skills/list":
+            return {"skills": [skill.entry() for skill in skills.values()]}
+        if method == "skills/get":
+            uri = params.get("uri")
+            if not isinstance(uri, str):
+                raise CapabilityError("invalid_arguments", "Skill URI must be a string")
+            if not (uri.startswith("skill://") and uri.endswith("/SKILL.md")):
+                raise CapabilityError("not_found", "Unknown public skill URI")
+            name = uri.removeprefix("skill://").removesuffix("/SKILL.md")
+            skill = skills.get(name)
+            if skill is None:
+                raise CapabilityError("not_found", "Unknown public skill URI")
+            return {"skill": skill.entry()}
         if method == "prompts/list":
             return {
                 "prompts": [
@@ -184,7 +221,12 @@ class SkillCatalog:
         uri = params.get("uri")
         if not isinstance(uri, str):
             raise CapabilityError("invalid_arguments", "Skill URI must be a string")
-        skill = next((skill for skill in skills.values() if skill.uri == uri), None)
+        skill = None
+        if uri.startswith(URI_PREFIX):
+            skill = next((s for s in skills.values() if s.uri == uri), None)
+        elif uri.startswith("skill://") and uri.endswith("/SKILL.md"):
+            name = uri.removeprefix("skill://").removesuffix("/SKILL.md")
+            skill = skills.get(name)
         if skill is None:
             raise CapabilityError("not_found", "Unknown public skill URI")
         return {"contents": [{"uri": uri, "mimeType": "text/markdown", "text": skill.markdown}]}

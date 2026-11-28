@@ -124,8 +124,8 @@ def request_headers(message: Any, version: str = "2025-03-26") -> dict[str, str]
         # Method names have no sentinel encoding in the standard.
         if method and all(33 <= ord(c) <= 126 for c in method):
             headers["Mcp-Method"] = method
-        if method in ("tools/call", "prompts/get", "resources/read"):
-            value = params.get("uri" if method == "resources/read" else "name")
+        if method in ("tools/call", "prompts/get", "resources/read", "skills/get"):
+            value = params.get("uri" if method in ("resources/read", "skills/get") else "name")
             if isinstance(value, str):
                 headers["Mcp-Name"] = _encode_header(value)
     return headers
@@ -152,10 +152,15 @@ def http_metadata_error(message: Any, headers: Mapping[str, str]) -> dict | None
         expected["mcp-protocol-version"] = body_version
     if is_modern or "mcp-method" in normalized:
         expected["mcp-method"] = message.get("method")
-    named = message.get("method") in ("tools/call", "prompts/get", "resources/read")
+    named = message.get("method") in (
+        "tools/call",
+        "prompts/get",
+        "resources/read",
+        "skills/get",
+    )
     if (is_modern and named) or "mcp-name" in normalized:
         expected["mcp-name"] = params.get(
-            "uri" if message.get("method") == "resources/read" else "name"
+            "uri" if message.get("method") in ("resources/read", "skills/get") else "name"
         )
     for key, value in expected.items():
         actual = normalized.get(key)
@@ -259,6 +264,8 @@ class Protocol:
             result = {**result, "resultType": "complete"}
             if method in ("server/discover", "tools/list"):
                 result.update(ttlMs=0, cacheScope="private")
+            elif method in ("skills/list", "skills/get"):
+                result.update(ttlMs=300000, cacheScope="private")
         return {"jsonrpc": "2.0", "id": request_id, "result": result}
 
     async def dispatch(self, method, params, client, modern, ctx=None):
@@ -314,7 +321,14 @@ class Protocol:
                 ctx=ctx,
             )
             return {"tools": tools}
-        if method in ("prompts/list", "prompts/get", "resources/list", "resources/read"):
+        if method in (
+            "prompts/list",
+            "prompts/get",
+            "resources/list",
+            "resources/read",
+            "skills/list",
+            "skills/get",
+        ):
             try:
                 return self.core.guidance(client, method, params, ctx)
             except CapabilityError as exc:

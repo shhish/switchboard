@@ -48,6 +48,7 @@ async def test_modern_stateless_discover_list_and_call(server, config):
         "tools": {"listChanged": True},
         "prompts": {},
         "resources": {},
+        "extensions": {"io.modelcontextprotocol/skills": {}},
     }
     assert len(result["instructions"]) <= 3500
     assert result["instructions"].startswith(INSTRUCTIONS)
@@ -427,3 +428,12 @@ async def test_stdio_parse_errors_use_connection_version(server, config, modern)
     assert ("id" in result) == (not modern)
     if not modern:
         assert result["id"] is None
+
+
+def test_skills_get_request_headers():
+    from switchboard.protocol import _decode_header
+
+    msg = message("skills/get", uri="skill://switchboard/SKILL.md")
+    headers = request_headers(msg)
+    assert headers["Mcp-Method"] == "skills/get"
+    assert _decode_header(headers["Mcp-Name"]) == "skill://switchboard/SKILL.md"
